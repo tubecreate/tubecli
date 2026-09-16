@@ -945,6 +945,24 @@ class CodexManager:
         self.append_event(task_id, "plan", f"{actor} put a {len(items)}-item plan on the task", actor=actor)
         return snapshot
 
+    DRIVE_MARK_KEYS = ("folder_url", "sheet_url", "email", "files")
+
+    def set_drive(self, task_id: str, drive: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """Dấu «đã lưu lên Google Drive» trên task, ở MỌI trạng thái — thẻ tô xanh nút Drive mà bảng không phải đọc
+        sổ sự kiện của từng task (16/9/2026). {} = đã kiểm, chưa lên Drive (lượt quét task cũ không đọc lại).
+        Không đổi updated_at: đây là dấu phụ, không phải việc của task."""
+        self._ensure_loaded()
+        src = drive if isinstance(drive, dict) else {}
+        keep = {k: src[k] for k in self.DRIVE_MARK_KEYS if src.get(k) not in (None, "")}
+        with self._lock:
+            stored = self._tasks.get(task_id)
+            if stored is None:
+                return None
+            if stored.get("drive") != keep:
+                stored["drive"] = keep
+                self._save()
+            return dict(stored)
+
     def update_task(self, task_id: str, **updates) -> Optional[Dict[str, Any]]:
         """Edit metadata of a task that has not started yet."""
         self._ensure_loaded()

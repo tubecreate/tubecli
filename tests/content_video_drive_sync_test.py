@@ -15,6 +15,9 @@ Kiểm:
   G. tải hỏng: ném lỗi, KHÔNG xoá task gốc
   H. video gốc đã mất: báo rõ
   I. route: hỏi trước, kiểm tài khoản ngay, chặn khách của không gian chia sẻ
+  J. (16/9/2026) "những task đã upload driver thì đánh dấu đã upload drive màu xanh": tải xong → dấu trên TASK GỐC;
+     lượt quét task cũ đọc checkpoint một lần (dấu rỗng = đã kiểm)
+  K. CodexManager.set_drive thật: ghi ở mọi trạng thái, chỉ giữ link/tài khoản/số file, không đổi updated_at
 
 Run:  python tests/content_video_drive_sync_test.py     (exit 0 = pass)
 """
@@ -208,6 +211,8 @@ CM.codex_manager.kind_of = lambda tid: KINDS.get(tid)
 CM.codex_manager.create_task = fake_create_task
 CM.codex_manager.append_event = lambda tid, kind, text, actor=None, data=None: events.append((tid, data or {}))
 CM.codex_manager.delete = fake_delete
+MARKS = {}
+CM.codex_manager.set_drive = lambda tid, d: MARKS.__setitem__(tid, dict(d or {})) or {"id": tid}
 
 print("── A. drive_sync_info ──────────────────────────────────────")
 ok(P.drive_sync_info("nope")["reason"] == "not_found", "không có task")
@@ -261,6 +266,11 @@ ok(CK["src"].get("drive", {}).get("folder_id") and "drive" not in CK.get("sync1"
    "thư mục + Sheet ghi vào checkpoint của TASK GỐC (đồng bộ lại mới dùng lại được)", list(CK))
 ok(any(a[0] == "drive" and a[1] == "success" for a in said), "thẻ bước drive báo xong", said[-3:])
 ok(deleted == [], "không chọn xoá → không xoá gì")
+m = MARKS.get("src") or {}
+ok(str(m.get("folder_url") or "").startswith("https://drive.google.com/") and m.get("email") == "a@x.com"
+   and m.get("files") == 4 and "sync1" not in MARKS,
+   "tải xong → dấu «đã lên Drive» trên TASK GỐC (thẻ tô xanh nút Drive), không phải task đồng bộ", MARKS)
+ok(P.drive_sync_info("src")["drive"].get("token_id") == "tok_a", "hộp biết tài khoản lần trước → chọn sẵn đúng nó")
 ok(P.drive_sync_info("src")["drive"]["folder_url"].startswith("https://drive.google.com/"),
    "lần mở hộp sau: biết task đã từng đồng bộ (hiện câu «đồng bộ lại»)")
 
@@ -285,6 +295,7 @@ print("── G/H. hỏng ──────────────────
 deleted.clear()
 FD.files.clear()
 CK["src"].pop("drive", None)
+MARKS.clear()
 FAIL_UPLOAD["on"] = True
 try:
     P.run_drive_sync(dict(PAY, options=dict(PAY["options"], delete_after=True)), None, lambda: False)
@@ -293,6 +304,7 @@ except RuntimeError as e:
     ok("Saving to Google Drive failed" in str(e) and deleted == [], "tải hỏng → task hỏng (có Chạy lại), KHÔNG xoá task gốc",
        (str(e)[:120], deleted))
 FAIL_UPLOAD["on"] = False
+ok("src" not in MARKS, "tải hỏng → KHÔNG ghi dấu đã lên Drive", MARKS)
 try:
     P.run_drive_sync({"task_id": "s9", "source_task_id": "novid", "source_seq": 24, "agent_id": "a1", "options": {}},
                      None, lambda: False)
@@ -319,6 +331,49 @@ n_before = len(created)
 res = asyncio.run(R.drive_sync_start("src", R.DriveSyncRequest(drive_token_id="tok_a", drive_public=False, delete_after=True), REQ))
 ok(res["status"] == "queued" and len(created) == n_before + 1 and events[-1][1]["options"]["delete_after"] is True
    and events[-1][1]["options"]["drive_public"] is False, "POST: xếp task đồng bộ với đúng tuỳ chọn", res)
+
+print("── J. quét task cũ ─────────────────────────────────────────")
+BF = [
+    {"id": "bf1", "lane": "video", "status": "done"},
+    {"id": "bf2", "lane": "video", "status": "review"},
+    {"id": "bf3", "lane": "video", "status": "running"},
+    {"id": "bf4", "lane": "", "status": "done"},
+    {"id": "bf5", "lane": "video", "status": "done", "drive": {}},
+]
+CK["bf1"] = {"drive": {"folder_url": "https://drive.google.com/old", "email": "old@x.com", "files": 9, "token_id": "tok_a"}}
+CK["bf2"] = {"drive": {"folder_url": "https://drive.google.com/half", "token_id": "tok_a"}}      # tải dở: chưa có files
+CM.codex_manager.list_tasks = lambda status="", limit=50, created_by="": [dict(t) for t in BF]
+read = []
+_rc = P._read_checkpoint
+P._read_checkpoint = lambda tid: read.append(tid) or _rc(tid)
+MARKS.clear()
+n = P.backfill_drive_marks()
+P._read_checkpoint = _rc
+ok(n == 1 and MARKS.get("bf1", {}).get("folder_url") == "https://drive.google.com/old",
+   "task đã tải xong TRƯỚC bản này → ghi dấu từ checkpoint", (n, MARKS))
+ok(MARKS.get("bf2") == {}, "tải dở (chưa có số file) → dấu rỗng = đã kiểm, nút Drive thường", MARKS)
+ok(sorted(read) == ["bf1", "bf2"] and not {"bf3", "bf4", "bf5"} & set(MARKS),
+   "chỉ đọc task video đã dừng chưa có dấu (không đụng task đang chạy / việc chung / đã kiểm)", (read, MARKS))
+ext_src = (ROOT / "tubecli" / "extensions" / "content_video" / "extension.py").read_text(encoding="utf-8")
+ok("_DRIVE_MARKS_DONE = True" in ext_src and "backfill_drive_marks()" in ext_src,
+   "on_enable (chạy lại mỗi lượt dò extension) quét task cũ MỘT lần mỗi tiến trình")
+
+print("── K. CodexManager.set_drive ───────────────────────────────")
+if not _inside_tmp(CM.TASKS_FILE):
+    print("ABORT — tasks.json của Codex không nằm trong thư mục tạm:", CM.TASKS_FILE)
+    sys.exit(2)
+MG = CM.CodexManager()
+MG._loaded = True
+MG._tasks = {"t1": {"id": "t1", "status": "done", "updated_at": "2026-09-16T01:00:00+00:00"}}
+r = MG.set_drive("t1", {"folder_url": "https://drive.google.com/f9", "email": "a@x.com", "files": 3,
+                        "token_id": "tok_a", "folder_id": "f9", "sheet_url": ""})
+ok(r["drive"] == {"folder_url": "https://drive.google.com/f9", "email": "a@x.com", "files": 3}
+   and r["updated_at"] == "2026-09-16T01:00:00+00:00",
+   "task ĐÃ XONG vẫn ghi được dấu; chỉ giữ link/tài khoản/số file, không đổi updated_at", r)
+import json as _json  # noqa: E402
+ok(_json.load(open(CM.TASKS_FILE, encoding="utf-8"))["t1"]["drive"]["files"] == 3, "ghi vào tasks.json")
+ok(MG.set_drive("nope", {"folder_url": "x"}) is None, "task không có → None")
+ok(MG.set_drive("t1", None)["drive"] == {}, "dấu rỗng = đã kiểm")
 
 print()
 print(f"{PASS}/{PASS + FAIL} PASS" if not FAIL else f"{PASS}/{PASS + FAIL} PASS — {FAIL} HỎNG")

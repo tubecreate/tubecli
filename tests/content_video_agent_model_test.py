@@ -144,7 +144,9 @@ ok("not ready (text)" in r, "dựng + Studio CŨ (không cờ): vẫn chặn —
 cap_run(("text", "image", "assembly"), caps(True, False))
 ok(said and "deepseek-chat" in str(said[-1]), "Studio cũ chạy được: thẻ bước nói model của Studio (vì nó vẽ storyboard)", said)
 src = open(P.__file__, encoding="utf-8").read()
-ok(src.count("needs=())") == 1, "run_plan không đòi AI của Studio (needs=())")
+# Chỉ trong run_plan (đồng bộ Drive — run_drive_sync — cũng không cần AI của Studio nên cũng có needs=()).
+plan_src = src[src.index("def run_plan("):src.index("\ndef ", src.index("def run_plan(") + 1)]
+ok(plan_src.count("needs=())") == 1, "run_plan không đòi AI của Studio (needs=())", plan_src[:200])
 
 print()
 print("=" * 62)

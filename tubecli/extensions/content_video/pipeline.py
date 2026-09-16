@@ -5591,6 +5591,7 @@ def _drive_save(state: Dict, options: Dict) -> None:
     state["drive"] = rec
     _checkpoint_merge(state, {"drive": rec})
     say("drive", "running", f"saved {len(ups)} file(s) and the content sheet to “{rec['folder_name']}”", 100)
+    _drive_mark(state.get("task_id"), rec)
 
 
 _HANDLERS: Dict[str, Callable[[Dict, Dict], None]] = {
@@ -6029,6 +6030,40 @@ def run_auto(payload: Dict[str, Any],
 # Chạy như một task Codex RIÊNG (có thanh tiến độ, Huỷ, Chạy lại) nhưng làm việc trên checkpoint của task GỐC:
 # thư mục + Sheet đã có thì dùng lại, file đã tải thì bỏ qua — bấm đồng bộ hai lần không nhân đôi.
 _BUSY_STATES = ("queued", "running", "backlog", "pending_approval")
+# Trạng thái đã dừng mà thẻ video có thể mang dấu «đã lên Drive».
+_DRIVE_MARK_STATES = ("done", "review", "failed", "cancelled", "rejected")
+
+
+def _drive_mark(task_id: Any, rec: Dict[str, Any]) -> None:
+    """Dấu «đã lên Drive» trên task Codex → nút Drive của thẻ tô xanh (16/9/2026). Chỉ khi đã tải XONG (có
+    `files`); lỗi ghi dấu chỉ vào log — file đã nằm trên Drive rồi."""
+    rec = rec or {}
+    if not task_id or not rec.get("folder_url") or rec.get("files") is None:
+        return
+    try:
+        from tubecli.extensions.codex.manager import codex_manager
+
+        codex_manager.set_drive(str(task_id), rec)
+    except Exception as e:      # noqa: BLE001
+        logger.info(f"[ContentVideo] could not mark task {task_id} as saved to Drive: {e}")
+
+
+def backfill_drive_marks(limit: int = 300) -> int:
+    """Task video đã lên Drive TRƯỚC bản có dấu trên thẻ: đọc checkpoint MỘT lần rồi ghi dấu (hoặc {} = đã kiểm,
+    chưa lên). Chỉ task làn video đã dừng và chưa mang khoá "drive" — lần khởi động sau không đọc lại."""
+    from tubecli.extensions.codex.manager import codex_manager
+
+    todo = [t for t in codex_manager.list_tasks(limit=0)
+            if (t.get("lane") or "") == "video" and t.get("status") in _DRIVE_MARK_STATES and "drive" not in t]
+    marked = 0
+    for t in todo[:max(0, int(limit))]:
+        rec = (_read_checkpoint(str(t["id"])) or {}).get("drive") or {}
+        if rec.get("folder_url") and rec.get("files") is not None:
+            _drive_mark(t["id"], rec)
+            marked += 1
+        else:
+            codex_manager.set_drive(str(t["id"]), {})
+    return marked
 
 
 def drive_sync_info(task_id: str) -> Dict[str, Any]:
@@ -6061,7 +6096,8 @@ def drive_sync_info(task_id: str) -> Dict[str, Any]:
                            "were deleted."}
     drive = ck.get("drive") or {}
     return {**base, "ok": True, "title": str(ck.get("title") or task.get("title") or ""),
-            "drive": {k: drive[k] for k in ("folder_url", "sheet_url", "email", "files", "public") if k in drive}}
+            "drive": {k: drive[k] for k in ("folder_url", "sheet_url", "email", "files", "public", "token_id")
+                      if k in drive}}
 
 
 def create_drive_sync_task(source_task_id: str, drive_token_id: str = "", drive_public: bool = True,

@@ -7,7 +7,9 @@
 //   1. markup: hộp Drive (tài khoản, quyền), nút «Đồng bộ rồi xoá» trong hộp Delete, nút xoá file nói rõ project Studio
 //   2. actionsHtml chạy thật: nút Drive chỉ cho task VIDEO đã xong / đang Review
 //   3. openDriveSync / startDriveSync / syncThenDelete chạy thật với DOM + request giả
-//   4. bản dịch 9 ngôn ngữ × 16 khoá
+//   4. bản dịch 9 ngôn ngữ × 21 khoá
+//   5. (16/9/2026) "những task đã upload driver thì đánh dấu đã upload drive màu xanh, chỉ bấm vào khi muốn đồng bộ lại
+//      hoặc chọn lại drive khác" — nút xanh «Đã lên Drive», hộp chọn sẵn tài khoản lần trước + link mở thư mục
 //
 // Run: node tests/codex_drive_sync_test.js
 'use strict';
@@ -17,6 +19,7 @@ const path = require('path');
 const dir = path.join(__dirname, '..', 'tubecli', 'extensions', 'codex');
 const js = fs.readFileSync(path.join(dir, 'static', 'codex.js'), 'utf-8').replace(/\r\n/g, '\n');
 const html = fs.readFileSync(path.join(dir, 'static', 'codex.html'), 'utf-8').replace(/\r\n/g, '\n');
+const css = fs.readFileSync(path.join(dir, 'static', 'codex.css'), 'utf-8').replace(/\r\n/g, '\n');
 
 let pass = 0, fail = 0;
 function check(label, ok, detail) {
@@ -34,6 +37,9 @@ const iFiles = html.indexOf('id="cx-del-files" onclick="CODEX.doDelete(true)"');
 check('hộp Delete: nút «Đồng bộ lên Drive rồi xoá» (ẩn sẵn) đứng trước nút xoá file', iSync > 0 && iFiles > iSync, { iSync, iFiles });
 check('nút xoá file nói rõ xoá cả project Content Studio', html.includes('>Delete files and the Content Studio project</button>'));
 check('mở hộp Delete cho task video → hiện nút đồng bộ rồi xoá', js.includes("$('cx-del-sync').classList.toggle('hidden', !video);"));
+check('hộp Drive: dòng «đã lưu bằng … · Mở thư mục» (ẩn sẵn)', html.includes('<p class="cx-hint cx-ds-where hidden" id="cx-ds-where"></p>'));
+check('nút «Đã lên Drive»: chữ + viền xanh trên nền thường (khác Accept nền xanh)',
+    /\.cx-btn-drive-done \{ background: var\(--bg3\); color: var\(--cx-green\);/.test(css));
 
 console.log('── 2. actionsHtml ──────────────────────────────────────');
 const a1 = js.indexOf('  function actionsHtml(task) {');
@@ -48,6 +54,20 @@ const review = actions({ id: 'x', status: 'review', lane: 'video' });
 check('video ở Review: Accept, Request changes + Drive', review.includes('accept') && review.includes('requestChanges') && review.includes('openDriveSync'));
 check('task việc chung đã xong: KHÔNG có nút Drive', !actions({ id: 'y', status: 'done', lane: '' }).includes('openDriveSync'));
 check('video đang chạy: KHÔNG có nút Drive', !actions({ id: 'z', status: 'running', lane: 'video' }).includes('openDriveSync'));
+const onDrive = { folder_url: 'https://drive.google.com/f1', email: 'b@x.com', files: 12 };
+const synced = actions({ id: 'x', status: 'done', lane: 'video', drive: onDrive });
+check('đã lên Drive: nút xanh «Đã lên Drive» vẫn bấm được (đồng bộ lại / đổi tài khoản), không còn nút Drive thường',
+    synced.includes(`class="cx-btn cx-btn-sm cx-btn-drive-done" onclick="CODEX.openDriveSync('x')"`)
+    && synced.includes('codex.action_drive_synced</button>') && synced.includes('title="codex.drive_synced_title"')
+    && !synced.includes('cx-btn-ghost" onclick="CODEX.openDriveSync') && synced.includes('confirmDelete'), synced);
+const reviewSynced = actions({ id: 'x', status: 'review', lane: 'video', drive: onDrive });
+check('Review + đã lên Drive: Accept, Request changes + nút xanh',
+    reviewSynced.includes('accept') && reviewSynced.includes('requestChanges') && reviewSynced.includes('cx-btn-drive-done'), reviewSynced);
+check('dấu rỗng {} (đã kiểm, chưa lên Drive) → nút Drive thường',
+    actions({ id: 'x', status: 'done', lane: 'video', drive: {} }).includes('cx-btn-ghost" onclick="CODEX.openDriveSync'));
+const busyBtn = new Function('esc', 'icon', 't', 'state', `${js.slice(a1, a2)}; return actionsHtml;`)(
+    s => String(s), () => '', k => k, { busy: { x: true } })({ id: 'x', status: 'done', lane: 'video', drive: onDrive });
+check('đang bận thao tác → nút xanh cũng khoá', busyBtn.includes(`onclick="CODEX.openDriveSync('x')" disabled title=`), busyBtn);
 
 console.log('── 3. hộp Drive chạy thật ──────────────────────────────');
 const d1 = js.indexOf('  // ── Đồng bộ project lên Google Drive');
@@ -123,6 +143,32 @@ function world(opts) {
     await W.api.openDriveSync('src');
     check('đã từng đồng bộ → câu «đồng bộ lại dùng thư mục cũ»', W.el('cx-ds-hint').textContent === 'codex.ds_hint_again{"title":"Zen"}');
 
+    console.log('── 5. đã lên Drive: đồng bộ lại / đổi tài khoản ─────────');
+    W = world({ info: { src: { ok: true, seq: 21, title: 'Zen',
+        drive: { folder_url: 'https://drive.google.com/f1', email: 'a@x.com', token_id: 'A1' } } } });
+    await W.api.openDriveSync('src');
+    check('chọn sẵn ĐÚNG tài khoản lần trước (A1) dù agent được cấp B1 — bấm Đồng bộ là cập nhật thư mục cũ',
+        W.el('cx-ds-token').value === 'A1', W.el('cx-ds-token').value);
+    check('câu dưới ô tài khoản: cùng tài khoản cập nhật thư mục, tài khoản khác tạo thư mục mới',
+        W.el('cx-ds-token-hint').textContent === 'codex.ds_account_hint · codex.ds_account_hint_again', W.el('cx-ds-token-hint').textContent);
+    check('hiện tài khoản đã lưu + link mở thư mục',
+        !W.el('cx-ds-where').classList.has('hidden') && W.el('cx-ds-where').innerHTML
+        === 'codex.ds_where{"email":"a@x.com"} · <a href="https://drive.google.com/f1" target="_blank" rel="noopener">codex.ds_open_folder</a>',
+        W.el('cx-ds-where').innerHTML);
+    W = world({ info: { src: { ok: true, seq: 21, title: 'Zen', drive: { folder_url: 'https://drive.google.com/f1', token_id: 'GONE' } } } });
+    await W.api.openDriveSync('src');
+    check('tài khoản lần trước đã bị gỡ → chọn theo luật thường (B1 của agent)', W.el('cx-ds-token').value === 'B1', W.el('cx-ds-token').value);
+    W = world({ info: { src: { ok: true, seq: 21, title: 'Zen', drive: { folder_url: 'https://drive.google.com/f1', token_id: 'R1' } } } });
+    await W.api.openDriveSync('src');
+    check('tài khoản lần trước nay chỉ đọc → không chọn nó', W.el('cx-ds-token').value === 'B1', W.el('cx-ds-token').value);
+    W = world({ info: { src: { ok: true, seq: 21, title: 'Zen', drive: { folder_url: 'javascript:alert(1)' } } } });
+    await W.api.openDriveSync('src');
+    check('link không phải https → không dựng link', W.el('cx-ds-where').classList.has('hidden') && !W.el('cx-ds-where').innerHTML);
+    W = world({ info: { src: { ok: true, seq: 21, title: 'Zen', drive: {} } } });
+    await W.api.openDriveSync('src');
+    check('chưa từng lên Drive → không có dòng tài khoản/link, câu dưới ô tài khoản như cũ',
+        W.el('cx-ds-where').classList.has('hidden') && W.el('cx-ds-token-hint').textContent === 'codex.ds_account_hint');
+
     W = world({ info: { src: { ok: true, seq: 21, title: 'Zen', drive: {} } } });
     W.state.deleteTaskId = 'src';
     W.el('cx-modal-delete').classList.remove('hidden');
@@ -153,15 +199,18 @@ function world(opts) {
         'codex.ds_account_hint': [], 'codex.ds_go': [], 'codex.ds_go_delete': [], 'codex.ds_reason_script_only': [],
         'codex.ds_reason_no_video': [], 'codex.ds_reason_busy': [], 'codex.ds_reason_not_video': [],
         'codex.toast_ds_queued': ['{seq}', '{src}'], 'codex.toast_ds_queued_delete': ['{seq}', '{src}'],
+        'codex.action_drive_synced': [], 'codex.drive_synced_title': ['{email}', '{files}'], 'codex.ds_where': ['{email}'],
+        'codex.ds_open_folder': [], 'codex.ds_account_hint_again': [],
     };
     for (const lang of ['en', 'vi', 'es', 'ja', 'ko', 'ru', 'tr', 'zh', 'zh-TW']) {
         const loc = JSON.parse(fs.readFileSync(path.join(dir, 'locales', lang + '.json'), 'utf-8'));
         const bad = Object.entries(KEYS).filter(([k, ph]) => !loc[k] || ph.some(p => !loc[k].includes(p)));
-        check(`${lang}.json: đủ 16 khoá + chỗ giữ, nút xoá file nhắc Content Studio`,
+        check(`${lang}.json: đủ 21 khoá + chỗ giữ, nút xoá file nhắc Content Studio`,
             !bad.length && loc['codex.btn_delete_all'].includes('Content Studio'), bad.map(x => x[0]));
     }
     const vi = JSON.parse(fs.readFileSync(path.join(dir, 'locales', 'vi.json'), 'utf-8'));
-    check('vi dịch thật', vi['codex.btn_delete_sync'] === 'Đồng bộ lên Drive rồi xoá' && vi['codex.ds_hint_delete'].includes('Chỉ khi tải xong'));
+    check('vi dịch thật', vi['codex.btn_delete_sync'] === 'Đồng bộ lên Drive rồi xoá' && vi['codex.ds_hint_delete'].includes('Chỉ khi tải xong')
+        && vi['codex.action_drive_synced'] === 'Đã lên Drive');
 
     console.log();
     console.log(fail ? `${pass}/${pass + fail} PASS — ${fail} HỎNG` : `${pass}/${pass + fail} PASS`);

@@ -565,8 +565,13 @@ const CODEX = (() => {
     // Xoá: mọi task không còn chạy/chờ chạy. Nút hỏi trước (chỉ Codex hay cả file).
     const del = b('cx-btn-ghost cx-btn-del', 'confirmDelete', 'delete', 'codex.action_delete');
     // Đồng bộ lên Drive: task VIDEO đã xong. Máy chủ kiểm lại lúc bấm (task chỉ viết kịch bản thì nói rõ video ở đâu).
-    const sync = task.lane === 'video'
-      ? b('cx-btn-ghost', 'openDriveSync', 'add_to_drive', 'codex.action_drive_sync') : '';
+    // Đã lên Drive (máy chủ ghi dấu lúc tải xong) → nút xanh «Đã lên Drive»; bấm chỉ để đồng bộ lại / đổi tài khoản.
+    const onDrive = !!(task.drive && task.drive.folder_url);
+    const sync = task.lane !== 'video' ? '' : onDrive
+      ? `<button type="button" class="cx-btn cx-btn-sm cx-btn-drive-done" onclick="CODEX.openDriveSync('${id}')"${dis}`
+        + ` title="${esc(t('codex.drive_synced_title', { email: task.drive.email || '', files: task.drive.files || 0 }))}">`
+        + `${icon('cloud_done')}${esc(t('codex.action_drive_synced'))}</button>`
+      : b('cx-btn-ghost', 'openDriveSync', 'add_to_drive', 'codex.action_drive_sync');
     switch (task.status) {
       case 'pending_approval':
         return b('cx-btn-success', 'approve', 'check', 'codex.action_approve') +
@@ -991,6 +996,7 @@ const CODEX = (() => {
     state.driveSync = { id: id, deleteAfter: !!deleteAfter, info: null };
     $('cx-ds-title').textContent = t(deleteAfter ? 'codex.ds_title_delete' : 'codex.ds_title', { seq: task.seq });
     $('cx-ds-hint').textContent = t('codex.cv_drive_loading');
+    $('cx-ds-where').classList.add('hidden');
     $('cx-ds-form').classList.add('hidden');
     $('cx-ds-go').disabled = true;
     $('cx-ds-go').textContent = t(deleteAfter ? 'codex.ds_go_delete' : 'codex.ds_go');
@@ -1017,6 +1023,13 @@ const CODEX = (() => {
     const again = !!(info.drive && info.drive.folder_url);
     $('cx-ds-hint').textContent = t(deleteAfter ? 'codex.ds_hint_delete' : (again ? 'codex.ds_hint_again' : 'codex.ds_hint'),
                                     { title: info.title || ('#' + task.seq) });
+    // Đã lên Drive: nói tài khoản nào + mở thẳng thư mục — bấm nút xanh không phải chỉ để xem project nằm đâu.
+    const url = again ? String(info.drive.folder_url) : '';
+    if (url.startsWith('https://')) {
+      $('cx-ds-where').innerHTML = esc(t('codex.ds_where', { email: info.drive.email || '?' }))
+        + ` · <a href="${esc(url)}" target="_blank" rel="noopener">${esc(t('codex.ds_open_folder'))}</a>`;
+      $('cx-ds-where').classList.remove('hidden');
+    }
     $('cx-ds-form').classList.remove('hidden');
     renderDriveSyncAccounts(task);
   }
@@ -1029,7 +1042,11 @@ const CODEX = (() => {
     const creds = (a && a.auth_creds) || [];
     const tokens = state.googleTokens;
     const list = (tokens || []).filter(x => x.status !== 'revoked' && (x.scopes || []).join(' ').includes('drive'));
-    const pick = pickDriveToken(list, creds, '', lsGet(CV_DRIVE_TOKEN_KEY));
+    // Đồng bộ lại: chọn sẵn ĐÚNG tài khoản lần trước (cập nhật thư mục cũ); đổi tài khoản = thư mục mới ở Drive đó.
+    const info = (state.driveSync && state.driveSync.info) || {};
+    const prev = String((info.drive && info.drive.token_id) || '');
+    const prevOk = !!prev && list.some(x => x.token_id === prev && driveCanWrite(x.scopes));
+    const pick = prevOk ? prev : pickDriveToken(list, creds, '', lsGet(CV_DRIVE_TOKEN_KEY));
     hint.classList.remove('warn');
     if (!pick) {
       sel.innerHTML = '<option value="">—</option>';
@@ -1049,7 +1066,7 @@ const CODEX = (() => {
     }).join('');
     sel.disabled = false;
     sel.value = pick;
-    hint.textContent = t('codex.ds_account_hint');
+    hint.textContent = t('codex.ds_account_hint') + (prev ? ' · ' + t('codex.ds_account_hint_again') : '');
     $('cx-ds-go').disabled = false;
   }
 

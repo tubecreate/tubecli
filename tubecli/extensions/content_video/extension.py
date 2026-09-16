@@ -14,6 +14,8 @@ from typing import Any, Dict, List, Optional
 from tubecli.core.extension_manager import Extension
 
 logger = logging.getLogger("ContentVideo")
+# on_enable chạy lại mỗi lượt dò extension → quét dấu «đã lên Drive» của task cũ chỉ một lần mỗi tiến trình.
+_DRIVE_MARKS_DONE = False
 
 # Options a verb may pass straight through to the pipeline.
 _PASSTHROUGH = ("day", "aspect_ratio", "style", "title", "tts_voice", "max_items",
@@ -69,6 +71,20 @@ class ContentVideoExtension(Extension):
             codex_manager.on_delete("content_video.", purge_task_files)
         except Exception as e:
             logger.warning(f"[ContentVideo] could not register the delete hook: {e}")
+
+        # Thẻ video đã lên Google Drive tô xanh nút Drive nhờ dấu trên task (ghi lúc tải xong). Task đã tải TRƯỚC bản
+        # này chưa có dấu: đọc checkpoint một lần — sau đó mỗi task mang khoá "drive" nên không đọc lại (16/9/2026).
+        global _DRIVE_MARKS_DONE
+        if not _DRIVE_MARKS_DONE:
+            _DRIVE_MARKS_DONE = True
+            try:
+                from tubecli.extensions.content_video.pipeline import backfill_drive_marks
+
+                n = backfill_drive_marks()
+                if n:
+                    logger.info(f"[ContentVideo] marked {n} video task(s) already saved to Google Drive")
+            except Exception as e:
+                logger.warning(f"[ContentVideo] could not mark tasks already saved to Drive: {e}")
 
         # Một chip trong tab Kỹ năng của agent. Verb thì vô hình — nó nổ khi model
         # quyết định, nên chủ máy không nhìn thấy agent có khả năng này và cũng

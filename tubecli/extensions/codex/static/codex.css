@@ -206,6 +206,10 @@ body {
 .cx-btn-warn:hover:not(:disabled) { background: color-mix(in srgb, var(--cx-orange) 22%, transparent); }
 .cx-btn-ai { background: color-mix(in srgb, var(--cx-purple) 14%, transparent); color: var(--cx-purple); border-color: color-mix(in srgb, var(--cx-purple) 35%, transparent); }
 .cx-btn-ai:hover:not(:disabled) { background: color-mix(in srgb, var(--cx-purple) 24%, transparent); }
+/* Task đã lên Google Drive: chữ + viền xanh trên nền thường — khác nút Accept (nền xanh) đứng ngay cạnh. */
+.cx-btn-drive-done { background: var(--bg3); color: var(--cx-green); border-color: color-mix(in srgb, var(--cx-green) 55%, transparent); }
+.cx-btn-drive-done:hover:not(:disabled) { background: color-mix(in srgb, var(--cx-green) 12%, transparent); }
+.cx-ds-where a { color: var(--primary); font-weight: 600; }
 
 .cx-icon-btn {
     display: inline-flex; align-items: center; justify-content: center;
