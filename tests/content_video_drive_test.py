@@ -118,12 +118,32 @@ SHOTS = [
      "shot_type": "medium", "angle": "eye-level", "movement": "static", "location": "Alcoba imperial",
      "time": "Amanecer, luz fría", "action": "The person sits still", "atmosphere": "Silencio denso, tono melancólico.",
      "bgm_prompt": "Cítara guqin lenta", "sound_effect": "Brisa leve, madera crujiente",
+     "character_ids": [7], "scene_id": 3,
      "narration_text": "Hello", "composed_image": IMG1, "tts_audio_url": AUD1, "duration": 11},
     {"id": 3, "storyboard_number": 3, "image_prompt": "outside", "narration_text": "Bye",
      "composed_image": str(OUTSIDE), "image_url": "https://evil.example/x.png", "tts_audio_url": str(OUTSIDE)},
 ]
 P._storyboards = lambda ep: [dict(s) for s in SHOTS]
 P.media_seconds = lambda p: 4.2
+CAST = [{"id": 7, "name": "Mei", "role": "Protagonist", "description": "A weary scholar",
+         "appearance": "East Asian woman in plain hanfu, hair in a low bun"},
+        {"id": 8, "name": "Master", "role": "", "description": "Old monk.", "appearance": ""}]
+PLACES = [{"id": 3, "location": "Alcoba imperial", "time": "Amanecer",
+           "description": "Red lacquer pillars and carved lattice windows"}]
+STUDIO_GETS = []
+
+
+def fake_get(path, timeout=60):
+    """Mọi HTTP tới Studio đều giả — thiếu cái này là test gọi máy chủ thật (xem feedback-tests-mock-all-http)."""
+    STUDIO_GETS.append(path)
+    if path == "/api/v1/studio/dramas/12/characters":
+        return {"items": CAST}
+    if path == "/api/v1/studio/dramas/12/scenes":
+        return {"items": PLACES}
+    raise AssertionError(f"test chặn HTTP thật: {path}")
+
+
+P._get = fake_get
 
 TOKENS = [
     {"token_id": "cred_a_1", "credential_id": "cred_a", "authorized_email": "a@x.com", "scopes": ["drive", "sheets"], "status": "active"},
@@ -311,12 +331,18 @@ sc = rows_of(last, "Scenes")
 ok(sc[0] == ["Scene", "Image prompt", "Video prompt", "Narration", "Seconds", "Image file", "Voice file"]
    and len(sc) == 4,
    "Scenes: prompt ảnh, prompt video đầy đủ trong MỘT ô (không tách Camera / Sound), lời, giây, link file", sc[0])
-FULL = ("pan slowly. Camera: medium shot, eye-level angle, static camera. "
-        "Setting: Alcoba imperial — Amanecer, luz fría. Action: The person sits still. "
+FULL = ("[VIDEO PROMPT]\n"
+        "pan slowly. Camera: medium shot, eye-level angle, static camera. Action: The person sits still. "
         "Mood and light: Silencio denso, tono melancólico. "
-        "Audio: music: Cítara guqin lenta; sound effects: Brisa leve, madera crujiente. Duration: about 4 s.")
-ok(sc[1][2] == FULL, "prompt video ĐẦY ĐỦ: chuyển động + máy quay + bối cảnh + hành động + không khí + âm thanh + giây thật",
+        "Audio: music: Cítara guqin lenta; sound effects: Brisa leve, madera crujiente. Duration: about 4 s.\n\n"
+        "[CHARACTERS]\n"
+        "- Mei (Protagonist): A weary scholar. Appearance: East Asian woman in plain hanfu, hair in a low bun.\n\n"
+        "[SCENE SETTING]\n"
+        "Alcoba imperial (Amanecer): Red lacquer pillars and carved lattice windows.")
+ok(sc[1][2] == FULL, "ô prompt video: [VIDEO PROMPT] + [CHARACTERS] + [SCENE SETTING] như nút Copy VID của Studio",
    sc[1][2])
+ok(sorted(set(STUDIO_GETS)) == ["/api/v1/studio/dramas/12/characters", "/api/v1/studio/dramas/12/scenes"],
+   "đọc nhân vật + cảnh của đúng phim (drama 12)", STUDIO_GETS)
 ok(sc[1][:2] == [1, "sunrise"] and sc[1][3:5] == ["Hello", 4.2] and sc[1][5] == imgs["scene_001.png"]["webViewLink"]
    and sc[1][6] == auds["scene_001.mp3"]["webViewLink"], "cảnh 1: prompt ảnh, lời, giây thật, link ảnh + giọng", sc[1])
 ok(sc[2][3] == "=SUM(1) calm" and sc[2][2] == "" and sc[3][5] == "" and sc[3][6] == "",
@@ -326,14 +352,32 @@ ok(sc[2][3] == "=SUM(1) calm" and sc[2][2] == "" and sc[3][5] == "" and sc[3][6]
 # full_video_prompt: từng mệnh đề chỉ có khi có dữ liệu, không lặp hành động đã nằm trong câu chuyển động
 ok(P.full_video_prompt({"duration": 9}) == "", "chỉ có thời lượng → rỗng (không ra prompt vô nghĩa)")
 ok(P.full_video_prompt({"video_prompt": "Slow push-in as the lamp flickers", "movement": "push-in", "duration": "7"})
-   == "Slow push-in as the lamp flickers. Camera: push-in camera. Duration: about 7 s.",
+   == "[VIDEO PROMPT]\nSlow push-in as the lamp flickers. Camera: push-in camera. Duration: about 7 s.",
    "thiếu cỡ cảnh / góc máy → chỉ ghi phần có; thời lượng dự kiến khi chưa có giọng",
    P.full_video_prompt({"video_prompt": "Slow push-in as the lamp flickers", "movement": "push-in", "duration": "7"}))
 ok("Action:" not in P.full_video_prompt({"video_prompt": "The monk bows deeply at the gate", "action": "the monk bows deeply"}),
    "hành động đã có trong câu chuyển động thì không ghi lặp")
-ok(P.full_video_prompt({"bgm_prompt": "  Soft   piano. ", "_seconds": 0.4}) == "Audio: music: Soft piano. Duration: about 1 s.",
+ok(P.full_video_prompt({"bgm_prompt": "  Soft   piano. ", "_seconds": 0.4})
+   == "[VIDEO PROMPT]\nAudio: music: Soft piano. Duration: about 1 s.",
    "gộp khoảng trắng, bỏ dấu câu cuối, thời lượng tối thiểu 1 s",
    P.full_video_prompt({"bgm_prompt": "  Soft   piano. ", "_seconds": 0.4}))
+_by_name = P.full_video_prompt({"video_prompt": "The monk rings the bell", "character_names": ["master"]}, CAST, [])
+ok(_by_name == "[VIDEO PROMPT]\nThe monk rings the bell.\n\n[CHARACTERS]\n- Master: Old monk.",
+   "shot không có character_ids → khớp theo tên (không phân biệt hoa thường); không vai / không ngoại hình thì bỏ",
+   _by_name)
+_fallback = P.full_video_prompt({"video_prompt": "Rain falls", "location": "Night market", "time": "Late night"}, CAST, PLACES)
+ok(_fallback.endswith("[SCENE SETTING]\nNight market (Late night).") and "[CHARACTERS]" not in _fallback,
+   "phim không có cảnh khớp → [SCENE SETTING] lấy địa điểm + thời điểm của chính shot; không nhân vật thì bỏ khối", _fallback)
+ok(P.full_video_prompt({"video_prompt": "x", "location": "alcoba IMPERIAL"}, [], PLACES).endswith(
+   "[SCENE SETTING]\nAlcoba imperial (Amanecer): Red lacquer pillars and carved lattice windows."),
+   "không có scene_id → khớp cảnh theo địa điểm (không phân biệt hoa thường)")
+ok(P.full_video_prompt({"character_ids": [99], "video_prompt": "x"}, CAST, []) == "[VIDEO PROMPT]\nx.",
+   "id nhân vật không có trong phim → không bịa khối [CHARACTERS]")
+_bad = {"drama_id": 12}
+P._get = lambda path, timeout=60: (_ for _ in ()).throw(RuntimeError("studio down"))
+ok(P._drive_studio_context(_bad) == ([], []), "Studio không trả lời → không có khối nhân vật / cảnh, không đổ lượt")
+P._get = fake_get
+ok(P._drive_studio_context({"drama_id": None}) == ([], []), "chưa có phim → khỏi gọi Studio")
 ok(rows_of(last, "Script") == [["Script"], ["TITLE: Mây"], ["[SHOW: lake]"], ["=calm line"]], "Script: từng dòng, bỏ dòng trống")
 rec = CK["t1"]["drive"]
 ok(rec["folder_id"] == fid and rec["token_id"] == "cred_a_1" and rec["email"] == "a@x.com" and rec["files"] == 7

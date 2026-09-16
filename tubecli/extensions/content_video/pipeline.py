@@ -5305,7 +5305,73 @@ def _shot_sound(sh: Dict) -> str:
     return "; ".join(parts)
 
 
-def full_video_prompt(sh: Dict) -> str:
+def _shot_characters(sh: Dict, characters: Optional[List[Dict]]) -> str:
+    """Khối [CHARACTERS] như nút Copy VID của Studio (static/studio2.js copyShotPrompt): nhân vật gắn với shot qua
+    character_ids, không có id thì khớp theo tên. Mỗi dòng "- Tên (vai): mô tả. Appearance: ngoại hình." — thêm
+    ngoại hình vì công cụ tạo video cần nó để giữ nhân vật giống nhau giữa các shot."""
+    cast = [c for c in (characters or []) if isinstance(c, dict)]
+    ids = {str(x).strip() for x in (sh.get("character_ids") or []) if str(x).strip()}
+    names = {str(x).strip().lower() for x in (sh.get("character_names") or []) if str(x).strip()}
+    if ids:
+        picked = [c for c in cast if str(c.get("id")).strip() in ids]
+    else:
+        picked = [c for c in cast if str(c.get("name") or "").strip().lower() in names]
+    lines = []
+    for c in picked:
+        name = _clause(c.get("name"))
+        if not name:
+            continue
+        role = _clause(c.get("role"))
+        head = f"- {name} ({role})" if role else f"- {name}"
+        desc, look = _clause(c.get("description")), _clause(c.get("appearance"))
+        body = [f"{desc}."] if desc else []
+        if look and look.lower() != desc.lower():
+            body.append(f"Appearance: {look}.")
+        lines.append(head + (": " + " ".join(body) if body else ""))
+    return "\n".join(lines)
+
+
+def _shot_setting(sh: Dict, scenes: Optional[List[Dict]]) -> str:
+    """Khối [SCENE SETTING] như nút Copy VID: cảnh của phim khớp scene_id, không có thì khớp địa điểm; phim chưa có
+    cảnh nào thì dùng địa điểm + thời điểm ghi trên chính shot."""
+    places = [s for s in (scenes or []) if isinstance(s, dict)]
+    scene = None
+    if str(sh.get("scene_id") or "").strip():
+        scene = next((s for s in places if str(s.get("id")).strip() == str(sh.get("scene_id")).strip()), None)
+    if scene is None and _clause(sh.get("location")):
+        loc = _clause(sh.get("location")).lower()
+        scene = next((s for s in places if _clause(s.get("location")).lower() == loc), None)
+    src = scene or sh
+    location, when = _clause(src.get("location")), _clause(src.get("time"))
+    desc = _clause(scene.get("description")) if scene else ""
+    if not (location or when or desc):
+        return ""
+    head = f"{location} ({when})" if location and when else (location or when)
+    if not head:
+        return f"{desc}."
+    return f"{head}: {desc}." if desc else f"{head}."
+
+
+def _drive_studio_context(state: Dict) -> Tuple[List[Dict], List[Dict]]:
+    """(nhân vật, cảnh) của phim trong Studio — nguyên liệu cho [CHARACTERS] / [SCENE SETTING]. Tra không được thì
+    trả rỗng: ô prompt vẫn đủ phần chuyển động, máy quay, không khí, âm thanh."""
+    drama = state.get("drama_id")
+    if drama in (None, ""):
+        return [], []
+    got: List[List[Dict]] = []
+    for kind in ("characters", "scenes"):
+        try:
+            data = _get(f"/api/v1/studio/dramas/{drama}/{kind}")
+            items = data.get("items") if isinstance(data, dict) else data
+            got.append([x for x in (items or []) if isinstance(x, dict)])
+        except Exception as e:      # noqa: BLE001
+            logger.info(f"[ContentVideo] drive: could not read the {kind} of drama {drama}: {e}")
+            got.append([])
+    return got[0], got[1]
+
+
+def full_video_prompt(sh: Dict, characters: Optional[List[Dict]] = None,
+                      scenes: Optional[List[Dict]] = None) -> str:
     """Prompt video ĐỦ ĐỂ DÙNG cho một shot.
 
     Storyboard của Content Studio (agents/storyboard_breaker.py) tách mỗi shot thành nhiều trường: `video_prompt`
@@ -5320,9 +5386,6 @@ def full_video_prompt(sh: Dict) -> str:
     camera = _shot_camera(sh)
     if camera:
         parts.append(f"Camera: {camera}.")
-    setting = " — ".join(x for x in (_clause(sh.get("location")), _clause(sh.get("time"))) if x)
-    if setting:
-        parts.append(f"Setting: {setting}.")
     action = _clause(sh.get("action"))
     if action and action.lower() not in base.lower():
         parts.append(f"Action: {action}.")
@@ -5332,12 +5395,21 @@ def full_video_prompt(sh: Dict) -> str:
     sound = _shot_sound(sh)
     if sound:
         parts.append(f"Audio: {sound}.")
-    if not parts:
-        return ""
-    secs = float(sh.get("_seconds") or 0) or float(_drive_int(sh.get("duration")))
-    if secs > 0:
-        parts.append(f"Duration: about {max(1, round(secs))} s.")
-    return " ".join(parts)
+    # Ba khối cùng định dạng nút Copy VID của Content Studio — user quen chép từ đó (16/9/2026). Khối nào trống thì
+    # bỏ hẳn, không in "None" như Studio.
+    blocks = []
+    if parts:
+        secs = float(sh.get("_seconds") or 0) or float(_drive_int(sh.get("duration")))
+        if secs > 0:
+            parts.append(f"Duration: about {max(1, round(secs))} s.")
+        blocks.append("[VIDEO PROMPT]\n" + " ".join(parts))
+    cast = _shot_characters(sh, characters)
+    if cast:
+        blocks.append("[CHARACTERS]\n" + cast)
+    place = _shot_setting(sh, scenes)
+    if place:
+        blocks.append("[SCENE SETTING]\n" + place)
+    return "\n\n".join(blocks)
 
 
 def _drive_tabs(state: Dict, shots: List[Dict], links: Dict[str, str], rec: Dict) -> List[Tuple[str, List[List[Any]]]]:
@@ -5375,7 +5447,8 @@ def _drive_tabs(state: Dict, shots: List[Dict], links: Dict[str, str], rec: Dict
     scenes = [["Scene", "Image prompt", "Video prompt", "Narration", "Seconds", "Image file", "Voice file"]]
     for i, sh in enumerate(shots, 1):
         scenes.append([i, str(sh.get("image_prompt") or sh.get("description") or ""),
-                       full_video_prompt(sh), _shot_narration(sh),
+                       full_video_prompt(sh, state.get("_drive_cast"), state.get("_drive_places")),
+                       _shot_narration(sh),
                        sh.get("_seconds") or sh.get("duration") or "",
                        links.get(f"image:{i}", ""), links.get(f"audio:{i}", "")])
     script = [["Script"]] + [[line] for line in str(state.get("script") or "").splitlines() if line.strip()]
@@ -5448,6 +5521,8 @@ def _drive_save(state: Dict, options: Dict) -> None:
     _checkpoint_merge(state, {"drive": rec})
 
     shots, ups = _drive_plan(state)
+    # Nhân vật + cảnh của phim cho khối [CHARACTERS] / [SCENE SETTING] trong ô prompt video.
+    state["_drive_cast"], state["_drive_places"] = _drive_studio_context(state)
     links: Dict[str, str] = {}
     # Sheet TRƯỚC file: tải hỏng giữa chừng thì nội dung (kịch bản, từng cảnh) vẫn đã nằm trên Drive.
     sheet = DX.file_alive(drive, rec["sheet_id"]) if rec.get("sheet_id") else None
