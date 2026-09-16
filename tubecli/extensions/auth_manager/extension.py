@@ -258,6 +258,22 @@ PROVIDERS = {
 # Maps state_token -> {credential_id, scopes, browser_profile, created_at}
 _pending_oauth: Dict[str, dict] = {}
 _pending_lock = threading.Lock()
+# Route /oauth/callback được miễn đăng nhập (server.py _AUTH_EXEMPT_EXACT) để trình duyệt quay về từ Google
+# không bị hỏi mật khẩu phiên. Nên state là toàn bộ hàng rào: dùng một lần (pop) và chỉ sống 15 phút — đủ cho
+# một lượt đăng nhập Google kể cả phải mở hồ sơ browser khác, và không để state nằm mãi trong RAM.
+PENDING_TTL_SEC = 900
+
+
+def _prune_pending(now=None) -> None:
+    """Bỏ các state đã hết hạn. Người gọi PHẢI đang giữ _pending_lock."""
+    now = now or datetime.now()
+    for token, pend in list(_pending_oauth.items()):
+        try:
+            age = (now - datetime.fromisoformat(str(pend.get("created_at") or ""))).total_seconds()
+        except (TypeError, ValueError):
+            age = PENDING_TTL_SEC + 1       # không đọc được mốc → coi như hết hạn
+        if age > PENDING_TTL_SEC or age < -PENDING_TTL_SEC:
+            _pending_oauth.pop(token, None)
 
 
 class AuthManager:
@@ -616,6 +632,7 @@ class AuthManager:
 
         # Store pending OAuth state
         with _pending_lock:
+            _prune_pending()
             _pending_oauth[state_token] = {
                 "credential_id": cred_id,
                 "scopes": scopes,
@@ -636,12 +653,16 @@ class AuthManager:
 
     def handle_oauth_callback(self, code: str, state: str) -> dict:
         """Handle OAuth callback — exchange code for token."""
-        # Validate state
+        # Validate state. Route này không đòi phiên đăng nhập, nên state sai/hết hạn phải dừng NGAY ở đây —
+        # trước khi gọi provider và trước khi ghi bất cứ gì.
         with _pending_lock:
+            _prune_pending()
             pending = _pending_oauth.pop(state, None)
 
         if not pending:
-            return {"status": "error", "message": "Invalid or expired OAuth state."}
+            return {"status": "error",
+                    "message": f"Invalid or expired OAuth state — press Authorize again in Auth Manager "
+                               f"(an authorization link is good for {PENDING_TTL_SEC // 60} minutes)."}
 
         cred_id = pending["credential_id"]
         cred = self._data["credentials"].get(cred_id)

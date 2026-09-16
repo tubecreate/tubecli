@@ -282,7 +282,14 @@ _LOGIN_PAGE = """<!doctype html>
 <script>
 (function(){
   var $=function(i){return document.getElementById(i)};
-  var next=new URLSearchParams(location.search).get('next')||'/dashboard';
+  var nextRaw=new URLSearchParams(location.search).get('next')||'';
+  // Chỉ nhận đường dẫn NỘI BỘ: '//evil.com' hay 'https://evil.com' trong ?next= sẽ đẩy người vừa đăng
+  // nhập sang site khác; ký tự thứ hai là gạch chéo ngược (mã 92) cũng bị trình duyệt hiểu như '//'.
+  // Query giữ nguyên — callback OAuth quay về kèm ?code=…&state=… (xem server._login_next).
+  // Không viết bằng regex và KHÔNG có ký tự gạch chéo ngược nào trong khối này: _LOGIN_PAGE là chuỗi Python
+  // KHÔNG raw, nên Python co escape lại và JS gửi xuống trình duyệt sẽ sai cú pháp.
+  var next=(nextRaw.charAt(0)==='/' && nextRaw.charAt(1)!=='/' && nextRaw.charCodeAt(1)!==92)
+    ? nextRaw : '/dashboard';
   var mode='login';
   // Kept from the login step so the change form does not ask for a password
   // the user just typed. The server still requires it — this only spares the

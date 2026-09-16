@@ -73,6 +73,15 @@ _AUTH_EXEMPT_EXACT = {"/login", "/api/v1/auth/login", "/api/v1/auth/status",
                       # được TRƯỚC khi có session (như /auth/login). Mint token thì
                       # KHÔNG exempt (chủ-authed).
                       "/api/v1/auth/guest-login",
+                      # Google/Facebook/TikTok đẩy TRÌNH DUYỆT của người dùng quay về đây sau khi họ bấm
+                      # "Cho phép" — trình duyệt đó có thể là hồ sơ mới của node Browser hay điện thoại, chưa
+                      # có phiên. Trước đây nó bị đưa sang /login, mà `code` của Google chỉ dùng được một lần
+                      # nên đăng nhập xong phải cấp quyền LẠI từ đầu (user 16/9/2026). Chìa khoá của route này
+                      # là `state`: 32 byte ngẫu nhiên chỉ sinh ra trong lượt cấp quyền của CHỦ (đã đăng nhập),
+                      # dùng một lần, hết hạn 15 phút — xem auth_manager/_pending_oauth. Sai state thì route
+                      # không gọi provider và không ghi gì. CHỈ đường callback này được miễn: /tokens,
+                      # /credentials, /authorize vẫn phải có phiên.
+                      "/api/v1/auth-manager/oauth/callback",
                       "/api/v1/auth/banner.js", "/favicon.ico",
                       # Nhip tim bo giam sat: den TRUOC khi co phien dang nhap, va
                       # da bi chan cung theo loopback ngay trong route.
@@ -89,6 +98,18 @@ _AUTH_EXEMPT_PREFIX = ("/webui/static/", "/static/", "/s/")
 
 def _auth_exempt(path: str) -> bool:
     return path in _AUTH_EXEMPT_EXACT or path.startswith(_AUTH_EXEMPT_PREFIX)
+
+
+def _login_next(path: str, query: str = "") -> str:
+    """Giá trị ?next= khi đẩy một trang chưa đăng nhập sang /login — GIỮ CẢ query.
+
+    Trước đây chỗ này chỉ mang đường dẫn, nên mọi tham số rơi mất khi quay lại: callback OAuth
+    (?code=…&state=…) là ca đau nhất vì code của Google chỉ dùng được một lần. Mã hoá luôn, để ?code=…&state=…
+    không bị đọc thành tham số của /login; trang /login chỉ nhận lại đường dẫn nội bộ.
+    """
+    from urllib.parse import quote
+
+    return quote(path + (f"?{query}" if query else ""), safe="/")
 
 
 # Paths the read-only scraped key may reach. Everything else — including
@@ -491,7 +512,8 @@ async def _require_login(request: Request, call_next):
             # dashboard ended up showing a bare "Failed." for everything.
             accepts_html = "text/html" in (request.headers.get("accept") or "")
             if accepts_html and request.method == "GET":
-                return RedirectResponse(f"/login?next={request.url.path}", status_code=302)
+                return RedirectResponse(
+                    f"/login?next={_login_next(request.url.path, request.url.query)}", status_code=302)
             return JSONResponse(status_code=401, content=refusal, headers=_cors_error_headers(request))
     except Exception:
         pass  # never let the gate itself take the server down
