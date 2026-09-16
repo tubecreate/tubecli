@@ -114,8 +114,11 @@ OUTSIDE.write_bytes(b"do not upload")
 SHOTS = [
     {"id": 2, "storyboard_number": 2, "image_prompt": "a quiet lake", "narration_text": "=SUM(1) calm",
      "composed_image": IMG2, "tts_audio_url": "/api/v1/tts/audio/edge_abc.mp3", "duration": 6},
-    {"id": 1, "storyboard_number": 1, "image_prompt": "sunrise", "video_prompt": "pan slowly",
-     "narration_text": "Hello", "composed_image": IMG1, "tts_audio_url": AUD1, "duration": 5},
+    {"id": 1, "storyboard_number": 1, "image_prompt": "sunrise", "video_prompt": "pan slowly.",
+     "shot_type": "medium", "angle": "eye-level", "movement": "static", "location": "Alcoba imperial",
+     "time": "Amanecer, luz fría", "action": "The person sits still", "atmosphere": "Silencio denso, tono melancólico.",
+     "bgm_prompt": "Cítara guqin lenta", "sound_effect": "Brisa leve, madera crujiente",
+     "narration_text": "Hello", "composed_image": IMG1, "tts_audio_url": AUD1, "duration": 11},
     {"id": 3, "storyboard_number": 3, "image_prompt": "outside", "narration_text": "Bye",
      "composed_image": str(OUTSIDE), "image_url": "https://evil.example/x.png", "tts_audio_url": str(OUTSIDE)},
 ]
@@ -305,13 +308,35 @@ ok(field(ov, "Video") == FD.by_name(f"{base}.mp4")[0]["webViewLink"] and field(o
    and field(ov, "Sources") == "https://youtu.be/abc" and field(ov, "Video length") == "01:05" and field(ov, "Scenes") == 3,
    "Overview: link video, thư mục, YouTube, tag, nguồn, thời lượng, số cảnh", ov)
 sc = rows_of(last, "Scenes")
-ok(sc[0] == ["Scene", "Image prompt", "Video prompt", "Narration", "Seconds", "Image", "Audio"] and len(sc) == 4,
-   "Scenes: prompt tạo ảnh + prompt tạo video thành hai cột riêng, rồi 3 cảnh", sc[0])
-ok(sc[1][:5] == [1, "sunrise", "pan slowly", "Hello", 4.2] and sc[1][5] == imgs["scene_001.png"]["webViewLink"]
-   and sc[1][6] == auds["scene_001.mp3"]["webViewLink"],
-   "cảnh 1: prompt ảnh, prompt video, lời, giây thật, link ảnh + giọng", sc[1])
-ok(sc[2][3] == "=SUM(1) calm" and sc[2][2] == "" and sc[3][5] == "" and sc[3][6] == "",
-   "lời bắt đầu bằng '=' giữ nguyên; shot chưa có video_prompt để TRỐNG; cảnh 3 không link", sc[1:])
+ok(sc[0] == ["Scene", "Image prompt", "Video prompt", "Camera", "Sound", "Narration", "Seconds",
+             "Image file", "Voice file"] and len(sc) == 4,
+   "Scenes: prompt ảnh, prompt video đầy đủ, Camera, Sound, lời, giây, link file", sc[0])
+FULL = ("pan slowly. Camera: medium shot, eye-level angle, static camera. "
+        "Setting: Alcoba imperial — Amanecer, luz fría. Action: The person sits still. "
+        "Mood and light: Silencio denso, tono melancólico. "
+        "Audio: music: Cítara guqin lenta; sound effects: Brisa leve, madera crujiente. Duration: about 4 s.")
+ok(sc[1][2] == FULL, "prompt video ĐẦY ĐỦ: chuyển động + máy quay + bối cảnh + hành động + không khí + âm thanh + giây thật",
+   sc[1][2])
+ok(sc[1][3] == "medium shot, eye-level angle, static camera"
+   and sc[1][4] == "music: Cítara guqin lenta; sound effects: Brisa leve, madera crujiente",
+   "cột Camera + Sound tách riêng để sửa từng phần", sc[1][3:5])
+ok(sc[1][:2] == [1, "sunrise"] and sc[1][5:7] == ["Hello", 4.2] and sc[1][7] == imgs["scene_001.png"]["webViewLink"]
+   and sc[1][8] == auds["scene_001.mp3"]["webViewLink"], "cảnh 1: prompt ảnh, lời, giây thật, link ảnh + giọng", sc[1])
+ok(sc[2][5] == "=SUM(1) calm" and sc[2][2] == "" and sc[2][3] == "" and sc[3][7] == "" and sc[3][8] == "",
+   "lời bắt đầu bằng '=' giữ nguyên; shot không có gì để ghép → prompt video TRỐNG (không bịa); cảnh 3 không link",
+   sc[1:])
+
+# full_video_prompt: từng mệnh đề chỉ có khi có dữ liệu, không lặp hành động đã nằm trong câu chuyển động
+ok(P.full_video_prompt({"duration": 9}) == "", "chỉ có thời lượng → rỗng (không ra prompt vô nghĩa)")
+ok(P.full_video_prompt({"video_prompt": "Slow push-in as the lamp flickers", "movement": "push-in", "duration": "7"})
+   == "Slow push-in as the lamp flickers. Camera: push-in camera. Duration: about 7 s.",
+   "thiếu cỡ cảnh / góc máy → chỉ ghi phần có; thời lượng dự kiến khi chưa có giọng",
+   P.full_video_prompt({"video_prompt": "Slow push-in as the lamp flickers", "movement": "push-in", "duration": "7"}))
+ok("Action:" not in P.full_video_prompt({"video_prompt": "The monk bows deeply at the gate", "action": "the monk bows deeply"}),
+   "hành động đã có trong câu chuyển động thì không ghi lặp")
+ok(P.full_video_prompt({"bgm_prompt": "  Soft   piano. ", "_seconds": 0.4}) == "Audio: music: Soft piano. Duration: about 1 s.",
+   "gộp khoảng trắng, bỏ dấu câu cuối, thời lượng tối thiểu 1 s",
+   P.full_video_prompt({"bgm_prompt": "  Soft   piano. ", "_seconds": 0.4}))
 ok(rows_of(last, "Script") == [["Script"], ["TITLE: Mây"], ["[SHOW: lake]"], ["=calm line"]], "Script: từng dòng, bỏ dòng trống")
 rec = CK["t1"]["drive"]
 ok(rec["folder_id"] == fid and rec["token_id"] == "cred_a_1" and rec["email"] == "a@x.com" and rec["files"] == 7

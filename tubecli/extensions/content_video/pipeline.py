@@ -5158,7 +5158,8 @@ def _step_publish(state: Dict, options: Dict) -> None:
 # ── Lưu lên Google Drive (bước "drive") ──────────────────────────────
 # User 15/9/2026: "lưu nội dung đã tạo vào drive: nội dung lưu vào sheet, file audio, image và video upload lên
 # drive trong 1 project, folder đặt tên theo tiêu đề; chọn auth trong tạo task như đã chọn trong auth của agent".
-DRIVE_WIDTHS = {"Overview": {0: 170, 1: 560}, "Scenes": {1: 320, 2: 320, 3: 460, 5: 230, 6: 230},
+DRIVE_WIDTHS = {"Overview": {0: 170, 1: 560},
+                "Scenes": {1: 320, 2: 420, 3: 190, 4: 260, 5: 420, 7: 220, 8: 220},
                 "Script": {0: 760}}
 
 
@@ -5277,6 +5278,68 @@ def _drive_plan(state: Dict) -> Tuple[List[Dict], List[Dict]]:
     return shots, ups
 
 
+def _clause(value: Any) -> str:
+    """Một mệnh đề gọn: gộp khoảng trắng, bỏ dấu câu cuối (để tự thêm dấu chấm cho đều)."""
+    return " ".join(str(value or "").split()).rstrip(" .;,")
+
+
+def _shot_camera(sh: Dict) -> str:
+    """"medium shot, eye-level angle, static camera" — từ ba trường máy quay Studio tách riêng."""
+    parts = []
+    if _clause(sh.get("shot_type")):
+        parts.append(f"{_clause(sh['shot_type'])} shot")
+    if _clause(sh.get("angle")):
+        parts.append(f"{_clause(sh['angle'])} angle")
+    if _clause(sh.get("movement")):
+        parts.append(f"{_clause(sh['movement'])} camera")
+    return ", ".join(parts)
+
+
+def _shot_sound(sh: Dict) -> str:
+    """"music: …; sound effects: …" — nhạc nền và tiếng động của shot."""
+    parts = []
+    if _clause(sh.get("bgm_prompt")):
+        parts.append(f"music: {_clause(sh['bgm_prompt'])}")
+    if _clause(sh.get("sound_effect")):
+        parts.append(f"sound effects: {_clause(sh['sound_effect'])}")
+    return "; ".join(parts)
+
+
+def full_video_prompt(sh: Dict) -> str:
+    """Prompt video ĐỦ ĐỂ DÙNG cho một shot.
+
+    Storyboard của Content Studio (agents/storyboard_breaker.py) tách mỗi shot thành nhiều trường: `video_prompt`
+    chỉ 80–200 ký tự tả chuyển động, còn cỡ cảnh / góc máy / chuyển động máy, bối cảnh, không khí, nhạc nền,
+    tiếng động và thời lượng nằm ở trường riêng. Dán nguyên `video_prompt` sang công cụ tạo video là mất hết
+    những thứ đó (user 16/9/2026). Ghép lại thành một đoạn có nhãn rõ để người dùng sửa từng phần.
+
+    Không bịa: trường nào trống thì bỏ mệnh đề đó; shot không có gì ngoài thời lượng → "" (một prompt chỉ có
+    "Duration" là vô nghĩa). Thời lượng ưu tiên độ dài THẬT của giọng đọc (`_seconds`), sau mới tới dự kiến."""
+    base = _clause(sh.get("video_prompt"))
+    parts = [base + "."] if base else []
+    camera = _shot_camera(sh)
+    if camera:
+        parts.append(f"Camera: {camera}.")
+    setting = " — ".join(x for x in (_clause(sh.get("location")), _clause(sh.get("time"))) if x)
+    if setting:
+        parts.append(f"Setting: {setting}.")
+    action = _clause(sh.get("action"))
+    if action and action.lower() not in base.lower():
+        parts.append(f"Action: {action}.")
+    mood = _clause(sh.get("atmosphere"))
+    if mood:
+        parts.append(f"Mood and light: {mood}.")
+    sound = _shot_sound(sh)
+    if sound:
+        parts.append(f"Audio: {sound}.")
+    if not parts:
+        return ""
+    secs = float(sh.get("_seconds") or 0) or float(_drive_int(sh.get("duration")))
+    if secs > 0:
+        parts.append(f"Duration: about {max(1, round(secs))} s.")
+    return " ".join(parts)
+
+
 def _drive_tabs(state: Dict, shots: List[Dict], links: Dict[str, str], rec: Dict) -> List[Tuple[str, List[List[Any]]]]:
     """Ba tab: Overview (thông tin + link), Scenes (từng cảnh: hình, lời, giây, link ảnh/giọng), Script."""
     seo = state.get("seo") or {}
@@ -5305,13 +5368,14 @@ def _drive_tabs(state: Dict, shots: List[Dict], links: Dict[str, str], rec: Dict
         ["YouTube tags", ", ".join(str(t) for t in (seo.get("tags") or []))],
         ["Sources", "\n".join(s for s in sources if s)],
     ) if row[1] not in ("", None, 0)]
-    # Prompt tạo ảnh và prompt tạo video đứng thành HAI cột riêng (user 16/9/2026: "thêm cột prompt tạo ảnh,
-    # và cột prompt tạo video cho từng shot"). video_prompt là trường của Content Studio — pipeline không tự
-    # viết nó, nên cột đó trống trừ khi người dùng nhập trong Studio (Studio chỉ đọc nó cho dạng Presentation).
-    scenes = [["Scene", "Image prompt", "Video prompt", "Narration", "Seconds", "Image", "Audio"]]
+    # Prompt tạo ảnh + prompt tạo video ĐẦY ĐỦ (chuyển động, máy quay, bối cảnh, không khí, âm thanh, thời lượng)
+    # cho từng shot, kèm hai cột Camera / Sound tách riêng để sửa từng phần (user 16/9/2026). Studio sinh
+    # video_prompt trong agents/storyboard_breaker.py nhưng chỉ 80–200 ký tự — xem full_video_prompt.
+    scenes = [["Scene", "Image prompt", "Video prompt", "Camera", "Sound", "Narration", "Seconds",
+               "Image file", "Voice file"]]
     for i, sh in enumerate(shots, 1):
         scenes.append([i, str(sh.get("image_prompt") or sh.get("description") or ""),
-                       str(sh.get("video_prompt") or ""), _shot_narration(sh),
+                       full_video_prompt(sh), _shot_camera(sh), _shot_sound(sh), _shot_narration(sh),
                        sh.get("_seconds") or sh.get("duration") or "",
                        links.get(f"image:{i}", ""), links.get(f"audio:{i}", "")])
     script = [["Script"]] + [[line] for line in str(state.get("script") or "").splitlines() if line.strip()]
