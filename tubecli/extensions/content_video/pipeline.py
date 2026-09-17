@@ -5183,6 +5183,17 @@ def _drive_folder_name(state: Dict) -> str:
     return title[:120]
 
 
+def _drive_root_name() -> str:
+    """Thư mục cha trên Drive: «<username>-vps-<server_id>» (tài khoản cloud + số server, cloud báo lúc đăng nhập
+    hộ) — nhiều máy đăng chung một Drive vẫn biết ai, máy nào (17/9/2026). Máy tự quản: «tubecli-<tên máy>»."""
+    try:
+        from tubecli.core import cloud_identity
+
+        return cloud_identity.drive_root_name()
+    except Exception:       # noqa: BLE001
+        return "tubecli"
+
+
 def _drive_file_base(state: Dict) -> str:
     """Tên file theo tiêu đề, bỏ ký tự Windows không cho — người ta hay tải cả thư mục Drive về máy."""
     base = re.sub(r'[\\/:*?"<>|\x00-\x1f]+', " ", _drive_folder_name(state))
@@ -5241,7 +5252,8 @@ def _drive_plan_note(options: Dict) -> str:
     folder = f"«{title[:80]}»" if title else "named after the video title"
     share = ("anyone with the link can view and download"
              if _truthy(options.get("drive_public"), True) else "private to that account")
-    return f"a folder {folder} on {who} — content sheet, images, voice and video ({share})"
+    return (f"a folder {folder} inside «{_drive_root_name()}» on {who} — content sheet, images, voice and video "
+            f"({share})")
 
 
 def _drive_plan(state: Dict) -> Tuple[List[Dict], List[Dict]]:
@@ -5434,6 +5446,8 @@ def _drive_tabs(state: Dict, shots: List[Dict], links: Dict[str, str], rec: Dict
         ["Video (no layout, download)", links.get("main#dl", "")],
         ["Thumbnail", links.get("thumbnail", "")],
         ["Google Drive folder", rec.get("folder_url") or ""],
+        # Ai đăng, từ máy nào: «<username>-vps-<server_id>» — nhiều máy đăng chung một Drive.
+        ["Uploaded from", rec.get("root_name") or ""],
         ["Sharing", ("anyone with the link can view and download" if rec.get("public")
                      else f"private — only {rec.get('email') or 'the owner'}")],
         ["YouTube", pub.get("url") or ""],
@@ -5460,6 +5474,7 @@ def _drive_tabs(state: Dict, shots: List[Dict], links: Dict[str, str], rec: Dict
 def _drive_line(drive: Dict) -> str:
     """Dòng «Google Drive» trong kết quả: thư mục, Sheet, số file, tài khoản, quyền."""
     return (f"- **Google Drive**: {drive.get('folder_url') or ''}"
+            + (f" ({drive['root_name']}/{drive.get('folder_name') or ''})" if drive.get("root_name") else "")
             + (f" · content sheet {drive['sheet_url']}" if drive.get("sheet_url") else "")
             + f" · {drive.get('files', 0)} file(s)"
             + (f" · {drive['email']}" if drive.get("email") else "")
@@ -5509,14 +5524,30 @@ def _drive_save(state: Dict, options: Dict) -> None:
     drive, sheets = DX.services(token_id)
 
     rec = dict(state.get("drive") or (state.get("checkpoint") or {}).get("drive") or {})
+    # Mọi project nằm trong thư mục của máy «<username>-vps-<server_id>» ở gốc My Drive — nhiều máy đăng chung
+    # một Drive vẫn biết ai đăng, từ máy nào. Chỉ thư mục project được chia sẻ, thư mục của máy thì không.
+    root_name = _drive_root_name()
+    root = DX.find_or_create_folder(drive, "root", root_name)
     # Thư mục của lượt trước chỉ dùng lại khi CÙNG tài khoản và còn đó (người dùng có thể đã xoá nó).
     folder = (DX.file_alive(drive, rec["folder_id"])
               if rec.get("folder_id") and rec.get("token_id") == token_id else None)
+    parents = list((folder or {}).get("parents") or [])
+    if folder and root["id"] not in parents and parents:
+        # Project tải trước bản này nằm ngay gốc My Drive → dời vào thư mục của máy. Người dùng đã tự dời nó
+        # đi chỗ khác thì để yên.
+        try:
+            if DX.my_drive_root_id(drive) in parents:
+                DX.move_folder(drive, folder["id"], root["id"], parents)
+                say("drive", "running", f"moved the project folder into “{root_name}”")
+        except Exception as e:      # noqa: BLE001 — dời hỏng không đáng đổ lượt: file vẫn tải vào thư mục cũ
+            logger.info(f"[ContentVideo] could not move the Drive folder into {root_name}: {e}")
     if not folder:
-        folder = DX.create_folder(drive, DX.unique_name(drive, "root", _drive_folder_name(state)), "root")
+        folder = DX.create_folder(drive, DX.unique_name(drive, root["id"], _drive_folder_name(state)), root["id"])
         rec = {}
     rec.update({"token_id": token_id, "email": who, "folder_id": folder["id"],
-                "folder_name": folder.get("name") or "", "folder_url": folder.get("webViewLink") or ""})
+                "folder_name": folder.get("name") or "", "folder_url": folder.get("webViewLink") or "",
+                "root_name": root_name, "root_id": root["id"]})
+    say("drive", "running", f"project folder “{root_name}/{rec['folder_name']}”")
     # Chia sẻ MỘT lần cho cả thư mục (file bên trong hưởng theo). Cờ trong sổ để Retry không gọi lại, và để
     # thư mục của lượt cũ (lõi .104/.105, chưa có bước này) được chia sẻ ở lượt chạy sau.
     if _truthy(options.get("drive_public"), True) and not rec.get("public"):

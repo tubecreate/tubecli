@@ -5770,6 +5770,11 @@ app.include_router(_app_router)
 from tubecli.api.image_routes import router as _image_router
 app.include_router(_image_router)
 
+# Danh tính cloud của máy (tài khoản chủ + số server) — cloud PUT sau mỗi lần đăng nhập hộ; thư mục Drive của
+# task video đặt theo «<username>-vps-<server_id>/<tên project>» (17/9/2026).
+from tubecli.api.instance_routes import router as _instance_router
+app.include_router(_instance_router)
+
 
 # ── Register Extension Routes ───────────────────────────────────────
 from tubecli.core.extension_manager import extension_manager

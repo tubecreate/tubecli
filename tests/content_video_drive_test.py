@@ -79,6 +79,7 @@ def ok(cond, label, detail=""):
 
 
 REAL = {n: getattr(DX, n) for n in ("google_tokens", "services", "file_alive", "unique_name", "create_folder",
+                                    "find_or_create_folder", "my_drive_root_id", "move_folder",
                                     "list_children", "upload_file", "trash_file", "create_sheet", "write_sheet",
                                     "share_public", "download_url", "_gapi")}
 
@@ -206,10 +207,27 @@ def fake_upload(drive, path, name, parent, on_progress=None, cancelled=None, can
     return FD.add(name, parent, "", size)
 
 
+ROOT_NAME = "tuan89tk-vps-9"
+
+
+def fake_find_or_create(drive, parent, name):
+    hit = [f for f in FD.by_name(name, parent) if f["mimeType"] == DX.FOLDER_MIME]
+    return dict(hit[0]) if hit else (FD.calls.append(("folder", name, parent)) or FD.add(name, parent, DX.FOLDER_MIME))
+
+
+def fake_move(drive, fid, new_parent, old_parents):
+    FD.calls.append(("move", fid, new_parent, list(old_parents)))
+    FD.files[fid]["parent"] = new_parent
+
+
 def install_fakes():
     DX.google_tokens = lambda: [dict(t) for t in TOKENS]
     DX.services = lambda tid: SERVICES.append(tid) or (("drive", tid), ("sheets", tid))
-    DX.file_alive = lambda drive, fid: (dict(FD.files[fid]) if fid in FD.files and not FD.files[fid]["trashed"] else None)
+    DX.file_alive = lambda drive, fid: (dict(FD.files[fid], parents=[FD.files[fid]["parent"]])
+                                        if fid in FD.files and not FD.files[fid]["trashed"] else None)
+    DX.find_or_create_folder = fake_find_or_create
+    DX.my_drive_root_id = lambda drive: "root"
+    DX.move_folder = fake_move
     DX.unique_name = lambda drive, parent, name: name if name not in FD.children(parent) else f"{name} (2)"
     DX.create_folder = lambda drive, name, parent="root": FD.calls.append(("folder", name, parent)) or FD.add(name, parent, DX.FOLDER_MIME)
     DX.list_children = lambda drive, fid: FD.children(fid)
@@ -222,6 +240,8 @@ def install_fakes():
 
 
 install_fakes()
+# Danh tính cloud của máy (tài khoản + số server) — thư mục cha trên Drive (17/9/2026).
+P._drive_root_name = lambda: ROOT_NAME
 
 
 class Agent:
@@ -303,9 +323,21 @@ ok("can only read" in err(lambda: DX.resolve_token("", ["cred_d"], True)), "tài
 print("── C. lưu lần đầu ──────────────────────────────────────────")
 st = new_state()
 P._step_drive(st, dict(OPTS))
-root = FD.children("root")
+vps = FD.children("root").get(ROOT_NAME) or {}
+VPS_ID = vps.get("id", "")
+root = FD.children(VPS_ID)
 folder = root.get("Mây trắng: bay/xa")
-ok(folder and folder["mimeType"] == DX.FOLDER_MIME, "thư mục ở gốc Drive mang đúng tiêu đề", list(root))
+# User 17/9/2026: "sử dụng đường dẫn tạo folder username-vps-9/tenproject để biết được user nào đăng lên và ở server
+# nào nếu tất cả đăng chung 1 drive".
+ok(vps.get("mimeType") == DX.FOLDER_MIME and list(FD.children("root")) == [ROOT_NAME],
+   "gốc Drive chỉ có thư mục của máy «tuan89tk-vps-9»", list(FD.children("root")))
+ok(folder and folder["mimeType"] == DX.FOLDER_MIME, "project «tuan89tk-vps-9/tiêu đề» nằm TRONG thư mục của máy", list(root))
+ok(("share", VPS_ID) not in FD.calls and any(c[0] == "share" and c[1] == (folder or {}).get("id") for c in FD.calls),
+   "chỉ chia sẻ thư mục project, KHÔNG chia sẻ thư mục của máy (lộ mọi project khác)", FD.calls[:4])
+ok(CK["t1"]["drive"]["root_name"] == ROOT_NAME and CK["t1"]["drive"]["root_id"] == VPS_ID,
+   "sổ nhớ thư mục của máy", CK["t1"]["drive"])
+ok(any(a[2] == f"project folder “{ROOT_NAME}/Mây trắng: bay/xa”" for a in said if len(a) > 2),
+   "thẻ bước nói đường dẫn thư mục", [a[2] for a in said][:4])
 fid = folder["id"] if folder else ""
 top = FD.children(fid)
 base = "Mây trắng bay xa"
@@ -325,8 +357,9 @@ ov1, ov = rows_of(first, "Overview"), rows_of(last, "Overview")
 ok(field(ov1, "Video") is None and field(ov1, "Title") == "Mây trắng: bay/xa", "lần ghi đầu chưa có link video (chưa tải)")
 ok(field(ov, "Video") == FD.by_name(f"{base}.mp4")[0]["webViewLink"] and field(ov, "Google Drive folder") == folder["webViewLink"]
    and field(ov, "YouTube") == "https://youtu.be/pub1" and field(ov, "YouTube tags") == "a, b"
-   and field(ov, "Sources") == "https://youtu.be/abc" and field(ov, "Video length") == "01:05" and field(ov, "Scenes") == 3,
-   "Overview: link video, thư mục, YouTube, tag, nguồn, thời lượng, số cảnh", ov)
+   and field(ov, "Sources") == "https://youtu.be/abc" and field(ov, "Video length") == "01:05" and field(ov, "Scenes") == 3
+   and field(ov, "Uploaded from") == ROOT_NAME,
+   "Overview: link video, thư mục, ai đăng từ máy nào, YouTube, tag, nguồn, thời lượng, số cảnh", ov)
 sc = rows_of(last, "Scenes")
 ok(sc[0] == ["Scene", "Image prompt", "Video prompt", "Narration", "Seconds", "Image file", "Voice file"]
    and len(sc) == 4,
@@ -395,7 +428,8 @@ ok(prog and all(0 < p <= 100 for p in pcts) and pcts == sorted(pcts) and pcts[-1
 ok(any("uploading image 4/7" in a[2] for a in prog) and "saved 7 file(s)" in prog[-1][2], "câu tiến độ nói loại file + thứ tự",
    [a[2] for a in prog][:3])
 out = P._render_result(st, {}, [], [], 12)
-ok(f"- **Google Drive**: {folder['webViewLink']} · content sheet https://drive.google.com/" in out and "7 file(s) · a@x.com" in out
+ok(f"- **Google Drive**: {folder['webViewLink']} ({ROOT_NAME}/Mây trắng: bay/xa) · content sheet https://drive.google.com/" in out
+   and "7 file(s) · a@x.com" in out
    and out.startswith("## ✅"), "kết quả có dòng Google Drive, vẫn ✅", out[:300])
 
 print("── D. chạy lại ─────────────────────────────────────────────")
@@ -417,13 +451,29 @@ ok([c[1] for c in ups] == [f"{base}.mp4"] and ("trash", old_id) in FD.calls and 
    "video dựng lại (khác cỡ) → tải bản mới, bản cũ vào thùng rác", FD.calls)
 FD.calls.clear()
 P._step_drive(new_state(), dict(OPTS, drive_token_id="cred_b_1"))
-ok(("folder", "Mây trắng: bay/xa (2)", "root") in FD.calls and len([c for c in FD.calls if c[0] == "upload"]) == 7
+ok(("folder", "Mây trắng: bay/xa (2)", VPS_ID) in FD.calls and len([c for c in FD.calls if c[0] == "upload"]) == 7
    and CK["t1"]["drive"]["token_id"] == "cred_b_1", "đổi tài khoản → thư mục mới (tên không trùng), tải đủ", FD.calls[:2])
 FD.files[CK["t1"]["drive"]["folder_id"]]["trashed"] = True
 FD.calls.clear()
 P._step_drive(new_state(), dict(OPTS, drive_token_id="cred_b_1"))
 ok([c for c in FD.calls if c[0] == "folder"] and [c for c in FD.calls if c[0] == "sheet"],
    "người dùng xoá thư mục trên Drive → tạo lại thư mục + Sheet", FD.calls[:3])
+
+# Project tải TRƯỚC bản này nằm ngay gốc My Drive → lượt đồng bộ lại dời nó vào thư mục của máy.
+legacy = FD.add("Dự án cũ", "root", DX.FOLDER_MIME)
+CK["t1"]["drive"] = dict(CK["t1"]["drive"], folder_id=legacy["id"])
+FD.calls.clear()
+P._step_drive(new_state(), dict(OPTS, drive_token_id="cred_b_1"))
+ok(("move", legacy["id"], VPS_ID, ["root"]) in FD.calls and FD.files[legacy["id"]]["parent"] == VPS_ID
+   and not [c for c in FD.calls if c[0] == "folder" and c[2] in (VPS_ID, "root")] and CK["t1"]["drive"]["folder_id"] == legacy["id"],
+   "project cũ ở gốc My Drive → dời vào «tuan89tk-vps-9», dùng lại chứ không tạo thư mục mới", FD.calls[:3])
+elsewhere = FD.add("Kho riêng", "root", DX.FOLDER_MIME)
+mine = FD.add("Tự xếp", elsewhere["id"], DX.FOLDER_MIME)
+CK["t1"]["drive"] = dict(CK["t1"]["drive"], folder_id=mine["id"])
+FD.calls.clear()
+P._step_drive(new_state(), dict(OPTS, drive_token_id="cred_b_1"))
+ok(not [c for c in FD.calls if c[0] == "move"] and FD.files[mine["id"]]["parent"] == elsewhere["id"],
+   "người dùng đã tự dời project đi chỗ khác → để yên", FD.calls[:3])
 
 print("── E/F. an toàn, lỗi, tắt, huỷ ─────────────────────────────")
 FD.calls.clear()
@@ -500,9 +550,11 @@ ok(P.RENDER_STEPS[-1] == ("drive", "Save to Google Drive", "drive", True) and "d
    and P.DEFAULTS["drive"] is False and P.DEFAULTS["drive_token_id"] == "", "bước cuối, tuỳ chọn, mặc định tắt")
 ok(CAP.JOBS["drive"]["requires"] == ["auth_manager"] and "auth_manager" in CAP.EXTENSIONS, "năng lực: cần Auth Manager")
 d = P.describe_plan({"drive": True, "drive_token_id": "cred_a_1", "title": "Mây"})
-ok("- Save to Google Drive: a folder «Mây» on a@x.com — content sheet, images, voice and video" in d, "dòng kế hoạch: thư mục + tài khoản", d)
+ok("- Save to Google Drive: a folder «Mây» inside «tuan89tk-vps-9» on a@x.com — content sheet, images, voice and video" in d,
+   "dòng kế hoạch: thư mục (trong thư mục của máy) + tài khoản", d)
 d2 = P.describe_plan({"drive": True})
-ok("named after the video title on the Google account granted to the agent in its Auth tab" in d2, "không chọn → nói tài khoản đã cấp cho agent")
+ok("named after the video title inside «tuan89tk-vps-9» on the Google account granted to the agent in its Auth tab" in d2,
+   "không chọn → nói tài khoản đã cấp cho agent")
 ok("Save to Google Drive:" not in P.describe_plan({}), "không bật → không có dòng lưu Drive")
 src = Path(P.__file__).read_text(encoding="utf-8")
 ok(src.count('options["_drive_hard"] = bool(options.get("drive")) and not options.get("autopublish")') == 2
@@ -513,7 +565,8 @@ CM.codex_manager.create_task = lambda **k: made.update(task=k) or {"id": "x9", "
 CM.codex_manager.append_event = lambda *a, **k: None
 P.create_auto_task("a1", {"source_text": "abc", "drive": True, "drive_token_id": "cred_a_1"}, created_by="user",
                    job_label="Video from content")
-ok("→ lưu lên Google Drive" in made["task"]["goal"] and "- Save to Google Drive: a folder named after the video title on a@x.com" in made["task"]["goal"],
+ok("→ lưu lên Google Drive" in made["task"]["goal"]
+   and "- Save to Google Drive: a folder named after the video title inside «tuan89tk-vps-9» on a@x.com" in made["task"]["goal"],
    "task auto: câu mô tả + kế hoạch nói lưu Drive", made["task"]["goal"][:200])
 
 print("── J. quyền chia sẻ chọn lúc tạo task ──────────────────────")
@@ -729,6 +782,26 @@ try:
     ok(False, "lỗi khác phải ném")
 except RuntimeError:
     ok(True, "file_alive: lỗi mạng/máy chủ → ném (không tạo thư mục trùng)")
+
+svc4 = FakeSvc()
+svc4.f.pages = [{"files": [{"id": "r1", "name": "tuan89tk-vps-9", "mimeType": DX.FOLDER_MIME}]}]
+got = DX.find_or_create_folder(svc4, "root", "tuan89tk-vps-9")
+q4 = svc4.f.lists[-1]["q"]
+ok(got["id"] == "r1" and not svc4.f.created and "'root' in parents" in q4 and "name = 'tuan89tk-vps-9'" in q4
+   and "mimeType = 'application/vnd.google-apps.folder'" in q4 and "trashed = false" in q4,
+   "find_or_create_folder: hỏi đúng tên trong thư mục cha (không liệt kê cả gốc) → dùng lại", q4)
+svc4.f.pages = [{"files": []}]
+svc4.f.req = _Exec({"id": "new1", "name": "bob's-vps-2"})
+got = DX.find_or_create_folder(svc4, "root", "bob's-vps-2")
+ok(got["id"] == "new1" and svc4.f.created[-1][0] == {"name": "bob's-vps-2", "mimeType": DX.FOLDER_MIME, "parents": ["root"]}
+   and "name = 'bob\\'s-vps-2'" in svc4.f.lists[-1]["q"], "chưa có → tạo ở gốc; dấu nháy được thoát", svc4.f.lists[-1]["q"])
+svc4.f.get_result = {"id": "0AROOT"}
+ok(DX.my_drive_root_id(svc4) == "0AROOT", "my_drive_root_id: id thật của gốc My Drive")
+DX.move_folder(svc4, "p1", "r1", ["0AROOT"])
+ok(svc4.f.updated[-1] == {"fileId": "p1", "addParents": "r1", "removeParents": "0AROOT", "fields": "id, parents"},
+   "move_folder: thêm cha mới, bỏ cha cũ", svc4.f.updated[-1])
+ok('fields="id, name, mimeType, trashed, webViewLink, parents"' in Path(DX.__file__).read_text(encoding="utf-8"),
+   "file_alive lấy cả parents (biết project còn nằm ở gốc không)")
 
 svc3 = FakeSvc()
 DX.share_public(svc3, "fold1")

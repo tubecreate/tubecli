@@ -12,6 +12,7 @@ Mọi lời gọi mạng nằm trong các hàm cấp module để test thay đư
 """
 import logging
 import os
+import threading
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 logger = logging.getLogger("ContentVideo")
@@ -21,6 +22,9 @@ SHEET_MIME = "application/vnd.google-apps.spreadsheet"
 CHUNK_BYTES = 8 * 1024 * 1024        # mỗi lượt next_chunk — đủ nhỏ để báo tiến độ, huỷ giữa chừng
 CELL_MAX = 49000                     # Google Sheets: tối đa 50 000 ký tự một ô
 FILE_FIELDS = "id, name, size, mimeType, webViewLink"
+# Hai lượt đồng bộ chạy song song (task Drive không chung làn) cùng tìm-rồi-tạo thư mục của máy → khoá, kẻo đẻ
+# hai thư mục «user-vps-9» cùng tên.
+_FOLDER_LOCK = threading.Lock()
 
 
 class DriveExportError(RuntimeError):
@@ -141,7 +145,7 @@ def list_children(drive, folder_id: str) -> Dict[str, Dict[str, Any]]:
 def file_alive(drive, file_id: str) -> Optional[Dict[str, Any]]:
     """File/thư mục còn đó (không nằm thùng rác) thì trả nó; bị xoá → None. Lỗi khác (mạng, quyền) thì ném."""
     try:
-        f = drive.files().get(fileId=file_id, fields="id, name, mimeType, trashed, webViewLink").execute() or {}
+        f = drive.files().get(fileId=file_id, fields="id, name, mimeType, trashed, webViewLink, parents").execute() or {}
     except Exception as e:      # noqa: BLE001 — googleapiclient.errors.HttpError
         if "404" in str(e) or "notFound" in str(e):
             return None
@@ -160,6 +164,27 @@ def ensure_folder(drive, parent: str, name: str, known: Optional[Dict[str, Dict[
     if hit and hit.get("mimeType") == FOLDER_MIME:
         return hit
     return create_folder(drive, name, parent)
+
+
+def find_or_create_folder(drive, parent: str, name: str) -> Dict[str, Any]:
+    """Thư mục tên ĐÚNG `name` ngay trong `parent`; chưa có thì tạo. Hỏi theo tên chứ không liệt kê cả thư mục cha:
+    gốc My Drive của một tài khoản dùng chung có thể có hàng nghìn file."""
+    with _FOLDER_LOCK:
+        resp = drive.files().list(q=(f"'{_q(parent)}' in parents and trashed = false and "
+                                     f"mimeType = '{FOLDER_MIME}' and name = '{_q(name)}'"),
+                                  fields=f"files({FILE_FIELDS})", pageSize=10).execute() or {}
+        files = resp.get("files") or []
+        return files[0] if files else create_folder(drive, name, parent)
+
+
+def my_drive_root_id(drive) -> str:
+    """Id thật của gốc My Drive — "root" chỉ là bí danh, còn `parents` của file mang id thật."""
+    return str((drive.files().get(fileId="root", fields="id").execute() or {}).get("id") or "")
+
+
+def move_folder(drive, file_id: str, new_parent: str, old_parents: List[str]) -> None:
+    drive.files().update(fileId=file_id, addParents=new_parent, removeParents=",".join(old_parents),
+                         fields="id, parents").execute()
 
 
 def unique_name(drive, parent: str, name: str) -> str:
