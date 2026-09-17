@@ -5184,8 +5184,9 @@ def _drive_folder_name(state: Dict) -> str:
 
 
 def _drive_root_name() -> str:
-    """Thư mục cha trên Drive: «<username>-vps-<server_id>» (tài khoản cloud + số server, cloud báo lúc đăng nhập
-    hộ) — nhiều máy đăng chung một Drive vẫn biết ai, máy nào (17/9/2026). Máy tự quản: «tubecli-<tên máy>»."""
+    """Thư mục cha trên Drive: «<username>-vps-<mã server>» (tài khoản cloud + mã ngẫu nhiên của server, cloud báo
+    lúc đăng nhập hộ) — nhiều máy đăng chung một Drive vẫn biết ai, máy nào, mà không lộ số thứ tự server
+    (17/9/2026). Máy tự quản: «tubecli-<tên máy>»."""
     try:
         from tubecli.core import cloud_identity
 
@@ -5446,7 +5447,7 @@ def _drive_tabs(state: Dict, shots: List[Dict], links: Dict[str, str], rec: Dict
         ["Video (no layout, download)", links.get("main#dl", "")],
         ["Thumbnail", links.get("thumbnail", "")],
         ["Google Drive folder", rec.get("folder_url") or ""],
-        # Ai đăng, từ máy nào: «<username>-vps-<server_id>» — nhiều máy đăng chung một Drive.
+        # Ai đăng, từ máy nào: «<username>-vps-<mã server>» — nhiều máy đăng chung một Drive.
         ["Uploaded from", rec.get("root_name") or ""],
         ["Sharing", ("anyone with the link can view and download" if rec.get("public")
                      else f"private — only {rec.get('email') or 'the owner'}")],
@@ -5524,7 +5525,7 @@ def _drive_save(state: Dict, options: Dict) -> None:
     drive, sheets = DX.services(token_id)
 
     rec = dict(state.get("drive") or (state.get("checkpoint") or {}).get("drive") or {})
-    # Mọi project nằm trong thư mục của máy «<username>-vps-<server_id>» ở gốc My Drive — nhiều máy đăng chung
+    # Mọi project nằm trong thư mục của máy «<username>-vps-<mã server>» ở gốc My Drive — nhiều máy đăng chung
     # một Drive vẫn biết ai đăng, từ máy nào. Chỉ thư mục project được chia sẻ, thư mục của máy thì không.
     root_name = _drive_root_name()
     root = DX.find_or_create_folder(drive, "root", root_name)

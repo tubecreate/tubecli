@@ -207,7 +207,7 @@ def fake_upload(drive, path, name, parent, on_progress=None, cancelled=None, can
     return FD.add(name, parent, "", size)
 
 
-ROOT_NAME = "tuan89tk-vps-9"
+ROOT_NAME = "tuan89tk-vps-k7m2qx"
 
 
 def fake_find_or_create(drive, parent, name):
@@ -330,8 +330,8 @@ folder = root.get("Mây trắng: bay/xa")
 # User 17/9/2026: "sử dụng đường dẫn tạo folder username-vps-9/tenproject để biết được user nào đăng lên và ở server
 # nào nếu tất cả đăng chung 1 drive".
 ok(vps.get("mimeType") == DX.FOLDER_MIME and list(FD.children("root")) == [ROOT_NAME],
-   "gốc Drive chỉ có thư mục của máy «tuan89tk-vps-9»", list(FD.children("root")))
-ok(folder and folder["mimeType"] == DX.FOLDER_MIME, "project «tuan89tk-vps-9/tiêu đề» nằm TRONG thư mục của máy", list(root))
+   "gốc Drive chỉ có thư mục của máy «tuan89tk-vps-k7m2qx»", list(FD.children("root")))
+ok(folder and folder["mimeType"] == DX.FOLDER_MIME, "project «tuan89tk-vps-k7m2qx/tiêu đề» nằm TRONG thư mục của máy", list(root))
 ok(("share", VPS_ID) not in FD.calls and any(c[0] == "share" and c[1] == (folder or {}).get("id") for c in FD.calls),
    "chỉ chia sẻ thư mục project, KHÔNG chia sẻ thư mục của máy (lộ mọi project khác)", FD.calls[:4])
 ok(CK["t1"]["drive"]["root_name"] == ROOT_NAME and CK["t1"]["drive"]["root_id"] == VPS_ID,
@@ -466,7 +466,7 @@ FD.calls.clear()
 P._step_drive(new_state(), dict(OPTS, drive_token_id="cred_b_1"))
 ok(("move", legacy["id"], VPS_ID, ["root"]) in FD.calls and FD.files[legacy["id"]]["parent"] == VPS_ID
    and not [c for c in FD.calls if c[0] == "folder" and c[2] in (VPS_ID, "root")] and CK["t1"]["drive"]["folder_id"] == legacy["id"],
-   "project cũ ở gốc My Drive → dời vào «tuan89tk-vps-9», dùng lại chứ không tạo thư mục mới", FD.calls[:3])
+   "project cũ ở gốc My Drive → dời vào «tuan89tk-vps-k7m2qx», dùng lại chứ không tạo thư mục mới", FD.calls[:3])
 elsewhere = FD.add("Kho riêng", "root", DX.FOLDER_MIME)
 mine = FD.add("Tự xếp", elsewhere["id"], DX.FOLDER_MIME)
 CK["t1"]["drive"] = dict(CK["t1"]["drive"], folder_id=mine["id"])
@@ -550,10 +550,10 @@ ok(P.RENDER_STEPS[-1] == ("drive", "Save to Google Drive", "drive", True) and "d
    and P.DEFAULTS["drive"] is False and P.DEFAULTS["drive_token_id"] == "", "bước cuối, tuỳ chọn, mặc định tắt")
 ok(CAP.JOBS["drive"]["requires"] == ["auth_manager"] and "auth_manager" in CAP.EXTENSIONS, "năng lực: cần Auth Manager")
 d = P.describe_plan({"drive": True, "drive_token_id": "cred_a_1", "title": "Mây"})
-ok("- Save to Google Drive: a folder «Mây» inside «tuan89tk-vps-9» on a@x.com — content sheet, images, voice and video" in d,
+ok("- Save to Google Drive: a folder «Mây» inside «tuan89tk-vps-k7m2qx» on a@x.com — content sheet, images, voice and video" in d,
    "dòng kế hoạch: thư mục (trong thư mục của máy) + tài khoản", d)
 d2 = P.describe_plan({"drive": True})
-ok("named after the video title inside «tuan89tk-vps-9» on the Google account granted to the agent in its Auth tab" in d2,
+ok("named after the video title inside «tuan89tk-vps-k7m2qx» on the Google account granted to the agent in its Auth tab" in d2,
    "không chọn → nói tài khoản đã cấp cho agent")
 ok("Save to Google Drive:" not in P.describe_plan({}), "không bật → không có dòng lưu Drive")
 src = Path(P.__file__).read_text(encoding="utf-8")
@@ -566,7 +566,7 @@ CM.codex_manager.append_event = lambda *a, **k: None
 P.create_auto_task("a1", {"source_text": "abc", "drive": True, "drive_token_id": "cred_a_1"}, created_by="user",
                    job_label="Video from content")
 ok("→ lưu lên Google Drive" in made["task"]["goal"]
-   and "- Save to Google Drive: a folder named after the video title inside «tuan89tk-vps-9» on a@x.com" in made["task"]["goal"],
+   and "- Save to Google Drive: a folder named after the video title inside «tuan89tk-vps-k7m2qx» on a@x.com" in made["task"]["goal"],
    "task auto: câu mô tả + kế hoạch nói lưu Drive", made["task"]["goal"][:200])
 
 print("── J. quyền chia sẻ chọn lúc tạo task ──────────────────────")
@@ -784,10 +784,10 @@ except RuntimeError:
     ok(True, "file_alive: lỗi mạng/máy chủ → ném (không tạo thư mục trùng)")
 
 svc4 = FakeSvc()
-svc4.f.pages = [{"files": [{"id": "r1", "name": "tuan89tk-vps-9", "mimeType": DX.FOLDER_MIME}]}]
-got = DX.find_or_create_folder(svc4, "root", "tuan89tk-vps-9")
+svc4.f.pages = [{"files": [{"id": "r1", "name": "tuan89tk-vps-k7m2qx", "mimeType": DX.FOLDER_MIME}]}]
+got = DX.find_or_create_folder(svc4, "root", "tuan89tk-vps-k7m2qx")
 q4 = svc4.f.lists[-1]["q"]
-ok(got["id"] == "r1" and not svc4.f.created and "'root' in parents" in q4 and "name = 'tuan89tk-vps-9'" in q4
+ok(got["id"] == "r1" and not svc4.f.created and "'root' in parents" in q4 and "name = 'tuan89tk-vps-k7m2qx'" in q4
    and "mimeType = 'application/vnd.google-apps.folder'" in q4 and "trashed = false" in q4,
    "find_or_create_folder: hỏi đúng tên trong thư mục cha (không liệt kê cả gốc) → dùng lại", q4)
 svc4.f.pages = [{"files": []}]

@@ -169,7 +169,7 @@ def fake_find_or_create(drive, parent, name):
 DX.find_or_create_folder = fake_find_or_create
 DX.my_drive_root_id = lambda drive: "root"
 DX.move_folder = lambda drive, fid, new_parent, old: FD.calls.append(("move", fid)) or FD.files[fid].update(parent=new_parent)
-P._drive_root_name = lambda: "tuan89tk-vps-9"
+P._drive_root_name = lambda: "tuan89tk-vps-k7m2qx"
 DX.unique_name = lambda drive, parent, name: name
 DX.create_folder = lambda drive, name, parent="root": FD.calls.append(("folder", name)) or FD.add(name, parent, DX.FOLDER_MIME)
 DX.list_children = lambda drive, fid: FD.children(fid)
@@ -277,10 +277,10 @@ ok({c[1] for c in ups} == {"10 Claves Zen.mp4", "10 Claves Zen (no layout).mp4",
    "tải đủ video, bản không bố cục, ảnh + giọng từng cảnh", ups)
 ok(CK["src"].get("drive", {}).get("folder_id") and "drive" not in CK.get("sync1", {}),
    "thư mục + Sheet ghi vào checkpoint của TASK GỐC (đồng bộ lại mới dùng lại được)", list(CK))
-_vps = [f for f in FD.files.values() if f["name"] == "tuan89tk-vps-9" and f["parent"] == "root"]
+_vps = [f for f in FD.files.values() if f["name"] == "tuan89tk-vps-k7m2qx" and f["parent"] == "root"]
 ok(len(_vps) == 1 and FD.files[CK["src"]["drive"]["folder_id"]]["parent"] == _vps[0]["id"]
-   and "(tuan89tk-vps-9/10 Claves Zen)" in out,
-   "đồng bộ task cũ cũng vào «tuan89tk-vps-9/tiêu đề», kết quả ghi đường dẫn", out[:200])
+   and "(tuan89tk-vps-k7m2qx/10 Claves Zen)" in out,
+   "đồng bộ task cũ cũng vào «tuan89tk-vps-k7m2qx/tiêu đề», kết quả ghi đường dẫn", out[:200])
 ok(any(a[0] == "drive" and a[1] == "success" for a in said), "thẻ bước drive báo xong", said[-3:])
 ok(deleted == [], "không chọn xoá → không xoá gì")
 m = MARKS.get("src") or {}
