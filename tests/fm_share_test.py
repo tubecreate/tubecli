@@ -96,6 +96,23 @@ check(r.status_code == 206 and len(r.content) == 100 and r.headers.get("content-
 r = c.head("/s/" + vtok + "/raw")
 check(r.status_code == 200 and r.headers.get("accept-ranges") == "bytes", "HEAD raw: accept-ranges")
 
+# Tên hiển thị không đuôi (link của task video «<tiêu đề> (final)») → file tải về vẫn mang đuôi thật (17/9/2026).
+# User: "chỗ này file tải về đuôi không có .mp4 không xem được".
+from urllib.parse import unquote  # noqa: E402
+nvid = os.path.join(folder, "episode_9_pipeline_export.mp4"); open(nvid, "wb").write(b"\x00" * 1000)
+r = c.post(P + "/share", json={"path": nvid, "name": "La fuerza secreta del agua (final)"})
+ntok = r.json()["share"]["token"]
+cd = unquote(c.get("/s/" + ntok + "/download").headers.get("content-disposition", ""))
+check(cd == "attachment; filename*=UTF-8''La fuerza secreta del agua (final).mp4", f"tải về: tên hiển thị + .mp4 ({cd})")
+cd = unquote(c.get("/s/" + ntok + "/raw").headers.get("content-disposition", ""))
+check(cd.endswith("(final).mp4") and cd.startswith("inline"), f"Open file: cũng mang .mp4 ({cd})")
+page = c.get("/s/" + ntok, headers={"Accept-Language": "en-US"}).text
+check("La fuerza secreta del agua (final)</p>" in page, "trang chia sẻ vẫn hiện tên hiển thị gốc")
+check(R._share_filename("Mây trắng.MP4", nvid) == "Mây trắng.MP4" and R._share_filename("Dr. Who", nvid) == "Dr. Who.mp4"
+      and R._share_filename("notes.txt", nvid) == "notes.txt.mp4" and R._share_filename("", nvid) == "episode_9_pipeline_export.mp4"
+      and R._share_filename("README", os.path.join(folder, "README")) == "README",
+      "đã đúng đuôi (khác hoa/thường) giữ nguyên; dấu chấm trong tiêu đề / đuôi khác → nối đuôi thật; file không đuôi → giữ")
+
 # file không phải media: raw → tải về
 r = c.post(P + "/share", json={"path": txt}); ttok = r.json()["share"]["token"]
 r = c.get("/s/" + ttok + "/raw")

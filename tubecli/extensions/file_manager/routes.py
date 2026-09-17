@@ -850,6 +850,19 @@ async def public_share_page(token: str, request: Request):
     return HTMLResponse(_share_page(it, request), status_code=200 if alive else 404, headers=dict(_SHARE_HEADERS))
 
 
+def _share_filename(name: str, path: str) -> str:
+    """Tên file khi người nhận LƯU về: tên hiển thị của link + đuôi THẬT của file.
+
+    Link do task video tạo mang tên «<tiêu đề> (final)» — không đuôi, tải về thành file máy không biết mở bằng gì
+    (user 17/9/2026: "file tải về đuôi không có .mp4 không xem được"). Tên đã đúng đuôi thì giữ nguyên; không đuôi
+    hay đuôi khác (kể cả dấu chấm trong tiêu đề như «Dr. Who») thì nối đuôi thật vào. Áp cho cả link đã phát."""
+    ext = os.path.splitext(path)[1]
+    name = str(name or "").strip() or os.path.basename(path)
+    if ext and not name.lower().endswith(ext.lower()):
+        name += ext.lower()
+    return name
+
+
 def _public_file(it: Dict[str, Any], inline: bool) -> FileResponse:
     resolved = os.path.realpath(it["path"])
     try:
@@ -860,7 +873,7 @@ def _public_file(it: Dict[str, Any], inline: bool) -> FileResponse:
         raise HTTPException(status_code=404, detail="File không còn trên máy chủ.")
     ext = os.path.splitext(resolved)[1].lower()
     mt = _MEDIA_TYPES.get(ext)
-    name = it.get("name") or os.path.basename(resolved)
+    name = _share_filename(it.get("name") or "", resolved)
     headers = {"Cache-Control": "private, max-age=0, must-revalidate", "X-Content-Type-Options": "nosniff",
                "X-Robots-Tag": "noindex", "Cross-Origin-Resource-Policy": "cross-origin"}
     if inline and mt:
