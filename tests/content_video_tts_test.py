@@ -309,5 +309,55 @@ P._step_tts({"language": "es", "_cancelled": lambda: False, "_say": lambda *a: N
 P._tts_capcut = orig_tts_capcut
 assert seen_state.get("capcut_speaker") == "es_11" and seen_state.get("capcut_platform") == "11labs", seen_state
 print("8 capcut batch: giọng 11labs đọc theo đợt (≤16 shot/≤1800 ký tự), shot hỏng đọc riêng, route cũ → từng shot, 503 dừng, sami giữ mốc")
+
+# ── 9. giọng sami có mốc HỎNG (giọng ICL tiếng Nhật, đo thật 17/9/2026) → bỏ mốc, phần còn lại đọc theo đợt ──
+# User: "giúp tôi xem logic tiếng nhật trung hàn, gom nhóm voice lại chưa có thì phải, vẫn làm từng câu".
+JA_BAD = [{"word": c, "start": round(k * 0.03, 3), "end": round(k * 0.03 + 0.03, 3)} for k, c in enumerate("だからこそ水は道に近い")]
+JA_BAD[3]["start"], JA_BAD[3]["end"] = 1.635, 1.665
+ZH_GOOD = [{"word": c, "start": round(0.17 + k * 0.32, 2), "end": round(0.17 + k * 0.32 + 0.3, 2)} for k, c in enumerate("老子说上善若水水善利万物")]
+assert P._marks_reliable(JA_BAD) is False and P._marks_reliable(ZH_GOOD) is True, "ngưỡng mốc: Nhật ICL hỏng, Trung tốt"
+assert P._marks_reliable(JA_BAD[:3]) is True and P._marks_reliable([]) is True, "quá ít mốc thì không chê"
+P._get = lambda path, timeout=60: [{"id": "ja_icl", "name": "Yukiko", "language": "ja", "platform": ""}]
+said9 = []
+
+
+def st9(ep):
+    st = st_new(ep)
+    st["_say"] = lambda *a: said9.append(a)
+    return st
+
+
+tmp9 = tempfile.mkdtemp(prefix="cv-marks-")
+CFG.DATA_DIR = tmp9
+for label, words, want_single, want_batch_texts in (("mốc hỏng", JA_BAD, 2, 18), ("mốc tốt", ZH_GOOD, 19, 0)):
+    batch_calls.clear(); single_calls.clear(); puts8.clear(); said9.clear()
+    P._post = fake_batch
+    P._post_audio_marks = (lambda w: (lambda path, payload, timeout=180:
+                                      (single_calls.append(payload) or (b"ID3" + b"\x02" * 2000), list(w))))(words)
+    ep = 90 if label == "mốc hỏng" else 91
+    st = st9(ep)
+    P._tts_capcut(st, {"capcut_speaker": "ja_icl"})
+    texts = [t for c in batch_calls for t in c[0]["texts"]]
+    assert len(single_calls) == want_single and len(texts) == want_batch_texts, (label, len(single_calls), len(texts))
+    assert st["tts_summary"] == "19 voiced (CapCut), 1 silent", (label, st["tts_summary"])
+    side = os.path.join(tmp9, "content_video", "audio", f"ep{ep}", "shot001.mp3.words.json")
+    if label == "mốc hỏng":
+        assert not os.path.exists(side), "mốc hỏng KHÔNG được ghi sidecar (phụ đề sẽ tô sai chữ)"
+        assert any("reading the remaining shots in batches" in str(a[2]) for a in said9), said9
+        assert any("· CapCut · batch" in str(a[2]) for a in said9 if len(a) > 2), "thẻ bước ghi · batch"
+        assert texts[0].startswith("Escena 2.") and "Escena 7." in " ".join(texts), "đợt bắt đầu từ shot kế tiếp"
+    else:
+        assert os.path.exists(side), "mốc tốt (Trung/Hàn/Việt) vẫn ghi sidecar cho phụ đề chạy chữ"
+        assert not any("in batches" in str(a[2]) for a in said9), said9
+
+# 9c. chuyển sang đợt mà CapCut cũ chưa có route đợt (404) → đọc từng shot phần còn lại, KHÔNG lặp chuyển mãi
+batch_calls.clear(); single_calls.clear(); puts8.clear()
+P._post = batch_404
+P._post_audio_marks = lambda path, payload, timeout=180: (single_calls.append(payload) or (b"ID3" + b"\x02" * 2000), list(JA_BAD))
+st = st9(92)
+P._tts_capcut(st, {"capcut_speaker": "ja_icl"})
+assert len(batch_calls) == 1 and len(single_calls) == 19 and st["tts_summary"] == "19 voiced (CapCut), 1 silent", \
+    (len(batch_calls), len(single_calls), st["tts_summary"])
+print("9 capcut marks: mốc hỏng (ICL tiếng Nhật 30 ms/chữ) → bỏ mốc + đọc phần còn lại theo đợt; mốc tốt giữ từng shot; CapCut cũ → từng shot")
 print()
-print("ALL 8 GROUPS PASSED")
+print("ALL 9 GROUPS PASSED")

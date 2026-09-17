@@ -2937,6 +2937,27 @@ def _capcut_batches(items: List[Tuple[int, Dict, str]], max_shots: int = CAPCUT_
     return groups
 
 
+# Mốc từng chữ/từ CapCut trả cho giọng sami (đo thật 17/9/2026, cùng một câu Lão Tử): Trung «Grandma Rong» 320 ms
+# mỗi chữ, hở lớn nhất 0,24 s; Hàn 493 ms mỗi từ; Việt 200 ms — TIN được. Giọng ICL tiếng Nhật (Yukiko, Nice Witch):
+# 30 ms mỗi chữ và hở 1,6–2,3 s GIỮA một từ («だ 0,00 · か 0,05 · ら 1,64») — tô chữ theo đó là nhảy sai, mà đọc từng
+# shot chỉ để lấy thứ mốc ấy thì chậm gấp mấy lần đọc theo đợt. Trung vị dưới ngưỡng này = mốc hỏng.
+MARK_MIN_MEDIAN_SEC = 0.06
+
+
+def _marks_reliable(words: List[Dict]) -> bool:
+    """Mốc từ dùng được cho phụ đề chạy chữ không. Ít hơn 4 mốc thì không đủ để chê."""
+    spans = []
+    for w in words or []:
+        try:
+            spans.append(max(0.0, float(w["end"]) - float(w["start"])))
+        except (KeyError, TypeError, ValueError):
+            continue
+    if len(spans) < 4:
+        return True
+    spans.sort()
+    return spans[len(spans) // 2] >= MARK_MIN_MEDIAN_SEC
+
+
 def _capcut_batch_timeout(chars: int) -> int:
     """Timeout NGOÀI cho một đợt — lớn hơn tổng các timeout TRONG (cùng lý do với
     _capcut_timeout): chờ tới lượt tài khoản (≤90 giây) + một lượt đợt + một lượt đối
@@ -2982,6 +3003,7 @@ def _tts_capcut(state: Dict, options: Dict) -> None:
     total = len(todo)
     last_pct = -1
     speaker = options.get("capcut_speaker") or state.get("capcut_speaker")
+    marks = {"bad": False}
 
     def _capcut_timeout(text: str) -> int:
         """Timeout NGOÀI phải lớn hơn tổng các timeout TRONG.
@@ -3032,6 +3054,10 @@ def _tts_capcut(state: Dict, options: Dict) -> None:
         save(shot, i, audio, words)
 
     def save(shot: Dict, i: int, audio: bytes, words: List[Dict]) -> None:
+        if words and not _marks_reliable(words):
+            # Mốc hỏng (giọng ICL tiếng Nhật): ghi ra là phụ đề tô sai chữ — bỏ, Studio ước lượng theo độ dài giọng.
+            marks["bad"] = True
+            words = []
         num = shot.get("storyboard_number") or shot.get("id") or i
         path = os.path.join(out_dir, f"shot{int(num):03d}.mp3")
         with open(path, "wb") as f:
@@ -3081,9 +3107,12 @@ def _tts_capcut(state: Dict, options: Dict) -> None:
     if platform is None and speaker:
         platform = _capcut_voice_platform(email, str(speaker))
     use_batch = bool(platform) and platform != "sami" and len(speakable) > 1
-    per_shot: List[Tuple[int, Dict]] = []
-    if use_batch:
-        groups = _capcut_batches(speakable)
+
+    def read_batches(items: List[Tuple[int, Dict, str]]) -> List[Tuple[int, Dict]]:
+        """Đọc theo ĐỢT; trả các shot phải đọc lại từng cái (đợt hỏng, shot không có audio, CapCut cũ chưa có đợt)."""
+        nonlocal ok, last_err, use_batch
+        leftover: List[Tuple[int, Dict]] = []
+        groups = _capcut_batches(items)
         for g, group in enumerate(groups):
             if state["_cancelled"]():
                 raise _cancel_exc()
@@ -3102,16 +3131,16 @@ def _tts_capcut(state: Dict, options: Dict) -> None:
                     logger.info(f"[ContentVideo] capcut batch unavailable, reading shot by shot: {e}")
                     use_batch = False
                     for rest in groups[g:]:
-                        per_shot.extend((n, sh) for n, sh, _ in rest)
+                        leftover.extend((n, sh) for n, sh, _ in rest)
                     break
                 # Cả đợt hỏng (bể tài khoản đã đối chứng bằng tài khoản khác rồi): đọc riêng
                 # từng shot của đợt này — một lời CapCut từ chối không kéo cả đợt mất tiếng.
                 last_err = str(e)[:200]
                 logger.warning(f"[ContentVideo] capcut batch of {len(group)} failed, reading one by one: {e}")
-                per_shot.extend((n, sh) for n, sh, _ in group)
+                leftover.extend((n, sh) for n, sh, _ in group)
                 continue
-            items = res.get("items") if isinstance(res, dict) else None
-            by_index = {it.get("index"): it for it in (items or []) if isinstance(it, dict)}
+            items_ = res.get("items") if isinstance(res, dict) else None
+            by_index = {it.get("index"): it for it in (items_ or []) if isinstance(it, dict)}
             for pos, (i, shot, _text) in enumerate(group):
                 it = by_index.get(pos) or {}
                 audio = b""
@@ -3123,7 +3152,7 @@ def _tts_capcut(state: Dict, options: Dict) -> None:
                 if len(audio) < 1000:
                     # CapCut không trả audio cho riêng shot này: đọc lại một mình nó.
                     last_err = str(it.get("error") or "CapCut returned no audio")[:200]
-                    per_shot.append((i, shot))
+                    leftover.append((i, shot))
                     continue
                 try:
                     save(shot, i, audio, [])
@@ -3133,10 +3162,16 @@ def _tts_capcut(state: Dict, options: Dict) -> None:
                     last_err = str(e)[:200]
                     logger.warning(f"[ContentVideo] saving capcut audio failed for shot {shot.get('id')}: {e}")
             report()
+        return leftover
+
+    if use_batch:
+        per_shot = read_batches(speakable)
     else:
         per_shot = [(i, shot) for i, shot, _ in speakable]
 
-    for i, shot in per_shot:
+    switched = False
+    while per_shot:
+        i, shot = per_shot.pop(0)
         if state["_cancelled"]():
             raise _cancel_exc()
         try:
@@ -3151,6 +3186,15 @@ def _tts_capcut(state: Dict, options: Dict) -> None:
             last_err = str(e)[:200]
             logger.warning(f"[ContentVideo] capcut tts failed for shot {shot.get('id')}: {e}")
         report()
+        if marks["bad"] and not use_batch and not switched and len(per_shot) > 1:
+            # Giọng sami mà mốc từ hỏng (giọng ICL tiếng Nhật): đọc từng shot chỉ để lấy mốc là vô ích → phần còn lại
+            # đọc THEO ĐỢT (một lượt gọi nhiều shot, nhanh gấp mấy lần). Một lần thôi: CapCut cũ không có đợt thì
+            # read_batches trả lại cả phần còn lại và vòng này đọc từng shot tiếp.
+            switched = True
+            use_batch = True
+            state["_say"]("tts", "running",
+                          "this voice's word timings are unreliable — reading the remaining shots in batches")
+            per_shot = read_batches([(n, sh, _shot_narration(sh)) for n, sh in per_shot])
     # Một shot không có giọng KHÔNG làm lượt chạy hỏng: khâu dựng gán cho nó 5
     # giây ảnh tĩnh và video lặng lẽ ngắn đi. CapCut hay rớt lẻ tẻ, nên thử lại
     # đúng những shot hỏng một lần nữa trước khi chấp nhận mất tiếng.
