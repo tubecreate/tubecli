@@ -194,7 +194,15 @@ async def list_tasks(status: str = "", limit: int = 50, created_by: str = ""):
     tasks = codex_manager.list_tasks(status=status, limit=limit, created_by=created_by)
     # `now` = đồng hồ MÁY CHỦ. Thẻ đếm "mấy phút trước" theo mốc này thay vì đồng hồ
     # máy người xem, nên máy khách sai giờ cũng không đẻ ra "task vừa tạo, 5h trước".
-    return {"tasks": tasks, "count": len(tasks), "now": codex_manager.server_now()}
+    return {"tasks": tasks, "count": len(tasks), "now": codex_manager.server_now(),
+            # Làn đang tạm dừng vì hết quota — bảng hiện dòng báo + nút «Tiếp tục ngay».
+            "lane_pauses": codex_manager.lane_pauses()}
+
+
+@router.post("/lanes/{lane}/resume")
+async def resume_lane(lane: str):
+    """Mở lại làn đã tạm dừng (hết quota) ngay, không chờ hạn."""
+    return {"ok": True, "lane": lane, "resumed": codex_manager.resume_lane(lane, actor="user")}
 
 
 @router.post("/tasks")

@@ -727,3 +727,13 @@ body {
 .cx-step.cancelled .cx-step-status { color: var(--cx-orange); }
 /* Hộp Xoá: ba nút xếp được xuống dòng trên khung hẹp */
 .cx-modal-foot-wrap { flex-wrap: wrap; justify-content: flex-end; }
+
+/* Làn tạm dừng vì hết quota (17/9/2026): cùng tông cam của nút cảnh báo, nằm ngay dưới ô thống kê. */
+.cx-lane-pauses { display: flex; flex-direction: column; gap: 8px; margin: 0 0 14px; }
+.cx-pause { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 10px;
+    background: color-mix(in srgb, var(--cx-orange) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--cx-orange) 35%, transparent); }
+.cx-pause-ico { color: var(--cx-orange); font-size: 26px; }
+.cx-pause-text { flex: 1; min-width: 0; }
+.cx-pause-title { font-weight: 600; color: var(--cx-orange); }
+.cx-pause-reason { font-size: 0.8rem; color: var(--text-muted, var(--muted)); overflow-wrap: anywhere; }

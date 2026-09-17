@@ -294,6 +294,7 @@ const CODEX = (() => {
       const list = payload.tasks || [];
       list.sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
       state.tasks = list;
+      state.lanePauses = payload.lane_pauses || {};
       state.loaded = true;
       pruneState();
     }
@@ -309,11 +310,53 @@ const CODEX = (() => {
     }
 
     renderStats();
+    renderLanePauses();
     renderChips();
     renderWorker();
     renderList();
 
     if (manual && btn) setTimeout(() => btn.classList.remove('cx-spin'), 400);
+  }
+
+  // ── Làn tạm dừng vì hết quota (17/9/2026) ──────────────────────────────────────────────────────
+  function pauseClock(until) {
+    const d = new Date(Number(until) * 1000);
+    const pad = n => String(n).padStart(2, '0');
+    return `${pad(d.getHours())}:${pad(d.getMinutes())} ${pad(d.getDate())}/${pad(d.getMonth() + 1)}`;
+  }
+
+  function renderLanePauses() {
+    const box = $('cx-lane-pauses');
+    if (!box) return;
+    const items = Object.values(state.lanePauses || {});
+    if (!items.length) {
+      box.classList.add('hidden');
+      box.innerHTML = '';
+      return;
+    }
+    box.innerHTML = items.map(p => {
+      const laneName = t('codex.lane_' + p.lane) !== 'codex.lane_' + p.lane ? t('codex.lane_' + p.lane) : p.lane;
+      const when = p.until ? t('codex.lane_paused_until', { time: pauseClock(p.until) }) : t('codex.lane_paused_manual');
+      return `<div class="cx-pause" role="status">
+        ${icon('pause_circle', 'cx-pause-ico')}
+        <div class="cx-pause-text">
+          <div class="cx-pause-title">${esc(t('codex.lane_paused_title', { lane: laneName }))} · ${esc(when)}</div>
+          <div class="cx-pause-reason">${esc(p.reason || '')}</div>
+        </div>
+        <button type="button" class="cx-btn cx-btn-sm cx-btn-ghost" onclick="CODEX.resumeLane('${esc(p.lane)}')">${icon('play_arrow')}${esc(t('codex.lane_resume'))}</button>
+      </div>`;
+    }).join('');
+    box.classList.remove('hidden');
+  }
+
+  async function resumeLane(lane) {
+    try {
+      await api('/lanes/' + encodeURIComponent(lane) + '/resume', { method: 'POST', body: '{}' });
+      toast(t('codex.toast_lane_resumed'), 'success');
+    } catch (e) {
+      toast(t('codex.toast_action_failed', { error: e.message }), 'error');
+    }
+    await refresh(false);
   }
 
   /** Drop cached events for tasks that no longer exist. */
@@ -2048,6 +2091,6 @@ const CODEX = (() => {
     approve, reject, cancel, retry, runNow, accept, requestChanges,
     confirmNote, confirmDelete, doDelete, copyResult, planTask,
     openNewTask, submitNewTask, queueVideo, setNewKind, onVideoPreset, onVideoAgent, onVideoContent, onVideoLength, onVideoScript, onVideoKeepTheme, onVideoInstructions, planFromModal, closeModal, onBackdrop,
-    onVideoDrive, onVideoDriveToken, onVideoDriveShare, laneChoice, onVideoSplit, openDriveSync, startDriveSync, syncThenDelete,
+    onVideoDrive, onVideoDriveToken, onVideoDriveShare, laneChoice, onVideoSplit, openDriveSync, startDriveSync, syncThenDelete, resumeLane,
   };
 })();

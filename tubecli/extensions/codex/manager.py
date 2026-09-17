@@ -38,6 +38,14 @@ logger = logging.getLogger("Codex")
 CODEX_DATA_DIR = os.path.join(str(EXTENSIONS_DATA_DIR), "codex")
 TASKS_FILE = os.path.join(CODEX_DATA_DIR, "tasks.json")
 EVENTS_DIR = os.path.join(CODEX_DATA_DIR, "events")
+# Làn tạm dừng (hết quota): chuỗi mở đầu lỗi mà worker ghi cho LanePaused — worker chỉ chuyển lỗi thành chuỗi
+# "<TênLỗi>: <nội dung>", nên report_failure nhận ra theo đúng chuỗi này.
+LANE_PAUSED_PREFIX = "LanePaused: "
+
+
+def _lane_pauses_file() -> str:
+    """Tính theo CODEX_DATA_DIR LÚC GỌI — test đổi thư mục dữ liệu thì không đọc nhầm file thật."""
+    return os.path.join(CODEX_DATA_DIR, "lane_pauses.json")
 
 # ── States ───────────────────────────────────────────────────────────
 PENDING_APPROVAL = "pending_approval"
@@ -61,7 +69,8 @@ TRANSITIONS: Dict[str, set] = {
     PENDING_APPROVAL: {BACKLOG, QUEUED, REJECTED, CANCELLED},
     BACKLOG: {QUEUED, CANCELLED},
     QUEUED: {RUNNING, CANCELLED},
-    RUNNING: {REVIEW, DONE, FAILED, CANCELLED},
+    # Về BACKLOG: hết quota giữa lượt → task chờ làn mở lại rồi chạy tiếp, không đánh hỏng (17/9/2026).
+    RUNNING: {REVIEW, DONE, FAILED, CANCELLED, BACKLOG},
     # Về BACKLOG: Chạy lại / Yêu cầu sửa lúc làn đang bận thì XẾP HÀNG chứ không chen
     # (hai video từng dựng song song dù một cái đã "đưa vào hàng đợi", 14/9/2026).
     REVIEW: {DONE, QUEUED, BACKLOG, CANCELLED},
@@ -74,6 +83,11 @@ TRANSITIONS: Dict[str, set] = {
 }
 
 ACTIVE_STATES = {PENDING_APPROVAL, BACKLOG, QUEUED, RUNNING, REVIEW}
+
+
+class LanePaused(Exception):
+    """Một bước hết quota: pipeline đã gọi pause_lane() rồi ném lỗi này — task quay lại HÀNG ĐỢI (không đánh hỏng)
+    và chạy tiếp từ checkpoint khi làn mở lại (17/9/2026)."""
 
 # Trạng thái GIỮ LÀN: còn một task như vậy thì hàng đợi của làn đó chưa thả cái kế
 # tiếp. Review không giữ — video nằm chờ nghiệm thu thì video sau vẫn chạy; chờ
@@ -266,6 +280,8 @@ class CodexManager:
         # video: script accepted → render) without codex knowing the stages.
         self._on_accept: Dict[str, Callable[..., Any]] = {}
         self._on_delete: Dict[str, Callable[..., Any]] = {}
+        # Làn tạm dừng: lane → {lane, until (epoch giây | None = tới khi bấm tiếp tục), reason, at, actor}.
+        self._pauses: Dict[str, Dict[str, Any]] = {}
         # (task, bước) → (mốc đồng hồ, "hình" câu đã thay số bằng #, số dòng đã ghi) — xem _log_progress.
         self._progress_last: Dict[Tuple[str, str], Tuple[float, str, int]] = {}
 
@@ -291,6 +307,14 @@ class CodexManager:
             except Exception as e:
                 logger.error(f"[Codex] Failed to load tasks.json: {e}")
                 self._tasks = {}
+            try:
+                if os.path.exists(_lane_pauses_file()):
+                    with open(_lane_pauses_file(), "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    if isinstance(data, dict):
+                        self._pauses = {str(k): v for k, v in data.items() if isinstance(v, dict)}
+            except Exception as e:
+                logger.error(f"[Codex] Failed to load lane_pauses.json: {e}")
             self._loaded = True
 
     def _save(self):
@@ -983,6 +1007,80 @@ class CodexManager:
             self._save()
             return dict(task)
 
+    # ── Làn tạm dừng (hết quota) ─────────────────────────────────
+
+    def _save_pauses(self):
+        """MUST be called while holding self._lock."""
+        self._ensure_dirs()
+        path = _lane_pauses_file()
+        tmp = path + ".tmp"
+        try:
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(self._pauses, f, indent=2, ensure_ascii=False)
+            os.replace(tmp, path)
+        except Exception as e:
+            logger.error(f"[Codex] Failed to save lane_pauses.json: {e}")
+
+    def _expire_pauses(self):
+        """Bỏ các lần tạm dừng đã tới hạn — làn tự chạy tiếp. MUST be called while holding self._lock."""
+        now = time.time()
+        gone = [lane for lane, p in self._pauses.items() if p.get("until") and float(p["until"]) <= now]
+        for lane in gone:
+            self._pauses.pop(lane, None)
+            logger.info(f"[Codex] lane '{lane}' resumed by itself (pause expired)")
+        if gone:
+            self._save_pauses()
+
+    def _lane_paused(self, lane: str) -> bool:
+        """MUST be called while holding self._lock."""
+        if not lane:
+            return False
+        self._expire_pauses()
+        return lane in self._pauses
+
+    def pause_lane(self, lane: str, until: Optional[float] = None, reason: str = "",
+                   actor: str = "system") -> Dict[str, Any]:
+        """Tạm dừng một làn: hàng đợi của làn không thả task nào, task đã queued của làn cũng không được nhận,
+        tới `until` (epoch giây) hay tới khi resume_lane(). Tạm dừng lại lúc đang dừng thì lấy hạn MUỘN hơn."""
+        lane = str(lane or "").strip()
+        if not lane:
+            raise ValueError("A lane name is required")
+        self._ensure_loaded()
+        with self._lock:
+            old = self._pauses.get(lane) or {}
+            new_until = float(until) if until else None
+            if old and old.get("until") and new_until and float(old["until"]) > new_until:
+                new_until = float(old["until"])
+            if old and not old.get("until"):
+                new_until = None            # đang dừng tới khi bấm tiếp tục thì giữ nguyên
+            rec = {"lane": lane, "until": new_until, "reason": str(reason or "")[:500], "at": _now(), "actor": actor}
+            self._pauses[lane] = rec
+            self._save_pauses()
+            return dict(rec)
+
+    def resume_lane(self, lane: str, actor: str = "user") -> bool:
+        """Mở lại làn ngay. True = làn đang dừng và đã mở."""
+        self._ensure_loaded()
+        with self._lock:
+            existed = self._pauses.pop(str(lane or ""), None) is not None
+            if existed:
+                self._save_pauses()
+        if existed:
+            logger.info(f"[Codex] lane '{lane}' resumed by {actor}")
+        return existed
+
+    def lane_pauses(self) -> Dict[str, Dict[str, Any]]:
+        """Các làn đang tạm dừng (đã bỏ lần hết hạn)."""
+        self._ensure_loaded()
+        with self._lock:
+            self._expire_pauses()
+            return {k: dict(v) for k, v in self._pauses.items()}
+
+    def lane_paused(self, lane: str) -> bool:
+        self._ensure_loaded()
+        with self._lock:
+            return self._lane_paused(str(lane or ""))
+
     # ── Worker-facing ────────────────────────────────────────────
 
     def backlog_position(self, task_id: str) -> int:
@@ -1012,7 +1110,7 @@ class CodexManager:
         for t in sorted((t for t in self._tasks.values() if t.get("status") == BACKLOG),
                         key=_backlog_key):
             lane = t.get("lane") or ""
-            if lane in busy:
+            if lane in busy or self._lane_paused(lane):
                 continue
             busy.add(lane)
             t["status"] = QUEUED
@@ -1032,7 +1130,9 @@ class CodexManager:
         self._ensure_loaded()
         with self._lock:
             released = self._release_backlog()
-            candidates = [t for t in self._tasks.values() if t.get("status") == QUEUED]
+            # Làn đang tạm dừng (hết quota): task queued của làn đó cũng chờ — chạy là hỏng y như task vừa dừng.
+            candidates = [t for t in self._tasks.values()
+                          if t.get("status") == QUEUED and not self._lane_paused(t.get("lane") or "")]
             snapshot = None
             if candidates:
                 candidates.sort(
@@ -1223,6 +1323,16 @@ class CodexManager:
     def report_failure(self, task_id: str, error: str) -> Dict[str, Any]:
         task = self.get_task(task_id)
         seq = task.get("seq") if task else "?"
+        if (str(error or "").startswith(LANE_PAUSED_PREFIX) and task and task.get("status") == RUNNING
+                and self.lane_paused(str(task.get("lane") or ""))):
+            # Hết quota: KHÔNG đánh hỏng — quay lại hàng đợi của làn (tạo trước nên đứng đầu), chạy tiếp từ
+            # checkpoint khi làn mở lại. Không bắn Telegram «thất bại».
+            why = str(error)[len(LANE_PAUSED_PREFIX):]
+            updated = self._transition(task_id, BACKLOG, "worker", message=f"Paused, back in the queue: {why[:200]}",
+                                       updates={"error": why, "paused_at": _now()})
+            self.append_event(task_id, "log", f"⏸ {why[:2000]}", actor="worker")
+            self.post_to_chat(updated, "⏸", why)
+            return updated
         updated, changed = self._settle(
             task_id, FAILED, "worker",
             message=f"Execution failed: {error[:200]}",

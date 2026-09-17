@@ -2619,6 +2619,53 @@ def _fill_missing_prompts(state: Dict) -> int:
     return n
 
 
+# ── Hết quota giữa lượt → tạm dừng làn video (17/9/2026) ─────────────────────────────────────────────────────────
+# User: "đối với video luồng hết quota không tạo được video thì tạm dừng tất cả các luồng đợi xử lý". Trước đây bước
+# ảnh thiếu 5/177 shot vì Cloudflare hết 10 000 neurons/ngày vẫn «Xong», lượt đọc giọng rồi dựng video THIẾU cảnh, và
+# các video trong hàng đợi chạy tiếp để hỏng y như vậy. Nay: task quay lại đầu hàng đợi, làn dừng tới lúc quota mở lại
+# (Cloudflare: account đỗ sớm nhất mở lại — 00:00 UTC; nhà khác không biết hạn → thử lại sau QUOTA_RETRY_SEC), rồi
+# tự chạy tiếp từ bước hỏng (gen-images chỉ vẽ shot còn thiếu).
+QUOTA_RETRY_SEC = 30 * 60
+_QUOTA_RE = re.compile(r"\bHTTP 429\b|\b429\b.*(?:too many|rate|quota|limit)|quota|rate[ _-]?limit|resource[_ ]exhausted"
+                       r"|daily free allocation|exceeded your current|used up", re.I | re.S)
+
+
+def _looks_like_quota(text: Any) -> bool:
+    return bool(_QUOTA_RE.search(str(text or "")))
+
+
+def _quota_until(now: Optional[float] = None) -> float:
+    """Hạn mở lại làn: mọi account Cloudflare đang đỗ vì hết hạn mức → account mở lại sớm nhất; còn lại +30 phút."""
+    now = time.time() if now is None else now
+    try:
+        from tubecli.core import image_gen as IG
+
+        accs = IG._cf_accounts()
+        parked = [float(a["disabled_until"]) for a in accs
+                  if not a.get("active") and a.get("disable_reason") == "transient" and a.get("disabled_until")]
+        if accs and not any(a.get("active") for a in accs) and parked and min(parked) > now:
+            return min(parked)
+    except Exception as e:      # noqa: BLE001
+        logger.info(f"[ContentVideo] cannot read Cloudflare account states: {e}")
+    return now + QUOTA_RETRY_SEC
+
+
+def _pause_for_quota(state: Dict, step: str, detail: str) -> None:
+    """Tạm dừng làn của task rồi ném LanePaused. Task không thuộc làn nào → không làm gì (lỗi thường đi tiếp)."""
+    from tubecli.extensions.codex.manager import LanePaused, codex_manager
+
+    task = codex_manager.get_task(str(state.get("task_id") or "")) if state.get("task_id") else None
+    lane = str((task or {}).get("lane") or "")
+    if not lane:
+        return
+    until = _quota_until()
+    when = time.strftime("%H:%M %d/%m", time.localtime(until))
+    detail = " ".join(str(detail or "").split())[:300]
+    codex_manager.pause_lane(lane, until, f"{step}: {detail}", actor="content_video")
+    raise LanePaused(f"quota used up at «{step}» — the {lane} queue is paused until {when}, then this task "
+                     f"continues from this step by itself ({detail})")
+
+
 def _step_images(state: Dict, options: Dict) -> None:
     ep_id = state["episode_id"]
     filled = _fill_missing_prompts(state)
@@ -2690,6 +2737,11 @@ def _step_images(state: Dict, options: Dict) -> None:
         raise RuntimeError(f"no image was generated ({len(errors)}/{total} shots failed)"
                            + (f": {last[:300]}" if last else " — check the image provider in Content Studio"))
     if errors:
+        msgs = " ".join([last] + [str((m or {}).get("message") or "") for m in (data.get("error_messages") or [])])
+        if _looks_like_quota(msgs):
+            # Thiếu ảnh vì HẾT QUOTA: dựng tiếp là video thiếu cảnh — dừng, chờ quota rồi vẽ nốt phần thiếu.
+            _pause_for_quota(state, "Generate shot images",
+                             f"{len(errors)}/{total} shot(s) not drawn — {last[:200]}")
         state["_say"]("images", "running", f"{len(errors)} shot(s) without image" + (f" — {last[:120]}" if last else ""))
         state.setdefault("warnings", []).append(
             f"{len(errors)}/{total} shot(s) could not be drawn" + (f": {last[:200]}" if last else "")
@@ -6014,6 +6066,14 @@ def _run_steps(steps, state: Dict, options: Dict, say, cancelled,
         except Exception as e:
             if _is_cancel(e):
                 raise
+            if type(e).__name__ != "LanePaused" and _looks_like_quota(e) and not optional:
+                # Bước bắt buộc hỏng vì HẾT QUOTA (viết kịch bản, storyboard, giọng, 0 ảnh…): tạm dừng làn thay cho
+                # đánh hỏng — video kế trong hàng đợi chạy vào cũng hỏng y như vậy. Task không thuộc làn → lỗi thường.
+                try:
+                    _pause_for_quota(state, label, str(e))
+                except Exception as paused:      # noqa: BLE001 — LanePaused đi lên worker
+                    say(sid, "error", str(paused)[:300])
+                    raise
             say(sid, "error", str(e)[:300])
             # "optional" nghĩa là ĐƯỢC BỎ QUA khi máy thiếu năng lực (không có
             # extension giọng đọc → video không lời). Bước đã CHẠY mà HỎNG là

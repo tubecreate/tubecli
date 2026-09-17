@@ -158,7 +158,9 @@ const QUEUE_KEYS = new Set(['codex.stat_backlog', 'codex.status_backlog', 'codex
     'codex.modal_busy_hint_running', 'codex.modal_busy_hint_queued', 'codex.btn_busy_queue',
     // Loat nhieu link (16/9/2026): bon cau nay cung noi ve hang doi.
     'codex.cv_split_hint', 'codex.toast_video_many', 'codex.toast_video_many_partial',
-    'codex.created_many_title']);
+    'codex.created_many_title',
+    // Làn tạm dừng vì hết quota (17/9/2026): dòng báo + toast mở lại đúng là NÓI về hàng đợi.
+    'codex.lane_paused_title', 'codex.toast_lane_resumed']);
 for (const lang of LANGS) {
     const L = JSON.parse(read('locales', lang + '.json'));
     const jargon = Object.entries(L).filter(([, v]) => /backlog|백로그/i.test(String(v))).map(([k]) => k);
