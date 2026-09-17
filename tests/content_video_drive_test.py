@@ -733,11 +733,15 @@ DUR.clear()
 print("── H. drive_export thật với dịch vụ giả ────────────────────")
 
 
+RETRY_ARGS = []
+
+
 class _Exec:
     def __init__(self, value):
         self.value = value
 
-    def execute(self):
+    def execute(self, num_retries=0):
+        RETRY_ARGS.append(num_retries)
         if isinstance(self.value, Exception):
             raise self.value
         return self.value
@@ -752,7 +756,8 @@ class Req:
     def __init__(self, seq):
         self.seq = list(seq)
 
-    def next_chunk(self):
+    def next_chunk(self, num_retries=0):
+        RETRY_ARGS.append(num_retries)
         return self.seq.pop(0)
 
 
@@ -933,6 +938,32 @@ ok(svc4.f.updated[-1] == {"fileId": "p1", "addParents": "r1", "removeParents": "
    "move_folder: thêm cha mới, bỏ cha cũ", svc4.f.updated[-1])
 ok('fields="id, name, mimeType, trashed, webViewLink, parents"' in Path(DX.__file__).read_text(encoding="utf-8"),
    "file_alive lấy cả parents (biết project còn nằm ở gốc không)")
+
+# Google 500 «Internal Error» lúc mở phiên tải lên đánh hỏng cả bước Drive (VPS 17/9/2026) → mọi lời gọi xin thử lại.
+ok(RETRY_ARGS and set(RETRY_ARGS) == {DX.API_RETRIES},
+   "mọi lời gọi Drive/Sheets (execute + next_chunk) xin googleapiclient tự thử lại lỗi tạm", sorted(set(RETRY_ARGS)))
+_dx_src = Path(DX.__file__).read_text(encoding="utf-8")
+ok(".execute()" not in _dx_src and "next_chunk()" not in _dx_src, "không còn lời gọi Google nào quên num_retries")
+try:
+    from googleapiclient import http as _gh
+    from googleapiclient.discovery import build as _build
+
+    _sleeps = []
+    _real_sleep = _gh.time.sleep
+    _gh.time.sleep = lambda s: _sleeps.append(s)
+    try:
+        _mock = _gh.HttpMockSequence([
+            ({"status": "500"}, '{"error": {"code": 500, "message": "Internal Error", "errors": [{"reason": "internalError"}]}}'),
+            ({"status": "200"}, '{"id": "f1", "name": "n", "trashed": false}'),
+        ])
+        _real_drive = _build("drive", "v3", http=_mock, static_discovery=True, cache_discovery=False)
+        _got = DX.file_alive(_real_drive, "f1")
+        ok(_got and _got["id"] == "f1" and len(_sleeps) == 1,
+           "googleapiclient THẬT: 500 Internal Error rồi 200 → tự thử lại, trả kết quả (không ném)", (_got, _sleeps))
+    finally:
+        _gh.time.sleep = _real_sleep
+except ImportError as _e:
+    ok(True, f"(bỏ qua kiểm googleapiclient thật: {_e})")
 
 svc3 = FakeSvc()
 DX.share_public(svc3, "fold1")

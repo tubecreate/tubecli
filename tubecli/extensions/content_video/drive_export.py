@@ -21,6 +21,10 @@ FOLDER_MIME = "application/vnd.google-apps.folder"
 SHEET_MIME = "application/vnd.google-apps.spreadsheet"
 CHUNK_BYTES = 8 * 1024 * 1024        # mỗi lượt next_chunk — đủ nhỏ để báo tiến độ, huỷ giữa chừng
 CELL_MAX = 49000                     # Google Sheets: tối đa 50 000 ký tự một ô
+# Google trả 500 «Internal Error» / 503 / 429 là lỗi TẠM, tài liệu Drive API bảo thử lại có giãn cách. googleapiclient
+# tự làm việc đó (chờ ngẫu nhiên × 2^lần, cả 403 rate limit) — nhưng CHỈ khi truyền num_retries; mặc định 0 nên một
+# cú 500 lúc mở phiên tải lên là cả bước Drive hỏng (VPS 17/9/2026, tập 48). 6 lần ≈ tối đa ~2 phút chờ mỗi lời gọi.
+API_RETRIES = 6
 FILE_FIELDS = "id, name, size, mimeType, webViewLink"
 # Hai lượt đồng bộ chạy song song (task Drive không chung làn) cùng tìm-rồi-tạo thư mục của máy → khoá, kẻo đẻ
 # hai thư mục «user-vps-9» cùng tên.
@@ -134,7 +138,7 @@ def list_children(drive, folder_id: str) -> Dict[str, Dict[str, Any]]:
     while True:
         resp = drive.files().list(q=f"'{_q(folder_id)}' in parents and trashed = false",
                                   fields=f"nextPageToken, files({FILE_FIELDS})",
-                                  pageSize=1000, pageToken=page).execute() or {}
+                                  pageSize=1000, pageToken=page).execute(num_retries=API_RETRIES) or {}
         for f in resp.get("files") or []:
             out.setdefault(str(f.get("name") or ""), f)
         page = resp.get("nextPageToken")
@@ -145,7 +149,7 @@ def list_children(drive, folder_id: str) -> Dict[str, Dict[str, Any]]:
 def file_alive(drive, file_id: str) -> Optional[Dict[str, Any]]:
     """File/thư mục còn đó (không nằm thùng rác) thì trả nó; bị xoá → None. Lỗi khác (mạng, quyền) thì ném."""
     try:
-        f = drive.files().get(fileId=file_id, fields="id, name, mimeType, trashed, webViewLink, parents").execute() or {}
+        f = drive.files().get(fileId=file_id, fields="id, name, mimeType, trashed, webViewLink, parents").execute(num_retries=API_RETRIES) or {}
     except Exception as e:      # noqa: BLE001 — googleapiclient.errors.HttpError
         if "404" in str(e) or "notFound" in str(e):
             return None
@@ -155,7 +159,7 @@ def file_alive(drive, file_id: str) -> Optional[Dict[str, Any]]:
 
 def create_folder(drive, name: str, parent: str = "root") -> Dict[str, Any]:
     return drive.files().create(body={"name": name, "mimeType": FOLDER_MIME, "parents": [parent]},
-                                fields=FILE_FIELDS).execute()
+                                fields=FILE_FIELDS).execute(num_retries=API_RETRIES)
 
 
 def ensure_folder(drive, parent: str, name: str, known: Optional[Dict[str, Dict[str, Any]]] = None) -> Dict[str, Any]:
@@ -172,19 +176,19 @@ def find_or_create_folder(drive, parent: str, name: str) -> Dict[str, Any]:
     with _FOLDER_LOCK:
         resp = drive.files().list(q=(f"'{_q(parent)}' in parents and trashed = false and "
                                      f"mimeType = '{FOLDER_MIME}' and name = '{_q(name)}'"),
-                                  fields=f"files({FILE_FIELDS})", pageSize=10).execute() or {}
+                                  fields=f"files({FILE_FIELDS})", pageSize=10).execute(num_retries=API_RETRIES) or {}
         files = resp.get("files") or []
         return files[0] if files else create_folder(drive, name, parent)
 
 
 def my_drive_root_id(drive) -> str:
     """Id thật của gốc My Drive — "root" chỉ là bí danh, còn `parents` của file mang id thật."""
-    return str((drive.files().get(fileId="root", fields="id").execute() or {}).get("id") or "")
+    return str((drive.files().get(fileId="root", fields="id").execute(num_retries=API_RETRIES) or {}).get("id") or "")
 
 
 def move_folder(drive, file_id: str, new_parent: str, old_parents: List[str]) -> None:
     drive.files().update(fileId=file_id, addParents=new_parent, removeParents=",".join(old_parents),
-                         fields="id, parents").execute()
+                         fields="id, parents").execute(num_retries=API_RETRIES)
 
 
 def unique_name(drive, parent: str, name: str) -> str:
@@ -192,7 +196,7 @@ def unique_name(drive, parent: str, name: str) -> str:
     nào → thêm " (2)", " (3)"… """
     resp = drive.files().list(q=(f"'{_q(parent)}' in parents and trashed = false and "
                                  f"mimeType = '{FOLDER_MIME}' and name contains '{_q(name)}'"),
-                              fields="files(name)", pageSize=1000).execute() or {}
+                              fields="files(name)", pageSize=1000).execute(num_retries=API_RETRIES) or {}
     taken = {str(f.get("name") or "") for f in resp.get("files") or []}
     if name not in taken:
         return name
@@ -216,7 +220,7 @@ def upload_file(drive, path: str, name: str, parent: str,
         while resp is None:
             if cancelled and cancelled():
                 raise cancel_exc() if cancel_exc else RuntimeError("Cancelled by the user.")
-            status, resp = request.next_chunk()
+            status, resp = request.next_chunk(num_retries=API_RETRIES)
             if status is not None and on_progress:
                 on_progress(int(getattr(status, "resumable_progress", 0) or 0))
         if on_progress:
@@ -237,8 +241,8 @@ def share_public(drive, file_id: str) -> None:
     link mới vào được, không hiện trong tìm kiếm Google; (2) tắt `copyRequiresWriterPermission`, vì cờ đó bật là
     người xem KHÔNG tải/copy/in được — đúng thứ người dùng cần (user 16/9/2026). Quyền đặt trên THƯ MỤC thì mọi
     file bên trong hưởng theo, nên chỉ cần gọi một lần cho cả lượt."""
-    drive.permissions().create(fileId=file_id, body={"type": "anyone", "role": "reader"}, fields="id").execute()
-    drive.files().update(fileId=file_id, body={"copyRequiresWriterPermission": False}, fields="id").execute()
+    drive.permissions().create(fileId=file_id, body={"type": "anyone", "role": "reader"}, fields="id").execute(num_retries=API_RETRIES)
+    drive.files().update(fileId=file_id, body={"copyRequiresWriterPermission": False}, fields="id").execute(num_retries=API_RETRIES)
 
 
 def download_url(file_id: str) -> str:
@@ -247,13 +251,13 @@ def download_url(file_id: str) -> str:
 
 
 def trash_file(drive, file_id: str) -> None:
-    drive.files().update(fileId=file_id, body={"trashed": True}, fields="id").execute()
+    drive.files().update(fileId=file_id, body={"trashed": True}, fields="id").execute(num_retries=API_RETRIES)
 
 
 def create_sheet(drive, name: str, parent: str) -> Dict[str, Any]:
     """Tạo Google Sheet NGAY TRONG thư mục — Sheets API tự tạo thì luôn nằm ở gốc Drive."""
     return drive.files().create(body={"name": name, "mimeType": SHEET_MIME, "parents": [parent]},
-                                fields=FILE_FIELDS).execute()
+                                fields=FILE_FIELDS).execute(num_retries=API_RETRIES)
 
 
 # ── Sheets ───────────────────────────────────────────────────────────
@@ -275,7 +279,7 @@ def write_sheet(sheets, sheet_id: str, tabs: List[Tuple[str, List[List[Any]]]],
                 widths: Optional[Dict[str, Dict[int, int]]] = None) -> None:
     """Ghi ĐÈ từng tab [(tên, hàng)]: tab mặc định ("Sheet1"/"Trang tính1") đổi tên thành tab đầu, tab thiếu thì
     thêm. RAW chứ không USER_ENTERED: câu thoại bắt đầu bằng "=", "+" hay "-" không được thành công thức."""
-    meta = sheets.spreadsheets().get(spreadsheetId=sheet_id, fields="sheets.properties").execute() or {}
+    meta = sheets.spreadsheets().get(spreadsheetId=sheet_id, fields="sheets.properties").execute(num_retries=API_RETRIES) or {}
     props = [s.get("properties") or {} for s in meta.get("sheets") or []]
     wanted = [t for t, _ in tabs]
     ids = {p.get("title"): p.get("sheetId") for p in props}
@@ -292,18 +296,18 @@ def write_sheet(sheets, sheet_id: str, tabs: List[Tuple[str, List[List[Any]]]],
         else:
             reqs.append({"addSheet": {"properties": {"title": title}}})
     if reqs:
-        resp = sheets.spreadsheets().batchUpdate(spreadsheetId=sheet_id, body={"requests": reqs}).execute() or {}
+        resp = sheets.spreadsheets().batchUpdate(spreadsheetId=sheet_id, body={"requests": reqs}).execute(num_retries=API_RETRIES) or {}
         for r in resp.get("replies") or []:
             p = ((r or {}).get("addSheet") or {}).get("properties") or {}
             if p.get("title"):
                 ids[p["title"]] = p.get("sheetId")
     sheets.spreadsheets().values().batchClear(spreadsheetId=sheet_id,
-                                              body={"ranges": [_a1(t) for t in wanted]}).execute()
+                                              body={"ranges": [_a1(t) for t in wanted]}).execute(num_retries=API_RETRIES)
     data = [{"range": f"{_a1(t)}!A1", "majorDimension": "ROWS", "values": [[_cell(c) for c in row] for row in rows]}
             for t, rows in tabs if rows]
     if data:
         sheets.spreadsheets().values().batchUpdate(spreadsheetId=sheet_id,
-                                                   body={"valueInputOption": "RAW", "data": data}).execute()
+                                                   body={"valueInputOption": "RAW", "data": data}).execute(num_retries=API_RETRIES)
     fmt = []
     for t, rows in tabs:
         sid = ids.get(t)
@@ -323,6 +327,6 @@ def write_sheet(sheets, sheet_id: str, tabs: List[Tuple[str, List[List[Any]]]],
                 "properties": {"pixelSize": int(px)}, "fields": "pixelSize"}})
     if fmt:
         try:
-            sheets.spreadsheets().batchUpdate(spreadsheetId=sheet_id, body={"requests": fmt}).execute()
+            sheets.spreadsheets().batchUpdate(spreadsheetId=sheet_id, body={"requests": fmt}).execute(num_retries=API_RETRIES)
         except Exception as e:      # noqa: BLE001 — định dạng chỉ là phụ, nội dung đã ghi xong
             logger.info(f"[ContentVideo] sheet formatting skipped: {e}")
