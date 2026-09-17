@@ -102,6 +102,9 @@ SHOTS = [{"id": 1, "storyboard_number": 1, "image_prompt": "zen garden", "video_
           "narration_text": "Hola", "composed_image": IMG, "tts_audio_url": AUD, "duration": 5}]
 P._storyboards = lambda ep: [dict(s) for s in SHOTS]
 P.media_seconds = lambda p: 3.0
+SRT_DUR = {}
+P._srt_seconds = lambda path, mod=None: SRT_DUR.get(str(path), 0.0)
+P._studio_subtitles = lambda: None
 P._agent_scope = lambda agent: ["p1"]
 P.check_job = lambda job: {"ready": True, "missing": [], "disabled": [], "missing_tools": []}
 
@@ -328,6 +331,19 @@ try:
     ok(False, "mất video phải ném")
 except RuntimeError as e:
     ok("no rendered video on this machine" in str(e), "video gốc đã mất → báo rõ", str(e))
+
+print("── K. task cũ đồng bộ lên Drive có luôn phụ đề .srt ────────")
+FD.files.clear()
+FD.calls.clear()
+CK["src"].pop("drive", None)
+SRT_DUR.update({AUD: 2.0, MP4: 2.0, os.path.realpath(MP4): 2.0})
+P.run_drive_sync(dict(PAY), None, lambda: False)
+names = {c[1] for c in FD.calls if c[0] == "upload"}
+srt_local = os.path.splitext(MP4)[0] + ".srt"
+ok("10 Claves Zen.srt" in names and "10 Claves Zen.mp4" in names and os.path.isfile(srt_local)
+   and "Hola" in open(srt_local, encoding="utf-8").read(),
+   "đồng bộ task đã dựng từ trước: dựng lại .srt từ lời + giọng, đưa lên cạnh video", sorted(names))
+SRT_DUR.clear()
 
 print("── I. route ────────────────────────────────────────────────")
 REQ = types.SimpleNamespace(state=types.SimpleNamespace())

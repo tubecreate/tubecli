@@ -5253,8 +5253,254 @@ def _drive_plan_note(options: Dict) -> str:
     folder = f"«{title[:80]}»" if title else "named after the video title"
     share = ("anyone with the link can view and download"
              if _truthy(options.get("drive_public"), True) else "private to that account")
-    return (f"a folder {folder} inside «{_drive_root_name()}» on {who} — content sheet, images, voice and video "
-            f"({share})")
+    return (f"a folder {folder} inside «{_drive_root_name()}» on {who} — content sheet, images, voice, video and "
+            f"its subtitles (.srt) ({share})")
+
+
+# ── Phụ đề .srt cạnh video (17/9/2026) ────────────────────────────────────────────────────────────────────────────
+# User: "xuất luôn giúp tôi file srt, subtitle của video cùng thư mục video" → "thôi bạn convert srt đi cho dễ". Bộ dựng
+# của Studio đốt chữ theo TỪNG shot rồi XOÁ thư mục tạm chứa .ass — dựng xong không còn file phụ đề nào. Nên dựng lại
+# dòng thời gian y như ffmpeg_video_engine.build_ffmpeg_video: shot có hình (video_url / composed_image / image_url)
+# mới vào video; độ dài = giọng đọc (ffprobe, KHÔNG làm tròn — cộng dồn hàng trăm shot), không giọng thì ảnh 5 s /
+# video theo chính nó; lời = _shot_text của bộ dựng; mốc từ lấy từ CHÍNH engines/subtitles.py của Studio (mốc TTS lưu
+# cạnh mp3 → ước lượng). Lệch nhỏ với độ dài video thật (làm tròn khung hình từng shot) thì co giãn đều cho khớp — đo
+# thật tập 384 (149 shot, 34 phút): lệch 0,7 s.
+#
+# Cắt cụm KHÔNG theo mẫu chữ đốt trên hình (26 ký tự/dòng, không để ý dấu câu — ra "impresionar. Puede ser / alguien
+# de tu trabajo. Tu"): .srt để đăng YouTube hay biên tập lại, nên theo chuẩn phụ đề — ≤ 42 ký tự/dòng (dọc 32, CJK
+# 20/16), ≤ 2 dòng, ≤ 6 s, ngắt ở hết câu, ở dấu phẩy khi đã đầy 60 %, ở khoảng lặng > 0,7 s; hai dòng chia cân.
+SRT_IMAGE_SECONDS = 5.0
+SRT_CHARS = {"wide": 42, "tall": 32, "wide_cjk": 20, "tall_cjk": 16}
+SRT_MAX_LINES = 2
+SRT_MAX_CUE_SECONDS = 6.0
+SRT_MAX_GAP = 0.7
+_SRT_CJK = ("ja", "zh", "zh-TW", "ko")
+_SRT_SENTENCE_END = re.compile(r"[.!?…。！？]['\"”’)\]»]*$")
+_SRT_CLAUSE_END = re.compile(r"[,;:，；：、—]['\"”’)\]»]*$")
+
+
+def _studio_dir() -> str:
+    """Thư mục code của Content Studio, hay "" khi chưa cài."""
+    from tubecli.config import EXTENSIONS_EXTERNAL_DIR
+
+    base = str(EXTENSIONS_EXTERNAL_DIR)
+    direct = os.path.join(base, "content_studio")
+    if os.path.isdir(direct):
+        return direct
+    try:
+        for entry in sorted(os.listdir(base)):
+            path = os.path.join(base, entry)
+            manifest = os.path.join(path, "tubecli-extension.json")
+            if os.path.isdir(path) and os.path.isfile(manifest):
+                with open(manifest, "r", encoding="utf-8-sig") as f:
+                    if (json.load(f) or {}).get("name") == "content_studio":
+                        return path
+    except Exception as e:      # noqa: BLE001
+        logger.debug(f"[ContentVideo] could not scan external extensions: {e}")
+    return ""
+
+
+def _studio_subtitles():
+    """engines/subtitles.py của Content Studio nạp theo đường dẫn (không có import nội bộ), hay None."""
+    root = _studio_dir()
+    path = os.path.join(root, "engines", "subtitles.py") if root else ""
+    if not (path and os.path.isfile(path)):
+        return None
+    try:
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("tubecli_cv_studio_subtitles", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    except Exception as e:      # noqa: BLE001
+        logger.info(f"[ContentVideo] Content Studio subtitles module not usable: {e}")
+        return None
+
+
+def _srt_probe(path: str, entries: str, mod=None) -> str:
+    """Một trường ffprobe dạng text; "" khi không đo được. Dùng ff_path của Studio nếu có (bỏ bản ffprobe chết)."""
+    import shutil
+    import subprocess
+
+    exe = ""
+    try:
+        exe = mod.ff_path("ffprobe") if mod is not None else ""
+    except Exception:       # noqa: BLE001
+        exe = ""
+    exe = exe or shutil.which("ffprobe") or ""
+    if not exe or not path or not os.path.isfile(path):
+        return ""
+    try:
+        out = subprocess.run([exe, "-v", "error", *entries.split(), "-of", "csv=p=0", path],
+                             capture_output=True, text=True, timeout=30)
+        return (out.stdout or "").strip()
+    except Exception:       # noqa: BLE001
+        return ""
+
+
+def _srt_seconds(path: str, mod=None) -> float:
+    try:
+        return max(0.0, float(_srt_probe(path, "-show_entries format=duration", mod) or 0))
+    except ValueError:
+        return 0.0
+
+
+def _srt_tall(path: str, state: Dict, mod=None) -> bool:
+    """Video dọc? Đo khung thật; đo không được thì theo tỉ lệ khung của lượt."""
+    raw = _srt_probe(path, "-select_streams v:0 -show_entries stream=width,height", mod)
+    try:
+        w, h = (int(x) for x in raw.splitlines()[0].split(",")[:2])
+        if w > 0 and h > 0:
+            return h > w
+    except (ValueError, IndexError):
+        pass
+    return str(state.get("aspect_ratio") or "") == "9:16"
+
+
+def _srt_audio(url: Any) -> str:
+    """Giọng của shot như bộ dựng tìm (resolve_audio_path): /api/… → outputs của tts_vibevoice; còn lại đường dẫn."""
+    from tubecli.config import DATA_DIR, EXTENSIONS_EXTERNAL_DIR
+
+    p = str(url or "").strip()
+    if p.startswith("/api/"):
+        name = os.path.basename(p.split("?", 1)[0])
+        return next((c for c in (os.path.join(str(DATA_DIR), "tts_vibevoice", "outputs", name),
+                                  os.path.join(str(EXTENSIONS_EXTERNAL_DIR), "tts_vibevoice", "outputs", name))
+                     if name and os.path.isfile(c)), "")
+    return p if p and not p.startswith(("http://", "https://")) and os.path.isfile(p) else ""
+
+
+def _srt_shot_text(sh: Dict) -> str:
+    """Lời bộ dựng đốt thành chữ (ffmpeg_video_engine._shot_text)."""
+    return str(sh.get("narration_text") or sh.get("dialogue") or sh.get("description") or sh.get("action") or "")
+
+
+def _srt_estimate(text: str, duration: float) -> List[Dict]:
+    """Không có Studio: chia thời lượng giọng cho các từ theo số ký tự (đúng ở mức câu)."""
+    words = re.sub(r"\[[^\]]*\]", " ", text).split()
+    if not words or duration <= 0:
+        return []
+    lead = min(0.15, duration * 0.03)
+    k = max(0.1, duration - 2 * lead) / max(1, sum(len(w) + 1 for w in words))
+    out, t = [], lead
+    for w in words:
+        out.append({"word": w, "start": t, "end": t + (len(w) + 1) * k})
+        t = out[-1]["end"]
+    return out
+
+
+def _srt_phrases(words: List[Dict], max_chars: int, sep: str = " ") -> List[List[Dict]]:
+    """Cụm phụ đề dễ đọc: ≤ SRT_MAX_LINES × max_chars ký tự, ≤ 6 s; ngắt ở hết câu, ở dấu phẩy khi đã đầy 60 %, ở
+    khoảng lặng > 0,7 s."""
+    # Chừa vài ký tự: cụm vừa khít 2 × max_chars hay không chia nổi thành hai dòng ≤ max_chars ở ranh giới từ.
+    capacity = max_chars * SRT_MAX_LINES - max(2, max_chars // 7)
+    phrases: List[List[Dict]] = []
+    cur: List[Dict] = []
+    size = 0
+    for w in words:
+        text = str(w.get("word") or "").strip()
+        if not text:
+            continue
+        need = len(text) + (len(sep) if cur else 0)
+        if cur and (size + need > capacity or float(w["start"]) - float(cur[-1]["end"]) > SRT_MAX_GAP
+                    or float(w["end"]) - float(cur[0]["start"]) > SRT_MAX_CUE_SECONDS):
+            phrases.append(cur)
+            cur, size, need = [], 0, len(text)
+        cur.append({**w, "word": text})
+        size += need
+        if _SRT_SENTENCE_END.search(text) or (_SRT_CLAUSE_END.search(text) and size >= 0.6 * capacity):
+            phrases.append(cur)
+            cur, size = [], 0
+    if cur:
+        phrases.append(cur)
+    return phrases
+
+
+def _srt_lines(phrase: List[Dict], max_chars: int, sep: str = " ") -> str:
+    """Một hay hai dòng; hai dòng thì chia CÂN, ưu tiên chỗ ngắt sau dấu câu."""
+    words = [str(w["word"]) for w in phrase]
+    one = sep.join(words)
+    if len(one) <= max_chars or len(words) < 2:
+        return one
+    best = None
+    for i in range(1, len(words)):
+        a, b = sep.join(words[:i]), sep.join(words[i:])
+        over = max(0, len(a) - max_chars) + max(0, len(b) - max_chars)
+        punct = bool(_SRT_SENTENCE_END.search(words[i - 1]) or _SRT_CLAUSE_END.search(words[i - 1]))
+        score = (over, abs(len(a) - len(b)) - (8 if punct else 0))
+        if best is None or score < best[0]:
+            best = (score, f"{a}\n{b}")
+    return best[1]
+
+
+def _srt_time(t: float) -> str:
+    ms = int(round(max(0.0, t) * 1000))
+    h, ms = divmod(ms, 3600000)
+    m, ms = divmod(ms, 60000)
+    s, ms = divmod(ms, 1000)
+    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+
+def build_srt(state: Dict, shots: List[Dict], video_path: str) -> Tuple[str, Dict[str, Any]]:
+    """(nội dung .srt, báo cáo {cues, shots, tts, estimated, scale|drift}) cho video đã dựng."""
+    mod = _studio_subtitles()
+    language = str(state.get("language") or "")
+    rep: Dict[str, Any] = {"cues": 0, "shots": 0}
+    tall: List[bool] = []
+
+    cues: List[List[Any]] = []
+    offset = 0.0
+    for sh in shots:
+        video = next((p for p in (sh.get("video_url"),) if p and os.path.isfile(str(p))), "")
+        media = video or next((p for p in (sh.get("composed_image"), sh.get("image_url"))
+                               if p and not str(p).startswith(("http://", "https://")) and os.path.isfile(str(p))), "")
+        if not media:
+            continue                        # bộ dựng bỏ shot không có hình — không chiếm giây nào
+        audio = _srt_audio(sh.get("tts_audio_url"))
+        adur = _srt_seconds(audio, mod) if audio else 0.0
+        text = _srt_shot_text(sh)
+        if adur > 0 and text.strip():
+            if not tall:                    # đo khung LƯỜI: không shot nào có lời thì khỏi gọi ffprobe
+                tall.append(_srt_tall(video_path, state, mod))
+            cjk = language in _SRT_CJK and not re.search(r"\s", text.strip())
+            sep = "" if cjk else " "
+            max_chars = SRT_CHARS[("tall" if tall[0] else "wide") + ("_cjk" if cjk else "")]
+            if mod is not None:
+                words, source = mod.words_for_shot(text, audio, adur, language, timing="fast")
+            else:
+                words, source = _srt_estimate(text, adur), "estimated"
+            phrases = _srt_phrases(words, max_chars, sep)
+            for ph in phrases:
+                body = _srt_lines(ph, max_chars, sep).strip()
+                if body:
+                    cues.append([offset + float(ph[0]["start"]), offset + float(ph[-1]["end"]), body])
+            if phrases:
+                rep["shots"] += 1
+                rep[source] = rep.get(source, 0) + 1
+        offset += adur if adur > 0 else ((_srt_seconds(video, mod) or SRT_IMAGE_SECONDS) if video else SRT_IMAGE_SECONDS)
+    if not cues:
+        return "", rep
+    actual = _srt_seconds(video_path, mod)
+    if actual > 0 and offset > 0:
+        gap = actual - offset
+        if abs(gap) <= max(1.5, 0.03 * offset):
+            k = actual / offset
+            for c in cues:
+                c[0] *= k
+                c[1] *= k
+            rep["scale"] = round(k, 5)
+        else:
+            # Khâu dựng bỏ bớt shot hỏng (có cảnh báo riêng) — không biết shot nào, đừng kéo giãn sai cả bài.
+            rep["drift"] = round(gap, 1)
+    cues.sort(key=lambda c: c[0])
+    blocks = []
+    for i, c in enumerate(cues):
+        end = min(c[1], cues[i + 1][0]) if i + 1 < len(cues) else c[1]
+        end = max(end, c[0] + 0.2)
+        blocks.append(f"{i + 1}\r\n{_srt_time(c[0])} --> {_srt_time(end)}\r\n{c[2].replace(chr(10), chr(13) + chr(10))}\r\n")
+    rep["cues"] = len(blocks)
+    return "\r\n".join(blocks), rep
 
 
 def _drive_plan(state: Dict) -> Tuple[List[Dict], List[Dict]]:
@@ -5290,6 +5536,26 @@ def _drive_plan(state: Dict) -> Tuple[List[Dict], List[Dict]]:
         audio = _data_file(sh.get("tts_audio_url"))
         add(f"audio:{i}", audio, n, "audio", "voice")
         sh["_seconds"] = media_seconds(audio) if audio else 0.0
+    # Phụ đề .srt CÙNG TÊN và cùng thư mục với video — trình phát tự nạp; bản trên máy nằm cạnh mp4 (xoá task là xoá
+    # theo, cùng mẫu episode_<id>_*). Hỏng thì chỉ cảnh báo: video và mọi thứ khác vẫn lên Drive.
+    if video and shots:
+        try:
+            body, rep = build_srt(state, shots, video)
+            if body:
+                srt = os.path.splitext(video)[0] + ".srt"
+                with open(srt, "w", encoding="utf-8", newline="") as f:
+                    f.write(body)
+                state["drive_srt"] = rep
+                add("subtitles", srt, base, "", "subtitles")
+                if rep.get("drift") is not None:
+                    state.setdefault("warnings", []).append(
+                        f"Subtitles (.srt): the video is {rep['drift']:+.1f} s off the scene timeline (some scenes were "
+                        "not rendered) — the subtitle timing may drift; check it before using the file.")
+        except Exception as e:      # noqa: BLE001
+            logger.warning(f"[ContentVideo] .srt not made: {e}")
+            state.setdefault("warnings", []).append(
+                f"Google Drive: the subtitles (.srt) could not be made ({str(e)[:160]}) — the video and everything "
+                "else were saved.")
     return shots, ups
 
 
@@ -5446,6 +5712,8 @@ def _drive_tabs(state: Dict, shots: List[Dict], links: Dict[str, str], rec: Dict
         ["Video (no layout)", links.get("main", "")],
         ["Video (no layout, download)", links.get("main#dl", "")],
         ["Thumbnail", links.get("thumbnail", "")],
+        ["Subtitles (.srt)", links.get("subtitles", "")],
+        ["Subtitles (.srt, download)", links.get("subtitles#dl", "")],
         ["Google Drive folder", rec.get("folder_url") or ""],
         # Ai đăng, từ máy nào: «<username>-vps-<mã server>» — nhiều máy đăng chung một Drive.
         ["Uploaded from", rec.get("root_name") or ""],

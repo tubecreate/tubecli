@@ -126,6 +126,9 @@ SHOTS = [
 ]
 P._storyboards = lambda ep: [dict(s) for s in SHOTS]
 P.media_seconds = lambda p: 4.2
+# Phụ đề .srt: không gọi ffprobe/Studio thật — mục K đặt độ dài giả cho từng file.
+P._srt_seconds = lambda path, mod=None: 0.0
+P._studio_subtitles = lambda: None
 CAST = [{"id": 7, "name": "Mei", "role": "Protagonist", "description": "A weary scholar",
          "appearance": "East Asian woman in plain hanfu, hair in a low bun"},
         {"id": 8, "name": "Master", "role": "", "description": "Old monk.", "appearance": ""}]
@@ -550,7 +553,8 @@ ok(P.RENDER_STEPS[-1] == ("drive", "Save to Google Drive", "drive", True) and "d
    and P.DEFAULTS["drive"] is False and P.DEFAULTS["drive_token_id"] == "", "bước cuối, tuỳ chọn, mặc định tắt")
 ok(CAP.JOBS["drive"]["requires"] == ["auth_manager"] and "auth_manager" in CAP.EXTENSIONS, "năng lực: cần Auth Manager")
 d = P.describe_plan({"drive": True, "drive_token_id": "cred_a_1", "title": "Mây"})
-ok("- Save to Google Drive: a folder «Mây» inside «tuan89tk-vps-k7m2qx» on a@x.com — content sheet, images, voice and video" in d,
+ok("- Save to Google Drive: a folder «Mây» inside «tuan89tk-vps-k7m2qx» on a@x.com — content sheet, images, voice, video "
+   "and its subtitles (.srt)" in d,
    "dòng kế hoạch: thư mục (trong thư mục của máy) + tài khoản", d)
 d2 = P.describe_plan({"drive": True})
 ok("named after the video title inside «tuan89tk-vps-k7m2qx» on the Google account granted to the agent in its Auth tab" in d2,
@@ -598,6 +602,133 @@ ok("(anyone with the link can view and download)" in P.describe_plan({"drive": T
    "kế hoạch nói trước quyền sẽ đặt")
 ok("(private to that account)" in P.describe_plan({"drive": True, "drive_token_id": "cred_a_1", "drive_public": False}),
    "kế hoạch nói riêng tư khi người dùng chọn thế")
+
+print("── K. phụ đề .srt cạnh video ───────────────────────────────")
+# User 17/9/2026: "xuất luôn giúp tôi file srt, subtitle của video cùng thư mục video" → "thôi bạn convert srt đi cho dễ".
+import re as _re  # noqa: E402
+import fnmatch  # noqa: E402
+
+DUR = {}
+TALL = {"v": False}
+P._srt_seconds = lambda path, mod=None: DUR.get(str(path), 0.0)
+P._srt_tall = lambda path, state, mod=None: TALL["v"]
+
+
+class FakeSubs:
+    """engines/subtitles.py của Studio: mốc từ (CJK không khoảng trắng thì 2 ký tự một đơn vị, như split_words)."""
+    calls = []
+
+    def words_for_shot(self, text, audio, duration, language="", timing="fast"):
+        FakeSubs.calls.append((text, audio, duration, language, timing))
+        if language in ("ja", "zh") and " " not in text:
+            chunks = [text[i:i + 2] for i in range(0, len(text), 2)]
+            k = duration / len(chunks)
+            return [{"word": c, "start": i * k, "end": (i + 1) * k} for i, c in enumerate(chunks)], "tts"
+        return P._srt_estimate(text, duration), "tts"
+
+
+P._studio_subtitles = lambda: FakeSubs()
+KA1 = mk("content_video/audio/ep90/a1.mp3", 10)
+KA5 = mk("content_video/audio/ep90/a5.mp3", 10)
+KI1 = mk("content_studio/grok_images/ep90_1.png", 10)
+KI3 = mk("content_studio/grok_images/ep90_3.png", 10)
+KI5 = mk("content_studio/grok_images/ep90_5.png", 10)
+KV4 = mk("content_studio/grok_videos/ep90_4.mp4", 10)
+KMP4 = mk("content_studio/outputs/exports/episode_90_pipeline_export.mp4", 10)
+LONG = ("Haz algo conmigo ahora mismo. Piensa durante unos segundos en una persona a la que quieras "
+        "impresionar, alguien de tu trabajo o de tu familia.")
+KSHOTS = [
+    {"id": 1, "narration_text": LONG, "composed_image": KI1, "tts_audio_url": KA1},
+    {"id": 2, "narration_text": "No image, no time.", "composed_image": str(DD / "missing.png"), "tts_audio_url": KA5},
+    {"id": 3, "narration_text": "", "composed_image": KI3},
+    {"id": 4, "narration_text": "", "video_url": KV4},
+    {"id": 5, "narration_text": "Tu pareja.", "composed_image": KI5, "tts_audio_url": KA5},
+]
+DUR.update({KA1: 9.0, KA5: 2.0, KV4: 3.0, KMP4: 19.0})
+body, rep = P.build_srt({"language": "es"}, KSHOTS, KMP4)
+blocks = body.split("\r\n\r\n")
+cue = [_re.match(r"(\d+)\r\n(\d\d):(\d\d):(\d\d),(\d{3}) --> (\d\d):(\d\d):(\d\d),(\d{3})\r\n(.+)", b, _re.S)
+       for b in blocks]
+secs = lambda g, i: int(g[i]) * 3600 + int(g[i + 1]) * 60 + int(g[i + 2]) + int(g[i + 3]) / 1000  # noqa: E731
+ok(all(cue) and [int(m.group(1)) for m in cue] == list(range(1, len(cue) + 1)) and body.endswith("\r\n")
+   and "\n" not in body.replace("\r\n", ""), "đúng khuôn SRT: số thứ tự, HH:MM:SS,mmm --> …, CRLF", body[:200])
+texts = [m.group(10).strip() for m in cue if m]
+ok(texts[0] == "Haz algo conmigo ahora mismo." and texts[1].startswith("Piensa durante"),
+   "ngắt ở HẾT CÂU (không ra «mismo. Piensa durante» như cụm của chữ đốt)", texts[:3])
+ok(all(len(line) <= 42 for t in texts for line in t.split("\r\n")) and all(t.count("\r\n") <= 1 for t in texts),
+   "≤ 42 ký tự một dòng, ≤ 2 dòng", texts)
+starts = [secs(m.groups(), 1) for m in cue]
+ok(texts[-1] == "Tu pareja." and abs(starts[-1] - (9.0 + 5.0 + 3.0 + 0.06)) < 0.02,
+   "dòng thời gian như bộ dựng: shot KHÔNG hình bỏ hẳn, ảnh không giọng 5 s, video không giọng theo chính nó",
+   (texts[-1], starts[-1]))
+ok(rep["shots"] == 2 and rep["tts"] == 2 and rep["cues"] == len(cue) and rep.get("scale") == 1.0,
+   "báo cáo: 2 shot có lời, mốc từ TTS, khớp độ dài video", rep)
+ok(FakeSubs.calls[0][1:] == (KA1, 9.0, "es", "fast"), "mốc từ lấy qua words_for_shot của Studio (không whisper)",
+   FakeSubs.calls[0])
+DUR[KMP4] = 19.38                                   # làm tròn khung hình từng shot → video dài hơn 2 %
+body2, rep2 = P.build_srt({"language": "es"}, KSHOTS, KMP4)
+last2 = _re.findall(r"(\d\d):(\d\d):(\d\d),(\d{3}) -->", body2)[-1]
+ok(abs(rep2["scale"] - 19.38 / 19.0) < 1e-4 and abs(secs(last2, 0) - 17.06 * 19.38 / 19.0) < 0.02,
+   "lệch nhỏ với video thật → co giãn đều cho khớp", (rep2, last2))
+DUR[KMP4] = 30.0                                    # khâu dựng bỏ shot hỏng: không biết shot nào
+body3, rep3 = P.build_srt({"language": "es"}, KSHOTS, KMP4)
+ok(rep3.get("drift") == 11.0 and "scale" not in rep3 and body3.split("\r\n")[1] == body.split("\r\n")[1],
+   "lệch lớn → KHÔNG kéo giãn, báo drift", rep3)
+DUR[KMP4] = 19.0
+TALL["v"] = True
+body4, _ = P.build_srt({"language": "es"}, KSHOTS, KMP4)
+ok(all(len(line) <= 32 for b in body4.split("\r\n\r\n") for line in b.split("\r\n")[2:] if line),
+   "video dọc → ≤ 32 ký tự một dòng", body4[:300])
+TALL["v"] = False
+JA = "今日はとてもいい天気ですね。明日も晴れるでしょう。"
+body5, _ = P.build_srt({"language": "ja"}, [{"id": 1, "narration_text": JA, "composed_image": KI1, "tts_audio_url": KA1}], KMP4)
+t5 = [b.split("\r\n", 2)[2].strip() for b in body5.split("\r\n\r\n") if b.strip()]
+ok(t5 and all(" " not in t for t in t5) and "".join(t.replace("\r\n", "") for t in t5) == JA
+   and all(len(line) <= 20 for t in t5 for line in t.split("\r\n")),
+   "tiếng Nhật: không chèn khoảng trắng giữa chữ, ≤ 20 ký tự một dòng", t5)
+P._studio_subtitles = lambda: None
+body6, rep6 = P.build_srt({"language": "es"}, KSHOTS, KMP4)
+ok(body6 and rep6.get("estimated") == 2 and "Tu pareja." in body6, "chưa cài Content Studio → ước lượng theo độ dài giọng", rep6)
+ok(P.build_srt({"language": "es"}, [{"id": 3, "narration_text": "", "composed_image": KI3}], KMP4) == ("", {"cues": 0, "shots": 0}),
+   "không shot nào có lời → không có .srt")
+P._studio_subtitles = lambda: FakeSubs()
+
+# Tích hợp: bước drive đưa <tiêu đề>.srt vào CÙNG thư mục với video, bản trên máy nằm cạnh mp4
+CK.clear()
+FD.calls.clear()
+SHEET_WRITES.clear()
+DUR.update({AUD1: 3.0, str(DD / "tts_vibevoice" / "outputs" / "edge_abc.mp3"): 2.5, MP4: 10.5,
+            os.path.realpath(MP4): 10.5})
+srt_st = new_state()
+P._step_drive(srt_st, dict(OPTS))
+dfolder = FD.files[CK["t1"]["drive"]["folder_id"]]
+top = FD.children(dfolder["id"])
+local_srt = os.path.splitext(MP4)[0] + ".srt"
+ok(f"{base}.srt" in top and f"{base}.mp4" in top and CK["t1"]["drive"]["files"] == 8,
+   "«<tiêu đề>.srt» nằm cạnh «<tiêu đề>.mp4» (cùng tên → trình phát tự nạp)", sorted(top))
+ok(os.path.isfile(local_srt) and "Hello" in open(local_srt, encoding="utf-8").read()
+   and fnmatch.fnmatch(os.path.basename(local_srt), "episode_34_*"),
+   "bản trên máy cạnh mp4, cùng mẫu episode_<id>_* nên xoá task là xoá theo", local_srt)
+ov_srt = rows_of(SHEET_WRITES[-1], "Overview")
+ok(field(ov_srt, "Subtitles (.srt)") == top[f"{base}.srt"]["webViewLink"]
+   and str(field(ov_srt, "Subtitles (.srt, download)") or "").startswith("https://drive.google.com/uc?export=download&id="),
+   "Sheet có link phụ đề + link tải thẳng", (field(ov_srt, "Subtitles (.srt)"), field(ov_srt, "Subtitles (.srt, download)")))
+ok(srt_st.get("drive_srt", {}).get("cues", 0) >= 2 and not srt_st["warnings"], "báo cáo phụ đề, không cảnh báo", srt_st.get("drive_srt"))
+DUR[MP4] = DUR[os.path.realpath(MP4)] = 60.0
+drift_st = new_state()
+P._step_drive(drift_st, dict(OPTS))
+ok(any("Subtitles (.srt): the video is +" in w for w in drift_st["warnings"]),
+   "video lệch hẳn dòng thời gian (shot bị bỏ khi dựng) → cảnh báo kiểm lại phụ đề", drift_st["warnings"])
+_real_build = P.build_srt
+P.build_srt = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("probe exploded"))
+CK.clear()
+FD.calls.clear()
+broken_st = new_state()
+P._step_drive(broken_st, dict(OPTS))
+ok(CK["t1"]["drive"]["files"] == 7 and any("subtitles (.srt) could not be made (probe exploded)" in w for w in broken_st["warnings"]),
+   "làm .srt hỏng → chỉ cảnh báo, video + mọi thứ khác vẫn lên Drive", broken_st["warnings"])
+P.build_srt = _real_build
+DUR.clear()
 
 print("── H. drive_export thật với dịch vụ giả ────────────────────")
 
