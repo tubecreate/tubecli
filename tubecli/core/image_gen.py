@@ -631,6 +631,133 @@ async def generate_image(prompt: str, out_path: str, provider: Optional[str] = N
     return out
 
 
+# ── vẽ thử bằng ĐÚNG MỘT khoá đã lưu (nút «🖼 Test ảnh» ở Cloud API Keys, 17/9/2026) ───────────────────────────
+KEY_TEST_PROMPT = "A single red apple on a plain white table, soft daylight, simple and clean"
+
+
+def resolve_key(provider: str, label: str = "default", model: Optional[str] = None) -> dict:
+    """Như resolve_provider nhưng CHỈ khoá (provider, nhãn) người dùng bấm: không xoay tài khoản, không đường lùi
+    Cloudflare — kết quả phải nói về chính khoá đó (Test chung từng báo 9Router «OK» trong khi Cloudflare vẽ thay).
+    Model: tham số → model đã chọn cho nhà này ở AI tạo ảnh → mặc định của nhà."""
+    p = str(provider or "").strip().lower()
+    label = str(label or "default")
+    if p not in PROVIDERS:
+        return {"ok": False, "provider": p, "model": "", "label": label,
+                "reason": f"'{p}' is not an image provider — image tests work for: {', '.join(PROVIDERS)}."}
+    cfg = image_settings()
+    m = (model or "").strip() or (cfg["model"] if cfg["provider"] == p else "") or DEFAULT_MODELS[p]
+    entry = _key_manager().get_key_entry(p, label)
+    if not entry or not entry.get("key"):
+        return {"ok": False, "provider": p, "model": m, "label": label,
+                "reason": f"No saved key '{label}' for {p}."}
+    base = {"ok": True, "provider": p, "model": m, "label": label, "reason": "", "_rotated": True}
+    if p == "cloudflare":
+        if not entry.get("account_id"):
+            return {**base, "ok": False, "reason": "This Cloudflare key has no Account ID — add it to draw images."}
+        return {**base, "creds": {"api_token": entry["key"], "account_id": entry["account_id"],
+                                  "email": entry.get("email") or "", "label": label}}
+    if p == "gemini":
+        return {**base, "key": entry["key"]}
+    nr = _ninerouter_module()
+    if nr is None:
+        return {**base, "ok": False, "reason": "This TubeCLI has no 9Router module — update TubeCLI."}
+    return {**base, "base": nr.base_url(), "headers": nr.auth_headers(entry["key"])}
+
+
+def _short_error(message: str) -> str:
+    """«HTTP 429: {…JSON dài…}» → «HTTP 429: You exceeded your current quota…» — câu hiện trong bảng khoá phải đọc
+    được. Lấy error.message (Gemini/OpenAI), errors[0].message (Cloudflare) hay detail; không phải JSON thì giữ nguyên."""
+    import re as _re
+
+    msg = str(message or "").strip()
+    m = _re.match(r"^(HTTP \d+):\s*(.*)$", msg, _re.S)
+    if not m:
+        return msg[:300]
+    head, body = m.group(1), m.group(2).strip()
+    try:
+        data = json.loads(body)
+    except ValueError:
+        return f"{head}: {' '.join(body.split())}"[:300]
+    text = ""
+    if isinstance(data, dict):
+        err = data.get("error")
+        if isinstance(err, dict):
+            text = str(err.get("message") or "")
+        elif isinstance(err, str):
+            text = err
+        errs = data.get("errors")
+        if not text and isinstance(errs, list) and errs and isinstance(errs[0], dict):
+            text = str(errs[0].get("message") or "")
+        text = text or str(data.get("detail") or data.get("message") or "")
+    return f"{head}: {' '.join(text.split())}"[:300] if text else f"{head}: {' '.join(body.split())}"[:300]
+
+
+def _image_ext(data: bytes) -> str:
+    if data[:4] == b"\x89PNG":
+        return "png"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "webp"
+    return "jpg"
+
+
+async def test_key_draw(provider: str, label: str = "default", model: Optional[str] = None,
+                        timeout: int = 150) -> dict:
+    """Vẽ thử MỘT ảnh 1:1 bằng đúng một khoá; ảnh giữ lại ở data/images để xem (mỗi khoá một file, lần sau ghi
+    đè). Ghi kết quả lên khoá. Trả {ok, stage, provider, label, model, seconds, message, kind, url, width, height}."""
+    import hashlib
+
+    r = resolve_key(provider, label, model)
+    out = {"ok": False, "stage": "credentials", "provider": r.get("provider", ""), "label": r.get("label", ""),
+           "model": r.get("model", ""), "seconds": 0, "message": r.get("reason", ""), "kind": "", "url": "",
+           "width": 0, "height": 0}
+    if r.get("ok"):
+        out["stage"] = "generate"
+        t0 = time.time()
+        try:
+            if r["provider"] == "cloudflare":
+                data = await _cf_generate(r, KEY_TEST_PROMPT, "1:1", timeout)       # một account, không xoay
+            elif r["provider"] == "gemini":
+                data = await _gemini_generate(r, KEY_TEST_PROMPT, "1:1", None, timeout)
+            else:
+                data = await _nr_generate(r, KEY_TEST_PROMPT, "1:1", timeout)       # không lùi sang Cloudflare
+            if not data:
+                raise ProviderError("error", "The provider returned no image.")
+            stem = f"keytest_{r['provider']}_{hashlib.sha1(r['label'].encode('utf-8')).hexdigest()[:10]}"
+            folder = shared_output_dir()
+            for old in os.listdir(folder):
+                if old.startswith(stem + "."):
+                    try:
+                        os.remove(os.path.join(folder, old))
+                    except OSError:
+                        pass
+            name = f"{stem}.{_image_ext(data)}"
+            with open(os.path.join(folder, name), "wb") as f:
+                f.write(data)
+            out.update({"ok": True, "message": "", "url": f"/api/v1/images/file/{name}"})
+            try:
+                from PIL import Image
+                import io as _io
+                with Image.open(_io.BytesIO(data)) as im:
+                    out["width"], out["height"] = im.size
+            except Exception:      # noqa: BLE001 — không đo được cỡ thì vẫn là vẽ được
+                pass
+        except ProviderError as e:
+            out.update({"message": _short_error(str(e)), "kind": e.kind})
+        except Exception as e:      # noqa: BLE001
+            out.update({"message": f"{type(e).__name__}: {e}", "kind": "error"})
+        out["seconds"] = round(time.time() - t0, 1)
+    try:
+        import datetime as _dt
+        if out["provider"] not in PROVIDERS:
+            return out                  # khoá không phải nhà vẽ ảnh: không ghi gì lên nó
+        _key_manager().set_image_test(out["provider"], out["label"], {
+            "ok": out["ok"], "model": out["model"], "seconds": out["seconds"], "message": out["message"][:300],
+            "kind": out["kind"], "at": _dt.datetime.now().isoformat(timespec="seconds")})
+    except Exception as e:      # noqa: BLE001
+        logger.info("image key test not recorded: %s", e)
+    return out
+
+
 async def test_draw(provider: Optional[str] = None, model: Optional[str] = None, timeout: int = 90) -> dict:
     """Vẽ THỬ một ảnh 1:1 rồi xoá — câu trả lời thật thay cho dấu tick suy từ khoá."""
     r = resolve_provider(provider, model)

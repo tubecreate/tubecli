@@ -32,6 +32,12 @@ class TestKeyRequest(BaseModel):
     label: str = "default"
 
 
+class TestImageKeyRequest(BaseModel):
+    provider: str
+    label: str = "default"
+    model: str = ""             # "" = model đã chọn cho nhà này ở AI tạo ảnh, không có thì mặc định
+
+
 @router.get("/providers")
 async def api_list_providers():
     """List all supported cloud AI providers."""
@@ -71,6 +77,13 @@ async def api_test_key(req: TestKeyRequest):
     """Test if an API key is valid."""
     from tubecli.extensions.cloud_api.extension import key_manager
     return key_manager.test_key(req.provider, req.label)
+
+
+@router.post("/keys/test-image")
+async def api_test_image_key(req: TestImageKeyRequest):
+    """Vẽ thử MỘT ảnh bằng đúng khoá này (Cloudflare, Gemini, 9Router) — không xoay khoá, không lùi nhà khác."""
+    from tubecli.core import image_gen
+    return await image_gen.test_key_draw(req.provider, req.label, req.model or None)
 
 
 @router.post("/keys/enable")

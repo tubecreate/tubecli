@@ -2721,16 +2721,74 @@ async function renderCloudApiExt(el) {
             const enableBtn = !k.active
                 ? `<button class="btn-sm" style="background:var(--cyan);color:white;border:none;margin-right:4px;padding:2px 8px" onclick="enableApiKeyExt('${esc(k.provider)}','${esc(k.label)}')">${T('cloud_api.enable')}</button>`
                 : '';
-            h += `<tr><td style="font-weight:600;color:var(--cyan)">${esc(k.provider)}</td><td>${esc(k.label)}</td><td style="font-family:'JetBrains Mono',monospace;font-size:.8rem;color:var(--text-muted)">${esc(k.masked_key)}</td><td>${st}</td>
+            h += `<tr><td style="font-weight:600;color:var(--cyan)">${esc(k.provider)}</td><td>${esc(k.label)}</td><td style="font-family:'JetBrains Mono',monospace;font-size:.8rem;color:var(--text-muted)">${esc(k.masked_key)}</td><td>${st}${_imageTestLine(k)}</td>
             <td style="white-space:nowrap">
                 ${enableBtn}
                 <button class="btn-sm" style="background:var(--green);color:white;border:none;margin-right:4px;padding:2px 8px" onclick="testApiKey('${esc(k.provider)}', '${esc(k.label)}')">▶ Test</button>
+                ${_imageTestButton(k)}
                 <button class="btn-danger btn-sm" style="padding:2px 8px" onclick="removeApiKeyExt('${esc(k.provider)}','${esc(k.label)}')">✕</button>
             </td></tr>`;
         });
         h += '</tbody></table></div>';
     } else h += `<p class="text-muted">${T('cloud_api.no_keys')}</p>`;
     el.innerHTML = h;
+}
+
+// ── 🖼 Test ảnh: vẽ thử bằng ĐÚNG khoá của dòng (không xoay khoá, không lùi nhà khác) — 17/9/2026 ──
+const _IMAGE_KEY_PROVIDERS = ['cloudflare', 'gemini', '9router'];
+
+function _imageTestButton(k) {
+    if (!_IMAGE_KEY_PROVIDERS.includes(k.provider)) return '';
+    return `<button class="btn-sm" style="background:#5276EB;color:white;border:none;margin-right:4px;padding:2px 8px" title="${esc(T('cloud_api.test_image_hint'))}" onclick="testImageKey('${esc(k.provider)}', '${esc(k.label)}', this)">🖼 ${esc(T('cloud_api.test_image'))}</button>`;
+}
+
+function _imageTestLine(k) {
+    const it = k.image_test;
+    if (!it || !_IMAGE_KEY_PROVIDERS.includes(k.provider)) return '';
+    const txt = it.ok
+        ? `🖼 ${T('cloud_api.image_ok')} · ${it.model || ''} · ${it.seconds}s`
+        : `🖼 ${T('cloud_api.image_fail')}: ${it.message || it.kind || ''}`;
+    return `<div style="font-size:.75rem;margin-top:2px;max-width:420px;white-space:normal;color:${it.ok ? 'var(--green)' : 'var(--red)'}" title="${esc(it.at || '')}">${esc(txt)}</div>`;
+}
+
+async function testImageKey(provider, label, btn) {
+    const old = btn ? btn.innerHTML : '';
+    if (btn) { btn.disabled = true; btn.innerHTML = '⏳ ' + esc(T('cloud_api.test_image_running')); }
+    let r;
+    try {
+        r = await apiPost('/api/v1/cloud-api/keys/test-image', { provider, label });
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = old; }
+    }
+    _showImageTestResult(provider, label, r || {});
+    renderCloudApiExt(_cloudExtBody());
+}
+
+function _showImageTestResult(provider, label, r) {
+    let m = document.getElementById('modal-image-key-test');
+    if (!m) {
+        m = document.createElement('div');
+        m.id = 'modal-image-key-test';
+        m.className = 'modal hidden';
+        document.body.appendChild(m);
+    }
+    const ok = !!r.ok;
+    const meta = [r.model, r.seconds ? `${r.seconds}s` : '', r.width && r.height ? `${r.width}×${r.height}` : '']
+        .filter(Boolean).join(' · ');
+    const why = r.message || r.detail || r.error || '';
+    m.innerHTML = `<div class="modal-content" style="max-width:520px">
+        <div class="modal-header">
+            <h2>🖼 ${esc(T('cloud_api.test_image_title'))}: ${esc(provider)} / ${esc(label)}</h2>
+            <button class="btn-close" onclick="closeModal('modal-image-key-test')">✕</button>
+        </div>
+        <div class="modal-body" style="display:flex;flex-direction:column;gap:10px;margin-top:10px">
+            <div style="font-weight:600;color:${ok ? 'var(--green)' : 'var(--red)'}">${ok ? '✅' : '❌'} ${esc(T(ok ? 'cloud_api.image_ok' : 'cloud_api.image_fail'))}</div>
+            ${meta ? `<div class="text-muted" style="font-size:.82rem">${esc(meta)}</div>` : ''}
+            ${ok && r.url ? `<img src="${esc(r.url)}?t=${Date.now()}" alt="" style="max-width:100%;border-radius:8px;border:1px solid var(--border)">` : ''}
+            ${!ok && why ? `<div style="font-size:.85rem;white-space:pre-wrap;word-break:break-word">${esc(why)}</div>` : ''}
+        </div>
+    </div>`;
+    m.classList.remove('hidden');
 }
 
 // Which container to re-render after a key mutation — the ext-detail body or

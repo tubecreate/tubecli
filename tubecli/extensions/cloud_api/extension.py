@@ -639,8 +639,26 @@ class KeyManager:
                     "status_msg": entry.get("status_msg", ""),
                     "disable_reason": entry.get("disable_reason", ""),
                     "added_at": entry.get("added_at", ""),
+                    # Lần «🖼 Test ảnh» gần nhất: {ok, model, seconds, message, kind, at} hay None.
+                    "image_test": entry.get("image_test"),
                 }
         return result
+
+    def get_key_entry(self, provider: str, label: str = "default") -> Optional[dict]:
+        """Bản sao MỘT khoá đã lưu (kể cả đang tắt) — cho việc thử đúng khoá đó, không qua xoay khoá."""
+        self._load()
+        entries = self._keys.get(provider, {})
+        entry = entries.get(label) if isinstance(entries, dict) else None
+        return dict(entry) if isinstance(entry, dict) else None
+
+    def set_image_test(self, provider: str, label: str, result: dict) -> None:
+        """Ghi kết quả vẽ thử của một khoá — bảng «Keys đã lưu» hiện lại sau khi tải trang."""
+        self._load()
+        entries = self._keys.get(provider, {})
+        entry = entries.get(label) if isinstance(entries, dict) else None
+        if isinstance(entry, dict):
+            entry["image_test"] = dict(result)
+            self._save()
 
     def list_providers(self) -> List[dict]:
         """List all supported providers with their status and custom models.
