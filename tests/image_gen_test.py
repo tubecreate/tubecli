@@ -66,15 +66,20 @@ km = FakeKM()
 G._key_manager = lambda: km
 G.shared_output_dir = lambda: str(TMP / "images") if (TMP / "images").mkdir(exist_ok=True) or True else ""
 
+def pm(d):
+    """Chỉ nhà + model: cài đặt còn steps/ink nữa, nhưng phần lớn assert chỉ nói về hai cái này."""
+    return {k: d[k] for k in ("provider", "model")}
+
+
 print("── A. cài đặt chung ────────────────────────────────────────")
-ok(G.image_settings() == {"provider": "", "model": ""}, "chưa đặt gì → trống (tự chọn)", G.image_settings())
-ok(G.set_image_settings("Cloudflare", "@cf/x") == {"provider": "cloudflare", "model": "@cf/x"}, "đặt → chuẩn hoá chữ thường, ghi file")
+ok(pm(G.image_settings()) == {"provider": "", "model": ""}, "chưa đặt gì → trống (tự chọn)", G.image_settings())
+ok(pm(G.set_image_settings("Cloudflare", "@cf/x")) == {"provider": "cloudflare", "model": "@cf/x"}, "đặt → chuẩn hoá chữ thường, ghi file")
 ok(json.load(open(CFG.GLOBAL_SETTINGS_FILE, encoding="utf-8")).get("image_provider") == "cloudflare", "global_settings.json có image_provider")
 try:
     G.set_image_settings("dalle", ""); ok(False, "nhà sai phải ném")
 except ValueError as e:
     ok("dalle" in str(e), "nhà sai → ValueError kể tên", e)
-ok(G.set_image_settings("auto", "") == {"provider": "", "model": ""}, "'auto' = trống")
+ok(pm(G.set_image_settings("auto", "")) == {"provider": "", "model": ""}, "'auto' = trống")
 
 print("── B. resolve_provider ─────────────────────────────────────")
 G.set_image_settings("gemini", "gemini-x")
@@ -133,6 +138,7 @@ async def fake_bytes(r, prompt, aspect_ratio="16:9", reference_images=None, time
     return b"\xff\xd8\xff" + b"x" * 100
 
 
+_REAL_GB = G.generate_bytes     # bản THẬT (có bước làm dày nét) — khối E gọi lại nó
 G.generate_bytes = fake_bytes
 G.list_models = lambda p: asyncio.sleep(0, result={"cloudflare": ["@cf/a", "@cf/b"], "gemini": ["g-img"], "9router": []}.get(p, []))
 
@@ -170,6 +176,123 @@ out = TMP / "one.jpg"
 res = asyncio.run(G.generate_image("an apple", str(out), resolved={"ok": True, "provider": "cloudflare", "model": "@cf/a", "creds": {}}))
 ok(res["status"] == "success" and out.is_file() and not (TMP / "one.jpg.part").exists(), "generate_image: ghi .part rồi đổi tên", res)
 ok(asyncio.run(G.generate_image("", str(out)))["status"] == "error", "prompt rỗng → error")
+
+print("── E. số bước vẽ + làm dày nét (lõi .125) ──────────────────")
+# User 18/9/2026: "thêm vào lõi bước làm dày nét cho các style doodle + cho phép đặt steps
+# (8 bám prompt tốt hơn)". Số đo thật: video whiteboard mẫu phóng lên cạnh ngắn 1024 có nét 9,75 px;
+# FLUX-1 schnell vẽ ra 6,2 px; MinFilter(5) đưa lên 11,0 px.
+import io  # noqa: E402
+from PIL import Image, ImageDraw  # noqa: E402
+
+G.set_image_settings("", "")
+ok(G.image_settings()["steps"] == 0 and G.image_settings()["ink"] == "auto"
+   and G.image_settings()["ink_radius"] == 0, "mặc định: steps 0 (model tự quyết), làm dày = auto", G.image_settings())
+ok(G.set_image_settings("", "", steps=8)["steps"] == 8, "đặt steps 8")
+ok(G.set_image_settings("", "", steps=99)["steps"] == G.CF_STEPS_MAX, "steps quá trần → kẹp về 8")
+ok(G.set_image_settings("", "", steps="x")["steps"] == 0, "steps không phải số → 0 (mặc định)")
+ok(G.set_image_settings("", "", steps=8) and G.set_image_settings("gemini", "g")["steps"] == 8,
+   "lượt PUT chỉ đổi nhà KHÔNG xoá steps đã đặt")
+try:
+    G.set_image_settings("", "", ink="dark"); ok(False, "chế độ làm dày sai phải ném")
+except ValueError as e:
+    ok("dark" in str(e), "chế độ làm dày sai → ValueError kể tên", e)
+ok(G.set_image_settings("", "", ink="OFF")["ink"] == "off", "chế độ làm dày chuẩn hoá chữ thường")
+
+body = json.loads(G.cf_request("prompt", "p", "16:9")[1].decode("utf-8"))
+ok(body["steps"] == G.CF_STEPS_DEFAULT, "cf_request: không truyền → 4 bước như cũ", body)
+ok(json.loads(G.cf_request("prompt", "p", "16:9", 8)[1].decode("utf-8"))["steps"] == 8, "cf_request: 8 bước")
+ok(json.loads(G.cf_request("prompt", "p", "16:9", 40)[1].decode("utf-8"))["steps"] == 8, "cf_request: kẹp về trần 8")
+ok("steps" not in json.loads(G.cf_request("dims", "p", "16:9", 8)[1].decode("utf-8")),
+   "khuôn dims (model nhận width/height) KHÔNG gửi steps — Cloudflare từ chối trường lạ")
+G.set_image_settings("cloudflare", "", steps=8, ink="auto")
+ok(G.resolve_provider()["steps"] == 8, "resolve_provider mang steps của cài đặt vào r")
+ok(G.resolve_provider("gemini").get("steps") is None, "nhà khác không có steps")
+
+
+def png(im):
+    b = io.BytesIO()
+    im.save(b, "PNG")
+    return b.getvalue()
+
+
+def art(width=2, size=1024):
+    """Người que + vài món đồ, nét dày `width` px — mật độ mực xấp xỉ ảnh doodle thật (~1–2 %)."""
+    im = Image.new("L", (size, size), 255)
+    d = ImageDraw.Draw(im)
+    d.ellipse((size * 0.35, size * 0.15, size * 0.65, size * 0.45), outline=0, width=width)
+    d.line((size * 0.5, size * 0.45, size * 0.5, size * 0.75), fill=0, width=width)
+    d.line((size * 0.5, size * 0.55, size * 0.3, size * 0.65), fill=0, width=width)
+    d.line((size * 0.5, size * 0.55, size * 0.7, size * 0.65), fill=0, width=width)
+    d.line((size * 0.5, size * 0.75, size * 0.38, size * 0.92), fill=0, width=width)
+    d.line((size * 0.5, size * 0.75, size * 0.62, size * 0.92), fill=0, width=width)
+    d.rectangle((size * 0.06, size * 0.55, size * 0.26, size * 0.85), outline=0, width=width)
+    d.ellipse((size * 0.74, size * 0.12, size * 0.94, size * 0.32), outline=0, width=width)
+    d.line((size * 0.04, size * 0.93, size * 0.96, size * 0.93), fill=0, width=width)
+    for i in range(6):
+        d.line((size * (0.3 + i * 0.07), size * 0.05, size * (0.34 + i * 0.07), size * 0.1),
+               fill=0, width=width)
+    return im
+
+
+def width_of(data):
+    return round(G.ink_stats(Image.open(io.BytesIO(data)))["width"], 2)
+
+
+thin = png(art(2))
+thick = G.thicken_ink(thin)
+st = G.ink_stats(Image.open(io.BytesIO(thin)))
+ok(G.is_line_art(st), "nhận ra ảnh nét vẽ đen trên trắng", st)
+ok(width_of(thick) > width_of(thin) and abs(width_of(thick) - st["target"]) <= 3.5,
+   "nét mảnh → làm dày tới cỡ bút lông (cạnh ngắn / 105)", (width_of(thin), width_of(thick), st["target"]))
+ok(Image.open(io.BytesIO(thick)).format == "PNG", "giữ đúng định dạng file")
+already = png(art(12))
+ok(G.thicken_ink(already) == already, "nét đã đủ dày → KHÔNG đụng vào (đụng nữa là bết)")
+
+photo = Image.new("RGB", (512, 512))
+px = photo.load()
+for y in range(512):
+    for x in range(512):
+        px[x, y] = ((x * 7 + y * 3) % 200 + 30, (y * 5) % 180 + 40, (x * 3) % 160 + 60)
+shot = png(photo)
+ok(not G.is_line_art(G.ink_stats(photo)) and G.thicken_ink(shot) == shot,
+   "ảnh chụp / tranh màu: không phải nét vẽ → trả nguyên xi")
+ok(G.thicken_ink(thin, "off") == thin, "chế độ off → không làm gì")
+ok(G.thicken_ink(shot, "on") != shot, "chế độ on → làm dày cả ảnh không phải nét vẽ (người dùng tự quyết)")
+ok(width_of(G.thicken_ink(thin, "on", 9)) > width_of(G.thicken_ink(thin, "on", 3)), "bán kính lớn → nét dày hơn")
+ok(G.thicken_ink(b"khong phai anh") == b"khong phai anh" and G.thicken_ink(b"") == b"",
+   "bytes hỏng / rỗng → trả nguyên, KHÔNG ném (ảnh đã tính tiền rồi)")
+G.set_image_settings("", "", ink="off")
+ok(G.thicken_ink(thin) == thin, "cài đặt chung off → bỏ qua")
+G.set_image_settings("", "", ink="auto")
+
+
+async def _fake_raw(r, prompt, aspect_ratio="16:9", reference_images=None, timeout=180):
+    _fake_raw.calls += 1
+    return thin
+
+
+_fake_raw.calls = 0
+_real_raw = G._generate_bytes
+G._generate_bytes = _fake_raw
+try:
+    got = asyncio.run(_REAL_GB({"provider": "cloudflare", "model": "m"}, "p"))
+finally:
+    G._generate_bytes = _real_raw
+ok(width_of(got) > width_of(thin) and _fake_raw.calls == 1,
+   "generate_bytes làm dày ĐÚNG MỘT LẦN (bọc ngoài, không đụng vào đệ quy xoay khoá/đường lùi)",
+   (width_of(thin), width_of(got), _fake_raw.calls))
+
+G.set_image_settings("", "", steps=0, ink="auto", ink_radius=0)   # về mặc định rồi mới hỏi route
+s = c.get("/api/v1/images/settings").json()
+ok(s["steps"] == 0 and s["ink"] == "auto" and s["ink_modes"] == list(G.INK_MODES) and s["steps_max"] == 8,
+   "GET /settings kể steps + chế độ làm dày", s)
+s = c.put("/api/v1/images/settings", json={"provider": "", "model": "", "steps": 8, "ink": "on"}).json()
+ok(s["steps"] == 8 and s["ink"] == "on", "PUT /settings đặt được steps + làm dày", s)
+ok(c.put("/api/v1/images/settings", json={"provider": "", "ink": "nope"}).status_code == 400,
+   "PUT chế độ làm dày sai → 400")
+s = c.put("/api/v1/images/settings", json={"provider": "cloudflare", "model": ""}).json()
+ok(s["steps"] == 8 and s["ink"] == "on", "PUT không kèm steps/ink → giữ nguyên cái đã đặt", s)
+G.set_image_settings("", "", steps=0, ink="auto", ink_radius=0)
 
 print()
 print(f"{PASS}/{PASS + FAIL} PASS" if not FAIL else f"{PASS}/{PASS + FAIL} PASS — {FAIL} HỎNG")

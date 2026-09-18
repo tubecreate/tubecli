@@ -23,6 +23,11 @@ router = APIRouter(prefix="/api/v1/images", tags=["images"])
 class ImageSettingsRequest(BaseModel):
     provider: Optional[str] = None     # cloudflare | gemini | 9router | "" = tự chọn
     model: Optional[str] = None
+    # Không truyền = GIỮ NGUYÊN. steps: số bước vẽ (Cloudflare flux-1-schnell, 1–8; 0 = mặc định 4).
+    # ink: làm dày nét ảnh nét vẽ — auto (chỉ khi đúng là nét vẽ) | off | on; ink_radius 0 = tự tính.
+    steps: Optional[int] = None
+    ink: Optional[str] = None
+    ink_radius: Optional[int] = None
 
 
 class ImageTestRequest(BaseModel):
@@ -41,7 +46,9 @@ class ImageGenerateRequest(BaseModel):
 def _settings_payload() -> dict:
     cfg = G.image_settings()
     r = G.resolve_provider(cfg["provider"] or None, cfg["model"] or None)
-    return {"provider": cfg["provider"], "model": cfg["model"], "providers": list(G.PROVIDERS),
+    return {"provider": cfg["provider"], "model": cfg["model"], "steps": cfg["steps"],
+            "ink": cfg["ink"], "ink_radius": cfg["ink_radius"], "providers": list(G.PROVIDERS),
+            "ink_modes": list(G.INK_MODES), "steps_max": G.CF_STEPS_MAX, "steps_default": G.CF_STEPS_DEFAULT,
             "defaults": dict(G.DEFAULT_MODELS), "resolved": G.public_resolution(r), "core": True}
 
 
@@ -54,7 +61,7 @@ async def get_image_settings():
 @router.put("/settings")
 async def put_image_settings(req: ImageSettingsRequest):
     try:
-        G.set_image_settings(req.provider, req.model)
+        G.set_image_settings(req.provider, req.model, req.steps, req.ink, req.ink_radius)
     except ValueError as e:
         raise HTTPException(400, str(e))
     return _settings_payload()

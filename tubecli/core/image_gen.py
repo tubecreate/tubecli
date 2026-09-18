@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import io
 import json
 import logging
 import os
@@ -42,6 +43,11 @@ DEFAULT_MODELS = {"cloudflare": CF_DEFAULT_MODEL, "gemini": GEMINI_DEFAULT_MODEL
 CF_RATE_COOLDOWN_SEC = 60
 # Mọi account đều đang đỗ nhưng có account mở lại trong chừng này giây → chờ rồi vẽ tiếp, thay vì bỏ cả lô.
 CF_WAIT_MAX_SEC = 75
+# Số bước khử nhiễu của flux-1-schnell. Đo thật 18/9/2026: 8 bước bám prompt hơn rõ (3 vật trong khung thì
+# vẽ đủ 3, 4 bước thường rụng còn 1–2) nhưng tốn gấp đôi neuron, nên mặc định vẫn 4 — ai cần thì đặt.
+CF_STEPS_DEFAULT = 4
+CF_STEPS_MIN = 1
+CF_STEPS_MAX = 8
 
 
 class ProviderError(Exception):
@@ -54,8 +60,32 @@ class ProviderError(Exception):
 
 # ── cài đặt chung ─────────────────────────────────────────────────────────────
 
+def _clamp_steps(v) -> int:
+    """0 = để model tự dùng mặc định của nó; số ngoài khoảng thì kẹp về khoảng Cloudflare cho phép."""
+    try:
+        n = int(str(v if v is not None else "0").strip() or 0)
+    except (TypeError, ValueError):
+        return 0
+    return 0 if n <= 0 else max(CF_STEPS_MIN, min(CF_STEPS_MAX, n))
+
+
+def _ink_mode(v) -> str:
+    """auto (mặc định: chỉ ảnh nét vẽ mới làm dày) | off | on."""
+    m = str(v or "").strip().lower()
+    return m if m in INK_MODES else "auto"
+
+
+def _clamp_radius(v) -> int:
+    """0 = tự tính theo cỡ ảnh và độ mảnh của nét."""
+    try:
+        n = int(str(v if v is not None else "0").strip() or 0)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, min(9, n))
+
+
 def image_settings() -> dict:
-    """{provider, model} — chuỗi rỗng = tự chọn (auto)."""
+    """{provider, model, steps, ink, ink_radius} — chuỗi rỗng / 0 = tự chọn (auto)."""
     try:
         from tubecli.config import read_global_settings
         g = read_global_settings()
@@ -65,18 +95,29 @@ def image_settings() -> dict:
     m = str(g.get("image_model") or "").strip()
     if p in ("auto",):
         p = ""
-    return {"provider": p, "model": m}
+    return {"provider": p, "model": m, "steps": _clamp_steps(g.get("image_steps")),
+            "ink": _ink_mode(g.get("image_ink")), "ink_radius": _clamp_radius(g.get("image_ink_radius"))}
 
 
-def set_image_settings(provider: Optional[str], model: Optional[str]) -> dict:
+def set_image_settings(provider: Optional[str], model: Optional[str], steps: Optional[int] = None,
+                       ink: Optional[str] = None, ink_radius: Optional[int] = None) -> dict:
+    """Ba cài đặt sau chỉ ghi khi được truyền: lượt PUT chỉ đổi nhà cung cấp không được xoá chúng."""
     p = str(provider or "").strip().lower()
     if p in ("auto",):
         p = ""
     if p and p not in PROVIDERS:
         raise ValueError(f"Không biết nhà cung cấp ảnh '{p}'. Chỉ hỗ trợ: {', '.join(PROVIDERS)} (hoặc để trống để tự chọn).")
+    if ink is not None and str(ink).strip().lower() not in INK_MODES:
+        raise ValueError(f"Không biết chế độ làm dày nét '{ink}'. Chỉ hỗ trợ: {', '.join(INK_MODES)}.")
     from tubecli.config import set_global_setting
     set_global_setting("image_provider", p)
     set_global_setting("image_model", str(model or "").strip())
+    if steps is not None:
+        set_global_setting("image_steps", _clamp_steps(steps))
+    if ink is not None:
+        set_global_setting("image_ink", str(ink).strip().lower())
+    if ink_radius is not None:
+        set_global_setting("image_ink_radius", _clamp_radius(ink_radius))
     return image_settings()
 
 
@@ -132,7 +173,8 @@ def resolve_provider(provider: Optional[str] = None, model: Optional[str] = None
             return {"ok": False, "provider": "cloudflare", "model": m or CF_DEFAULT_MODEL,
                     "reason": "Chưa có credential Cloudflare (cần API token + Account ID) trong Cloud API Keys."}
         return {"ok": True, "provider": "cloudflare", "model": m or CF_DEFAULT_MODEL,
-                "creds": creds, "label": creds.get("label") or "", "reason": ""}
+                "creds": creds, "label": creds.get("label") or "", "reason": "",
+                "steps": cfg.get("steps") or 0}
 
     def _gemini(m=None):
         key = km.get_active_key("gemini")
@@ -335,7 +377,7 @@ def cf_kind_from_schema(schema, model: str) -> str:
     return "dims"
 
 
-def cf_request(kind: str, prompt: str, aspect_ratio: str) -> tuple:
+def cf_request(kind: str, prompt: str, aspect_ratio: str, steps: int = 0) -> tuple:
     """(content_type, body bytes) của một lượt /ai/run theo khuôn của model."""
     w, h = _CF_DIMS.get(aspect_ratio or "16:9", _CF_DIMS["16:9"])
     if kind == "multipart":
@@ -348,7 +390,10 @@ def cf_request(kind: str, prompt: str, aspect_ratio: str) -> tuple:
         return f"multipart/form-data; boundary={boundary}", body
     if kind == "dims":
         return "application/json", json.dumps({"prompt": prompt, "width": w, "height": h}).encode("utf-8")
-    return "application/json", json.dumps({"prompt": f"{prompt} (aspect ratio {aspect_ratio})", "steps": 4}).encode("utf-8")
+    # steps chỉ gửi ở khuôn "prompt" (flux-1-schnell): khuôn dims/multipart của model khác chưa chắc
+    # nhận trường này, mà Cloudflare từ chối thẳng trường lạ (Bad input: … not allowed).
+    return "application/json", json.dumps({"prompt": f"{prompt} (aspect ratio {aspect_ratio})",
+                                           "steps": _clamp_steps(steps) or CF_STEPS_DEFAULT}).encode("utf-8")
 
 
 def cf_image_bytes(content_type: str, raw: bytes) -> bytes:
@@ -398,7 +443,7 @@ async def _cf_generate(r: dict, prompt: str, aspect_ratio: str, timeout: int) ->
     headers = _cf_headers(creds)
     base = f"https://api.cloudflare.com/client/v4/accounts/{creds['account_id']}"
     kind = await _cf_kind(base, headers, r["model"], timeout)
-    ctype, body = cf_request(kind, prompt, aspect_ratio)
+    ctype, body = cf_request(kind, prompt, aspect_ratio, r.get("steps") or 0)
     ct, raw = await _post_any(f"{base}/ai/run/{r['model']}", body, {**headers, "Content-Type": ctype}, timeout)
     return cf_image_bytes(ct, raw)
 
@@ -551,8 +596,8 @@ async def _cf_generate_rotating(r: dict, prompt: str, aspect_ratio: str, timeout
                                         "account in Cloud API Keys, or wait for one to resume.") from e
 
 
-async def generate_bytes(r: dict, prompt: str, aspect_ratio: str = "16:9",
-                         reference_images: Optional[list] = None, timeout: int = 180) -> bytes:
+async def _generate_bytes(r: dict, prompt: str, aspect_ratio: str = "16:9",
+                          reference_images: Optional[list] = None, timeout: int = 180) -> bytes:
     """Bytes ảnh từ nhà cung cấp đã resolve; ném ProviderError. Có đường lùi (9Router → Cloudflare).
 
     Xoay khoá: rate_limit/auth → resolve lại; ra tài khoản KHÁC thì vẽ ngay bằng nó và ghi tài
@@ -577,7 +622,7 @@ async def generate_bytes(r: dict, prompt: str, aspect_ratio: str = "16:9",
             if nr.get("ok") and _cred_id(nr) and _cred_id(nr) != _cred_id(r):
                 logger.warning("%s/%s: %s → xoay sang tài khoản '%s'", r["provider"], r["model"], str(e)[:100], nr.get("label") or "?")
                 nr["_rotated"] = True
-                data = await generate_bytes(nr, prompt, aspect_ratio, reference_images, timeout)
+                data = await _generate_bytes(nr, prompt, aspect_ratio, reference_images, timeout)
                 r["rotated_to"] = nr.get("label") or ""
                 for k in ("creds", "key", "base", "headers", "label", "fallback"):
                     if k in nr:
@@ -588,10 +633,110 @@ async def generate_bytes(r: dict, prompt: str, aspect_ratio: str = "16:9",
         # Nhà chính hỏng (quota, 502, khoá sai) mà có đường lùi → vẽ tiếp; lời TỪ CHỐI nội dung thì không.
         if fb and e.kind != "refused":
             logger.warning("%s/%s hỏng (%s) → vẽ bằng %s/%s", r["provider"], r["model"], str(e)[:120], fb["provider"], fb["model"])
-            data = await generate_bytes(fb, prompt, aspect_ratio, reference_images, timeout)
+            data = await _generate_bytes(fb, prompt, aspect_ratio, reference_images, timeout)
             r["fallback_from"] = f"{r['provider']}/{r['model']}: {str(e)[:160]}"
             return data
         raise
+
+
+# ── làm dày nét cho ảnh NÉT VẼ (doodle, người que, whiteboard) ────────────────
+# Vì sao: đo thật 18/9/2026 trên FLUX-1 schnell — nó vẽ ĐÚNG thể loại người que mực đen trên giấy trắng
+# nhưng nét MẢNH hơn hẳn video whiteboard thật, và viết "very thick bold 8px stroke" vào prompt cũng
+# không dày thêm. Một bước hình thái học (MinFilter = lấy điểm tối nhất quanh pixel) kéo nét đen dày ra
+# đúng cỡ bút lông. Chỉ ảnh nét vẽ mới bị đụng: ảnh chụp, tranh màu nước… trả về nguyên xi.
+# Đo trên chính video whiteboard mẫu (18/9/2026): phóng khung lên cạnh ngắn 1024 thì nét dày 9,75 px
+# ⇒ bút lông ≈ cạnh ngắn / 105. FLUX-1 schnell vẽ ra 6,2 px, MinFilter(5) đưa lên 11,0 px là khớp mắt.
+INK_TARGET_DIV = 105
+INK_MIN_TARGET = 3.0
+INK_MODES = ("auto", "off", "on")
+
+
+def _pil():
+    try:
+        from PIL import Image, ImageFilter, ImageOps, ImageStat
+        return Image, ImageFilter, ImageOps, ImageStat
+    except Exception:       # noqa: BLE001 — thiếu Pillow thì bỏ qua bước trang trí, không ai mất ảnh
+        return None
+
+
+def ink_stats(im) -> dict:
+    """Số đo quyết định: ảnh này CÓ PHẢI nét đen trên trắng, và nét đang dày bao nhiêu pixel."""
+    _, ImageFilter, _, ImageStat = _pil()
+    g = im.convert("L")
+    w, h = g.size
+    total = max(1, w * h)
+    hist = g.histogram()
+    ink = max(1, sum(hist[:128]))
+    # Nét rộng d pixel, mòn 1 pixel mỗi bên thì còn d-2 → phần còn lại cho ra chính d.
+    kept = sum(g.filter(ImageFilter.MaxFilter(3)).histogram()[:128]) / ink
+    return {"white": sum(hist[240:]) / total, "mid": sum(hist[60:200]) / total,
+            "dark": sum(hist[:128]) / total,
+            "sat": (ImageStat.Stat(im.convert("HSV").split()[1]).mean[0] / 255.0
+                    if im.mode not in ("L", "1") else 0.0),
+            "width": (2.0 / (1.0 - kept)) if kept < 0.97 else 99.0,
+            "target": max(INK_MIN_TARGET, min(w, h) / INK_TARGET_DIV)}
+
+
+def is_line_art(st: dict) -> bool:
+    """Gần hết là giấy trắng, gần như không có nửa tối (bóng/khối), gần như không màu, mà vẫn có mực.
+
+    Sàn mực thấp (0,2 %) vì một hình người que nhỏ giữa khung 1024 chỉ chiếm chừng đó; nó chỉ để loại
+    ảnh TRẮNG TRƠN (lượt vẽ hỏng) chứ không phải để đo độ dày.
+    """
+    return (st["white"] >= 0.80 and st["mid"] <= 0.12 and st["sat"] <= 0.06
+            and 0.002 <= st["dark"] <= 0.30)
+
+
+def thicken_ink(data: bytes, mode: str = "", radius: int = 0) -> bytes:
+    """Ảnh nét vẽ mà nét mảnh hơn cỡ bút lông → làm dày; còn lại trả về nguyên bytes.
+
+    Mọi lỗi ở đây đều bị nuốt: ảnh đã vẽ xong và đã tính tiền rồi, không được để bước trang trí
+    làm đổ cả lô.
+    """
+    if not data:
+        return data
+    cfg = image_settings()
+    mode = (mode or cfg["ink"] or "auto").strip().lower()
+    mods = _pil()
+    if mode == "off" or not mods:
+        return data
+    Image, ImageFilter, ImageOps, _ = mods
+    try:
+        im = Image.open(io.BytesIO(data))
+        im.load()
+        fmt = (im.format or "PNG").upper()
+        st = ink_stats(im)
+        if mode == "auto" and not is_line_art(st):
+            return data
+        want = int(radius or cfg["ink_radius"] or 0)
+        if not want:
+            grow = st["target"] - st["width"]
+            if mode == "auto" and grow < 1.0:
+                return data                     # nét đã đủ dày, đụng vào chỉ làm bết
+            want = int(max(3, min(9, round(grow) + 1)))
+        want = want if want % 2 else want + 1
+        out = ImageOps.autocontrast(im.convert("L").filter(ImageFilter.MinFilter(want)), cutoff=1)
+        buf = io.BytesIO()
+        if fmt in ("JPEG", "JPG"):
+            out.save(buf, "JPEG", quality=92)
+        elif fmt == "WEBP":
+            out.save(buf, "WEBP", quality=95)
+        else:
+            out.save(buf, "PNG", optimize=True)
+        return buf.getvalue()
+    except Exception as e:      # noqa: BLE001
+        logger.info("bỏ qua bước làm dày nét: %s", e)
+        return data
+
+
+async def generate_bytes(r: dict, prompt: str, aspect_ratio: str = "16:9",
+                         reference_images: Optional[list] = None, timeout: int = 180) -> bytes:
+    """Bytes ảnh của nhà đã resolve, ĐÃ qua bước làm dày nét nếu là ảnh nét vẽ (xem thicken_ink).
+
+    Bọc ngoài `_generate_bytes` để bước làm dày chạy ĐÚNG MỘT LẦN: bên trong nó còn tự xoay tài khoản
+    và lùi sang nhà khác bằng cách gọi đệ quy chính nó.
+    """
+    return thicken_ink(await _generate_bytes(r, prompt, aspect_ratio, reference_images, timeout))
 
 
 async def generate_image(prompt: str, out_path: str, provider: Optional[str] = None, model: Optional[str] = None,
