@@ -2194,8 +2194,7 @@ def _step_studio(state: Dict, options: Dict) -> None:
     # sai ở đâu thì chép kịch bản vào shot (giữ ảnh, xoá tiếng cũ) — không dựng lại.
     script = str(state.get("script") or "")
     labelled = strip_shot_labels(shots)
-    for sb_id, text in labelled:
-        _put(f"/api/v1/studio/storyboards/{sb_id}", {"narration_text": text, "tts_audio_url": ""})
+    _put_narration(labelled, state, "removing speaker labels from")
     if labelled:
         shots = _storyboards(ep_id)
         state["storyboard_labels"] = len(labelled)
@@ -2235,9 +2234,8 @@ def _step_studio(state: Dict, options: Dict) -> None:
                 state["_say"]("studio", "running", "storyboard stopped early — continuing from the last shot")
                 _stream_storyboard(ep_id, state, append=True)
                 shots = _storyboards(ep_id)
-            fixed = restore_narration(shots, script)
-            for sb_id, text in fixed:
-                _put(f"/api/v1/studio/storyboards/{sb_id}", {"narration_text": text, "tts_audio_url": ""})
+            fixed = _narration_differs(shots, restore_narration(shots, script))
+            _put_narration(fixed, state, "restoring the narration of")
             shots = _storyboards(ep_id)
             cov = storyboard_coverage(shots, script)
             state["storyboard_restored"] = len(fixed)
@@ -2459,6 +2457,29 @@ def _split_even(text: str, parts: int) -> List[str]:
             cur = []
     out.append(" ".join(cur))
     return out + [""] * (parts - len(out))
+
+
+PUT_SAY_EVERY = 25          # cứ ngần này shot thì báo một lần — vòng lặp im lặng nhìn y hệt treo máy
+
+
+def _narration_differs(shots: List[Dict], fixed: List[Tuple[Any, str]]) -> List[Tuple[Any, str]]:
+    """Chỉ những shot mà lời đọc THẬT SỰ khác lời đúng.
+
+    `restore_narration` trả lời đúng cho MỌI shot, nên chép hết là 188 lượt gọi cho một shot hỏng — và mỗi lượt
+    còn xoá `tts_audio_url`, tức vứt luôn tiếng đã đọc của những shot vốn không sai (lần chạy lại sau khi máy chủ
+    khởi động lại đã có tiếng)."""
+    now = {sh.get("id"): " ".join(str(sh.get("narration_text") or "").split()) for sh in shots}
+    return [(sid, text) for sid, text in fixed if " ".join(str(text or "").split()) != now.get(sid)]
+
+
+def _put_narration(items: List[Tuple[Any, str]], state: Dict, what: str) -> int:
+    """Ghi lời đọc cho từng shot, có báo tiến độ. Trả số shot đã ghi."""
+    say = state.get("_say") or (lambda *a: None)
+    for i, (sb_id, text) in enumerate(items, 1):
+        _put(f"/api/v1/studio/storyboards/{sb_id}", {"narration_text": text, "tts_audio_url": ""})
+        if len(items) > PUT_SAY_EVERY and (i % PUT_SAY_EVERY == 0 or i == len(items)):
+            say("studio", "running", f"{what} {i}/{len(items)} shot(s)")
+    return len(items)
 
 
 def restore_narration(shots: List[Dict], script: str) -> List[Tuple[Any, str]]:

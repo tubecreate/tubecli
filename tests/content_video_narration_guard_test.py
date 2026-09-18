@@ -164,6 +164,8 @@ st, puts, streams, said, final = run_studio(EN_SHOTS)
 ok(st.get("storyboard_labels") == 69 and st.get("storyboard_foreign") == [69, "English"] and st.get("storyboard_restored") == 69,
    "tập 337: 69 nhãn VO bỏ, 69 shot tiếng Anh, chép lại 69 lời", (st.get("storyboard_labels"), st.get("storyboard_foreign"), st.get("storyboard_restored")))
 ok(len(puts) == 138 and all(p["tts_audio_url"] == "" for _, p in puts), "138 lần PUT (bỏ nhãn + chép lại), tiếng cũ xoá", len(puts))
+ok(sum(1 for a in said if "shot(s)" in str(a) and "/" in str(a)) >= 4,
+   "69 nhãn + 69 lời: cả hai vòng lặp đều báo tiến độ", [a for a in said if "/" in str(a)][:2])
 ok(all("tema" in s["narration_text"] and "VO:" not in s["narration_text"] for s in final), "mọi shot cuối cùng là lời Tây Ban Nha, không 'VO:'")
 joined = " ".join(s["narration_text"] for s in final)
 ok(all(f"tema{n}" in joined for n in range(1, N + 1)), "đủ 71 cảnh, kể cả 35–36 bị bỏ")
@@ -175,8 +177,11 @@ ok("69 shot(s) came back in English — replaced with the script" in out and "sp
    "thẻ kết quả nói rõ", [l for l in out.splitlines() if "Storyboard" in l])
 
 st, puts, streams, said, final = run_studio(DROP)
-ok(st.get("storyboard_missing") == [35, 36] and st.get("storyboard_restored") == 69 and "storyboard_foreign" not in st,
+ok(st.get("storyboard_missing") == [35, 36] and 0 < st.get("storyboard_restored", 0) <= 69 and "storyboard_foreign" not in st,
    "bỏ cảnh 35–36: nêu đúng cảnh, chép lại, không nói 'lạ'", (st.get("storyboard_missing"), st.get("storyboard_restored")))
+ok(st["storyboard_restored"] < 69, "…shot trước chỗ mất vốn đã đúng thì không chép lại", st["storyboard_restored"])
+ok(not any("restoring the narration of" in str(a) for a in said),
+   f"…dưới {P.PUT_SAY_EVERY} shot thì không báo tiến độ cho rối mắt", st["storyboard_restored"])
 ok(all(f"tema{n}" in " ".join(s["narration_text"] for s in final) for n in (35, 36)) and st["storyboard_coverage"] > 0.95,
    "…cảnh 35–36 quay lại lời, phủ ~1")
 ok("scene(s) 35, 36 were skipped — put back" in P._render_result(st, {}, [], [], 1.0), "…thẻ kết quả nêu cảnh")
@@ -191,8 +196,12 @@ ok(puts == [] and streams == [] and st["storyboard_coverage"] > 0.95 and not any
    "storyboard tốt → không đụng gì", [k for k in st if k.startswith("storyboard_")])
 
 st, puts, streams, said, final = run_studio(MIX)
-ok(st.get("storyboard_foreign") == [3, "English"] and st.get("storyboard_restored") == 71 and st["storyboard_coverage"] > 0.95,
-   "3 shot tiếng Anh lẫn trong 71 → chép lại cả bộ (giữ thứ tự), phủ ~1", (st.get("storyboard_foreign"), st["storyboard_coverage"]))
+ok(st.get("storyboard_foreign") == [3, "English"] and st.get("storyboard_restored") == 3 and st["storyboard_coverage"] > 0.95,
+   "3 shot tiếng Anh lẫn trong 71 → CHỈ chép lại 3 shot ấy, phủ ~1", (st.get("storyboard_foreign"), st.get("storyboard_restored")))
+ok(len(puts) == 3 and all(p["tts_audio_url"] == "" for _, p in puts),
+   "…68 shot vốn đúng KHÔNG bị đụng (không mất tiếng đã đọc)", len(puts))
+ok(any("restoring the narration of" in str(a) for a in said) is False,
+   "…ít shot thì không cần báo tiến độ", [a for a in said if "restoring" in str(a)][:2])
 
 st, puts, streams, said, final = run_studio(EN_SHOTS, language="")
 ok(st.get("storyboard_foreign") == [69, "English"], "không có ngôn ngữ trong state → dò từ chính kịch bản (es) rồi vẫn bắt được")
