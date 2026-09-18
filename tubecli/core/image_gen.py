@@ -648,6 +648,10 @@ async def _generate_bytes(r: dict, prompt: str, aspect_ratio: str = "16:9",
 # ⇒ bút lông ≈ cạnh ngắn / 105. FLUX-1 schnell vẽ ra 6,2 px, MinFilter(5) đưa lên 11,0 px là khớp mắt.
 INK_TARGET_DIV = 105
 INK_MIN_TARGET = 3.0
+# Phép ước độ dày chỉ là phép ĐO GẦN: trên hình nhiều mực nó đo thiếu, nên bán kính tính ra lại quá tay —
+# bản thử 18/9/2026 ra 14,9 px so với đích 9,75 và mắt người que bết thành một cục đen. Nên sau khi làm dày
+# phải đo lại; quá trần thì lùi bán kính. Trần 1,35 lần: trên ngưỡng đó nét bắt đầu ăn vào chi tiết nhỏ.
+INK_OVER_LIMIT = 1.35
 INK_MODES = ("auto", "off", "on")
 
 
@@ -709,13 +713,20 @@ def thicken_ink(data: bytes, mode: str = "", radius: int = 0) -> bytes:
         if mode == "auto" and not is_line_art(st):
             return data
         want = int(radius or cfg["ink_radius"] or 0)
+        fixed = bool(want)      # người dùng chỉ định tay thì tôn trọng, không tự lùi
         if not want:
             grow = st["target"] - st["width"]
             if mode == "auto" and grow < 1.0:
                 return data                     # nét đã đủ dày, đụng vào chỉ làm bết
             want = int(max(3, min(9, round(grow) + 1)))
         want = want if want % 2 else want + 1
-        out = ImageOps.autocontrast(im.convert("L").filter(ImageFilter.MinFilter(want)), cutoff=1)
+        gray = im.convert("L")
+        out = None
+        # want luôn là số LẺ ≥ 3 nên vòng này chạy want, want-2, … 3 rồi dừng hẳn ở 3.
+        for k in range(want, 1, -2):
+            out = ImageOps.autocontrast(gray.filter(ImageFilter.MinFilter(k)), cutoff=1)
+            if fixed or k <= 3 or ink_stats(out)["width"] <= st["target"] * INK_OVER_LIMIT:
+                break
         buf = io.BytesIO()
         if fmt in ("JPEG", "JPG"):
             out.save(buf, "JPEG", quality=92)

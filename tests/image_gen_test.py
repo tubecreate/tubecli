@@ -256,6 +256,19 @@ for y in range(512):
 shot = png(photo)
 ok(not G.is_line_art(G.ink_stats(photo)) and G.thicken_ink(shot) == shot,
    "ảnh chụp / tranh màu: không phải nét vẽ → trả nguyên xi")
+# Đo lại sau khi làm dày rồi LÙI bán kính: phép ước độ dày đo thiếu trên hình nhiều mực nên bán kính tính ra
+# quá tay — bản thử 18/9/2026 ra 14,9 px so với đích 9,75 và mắt người que bết thành cục đen.
+hair = png(art(1))
+wide = width_of(G.thicken_ink(hair))
+_limit = G.INK_OVER_LIMIT
+G.INK_OVER_LIMIT = 0.5      # trần ngặt hơn cả kết quả lượt đầu: buộc phải lùi tới đáy (bán kính 3)
+try:
+    narrow = width_of(G.thicken_ink(hair))
+finally:
+    G.INK_OVER_LIMIT = _limit
+ok(narrow < wide, "quá trần độ dày → lùi bán kính (đo lại sau khi làm dày)", (wide, narrow))
+ok(width_of(G.thicken_ink(thin)) <= G.ink_stats(Image.open(io.BytesIO(thin)))["target"] * G.INK_OVER_LIMIT,
+   "nét sau khi làm dày không vượt trần 1,35 lần cỡ bút lông")
 ok(G.thicken_ink(thin, "off") == thin, "chế độ off → không làm gì")
 ok(G.thicken_ink(shot, "on") != shot, "chế độ on → làm dày cả ảnh không phải nét vẽ (người dùng tự quyết)")
 ok(width_of(G.thicken_ink(thin, "on", 9)) > width_of(G.thicken_ink(thin, "on", 3)), "bán kính lớn → nét dày hơn")
