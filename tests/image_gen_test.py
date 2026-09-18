@@ -295,6 +295,21 @@ ok(width_of(got) > width_of(thin) and _fake_raw.calls == 1,
    "generate_bytes làm dày ĐÚNG MỘT LẦN (bọc ngoài, không đụng vào đệ quy xoay khoá/đường lùi)",
    (width_of(thin), width_of(got), _fake_raw.calls))
 
+# Lùi nhà cung cấp thì báo ĐÚNG bên ĐÃ VẼ: ảnh Cloudflare vẽ mà ghi "9router" thì Sheet, log và thẻ
+# bước đều nói sai (bộ test style_lock của Content Studio bắt được, 18/9/2026).
+async def fb_bytes(r, prompt, aspect_ratio="16:9", reference_images=None, timeout=180):
+    r["fallback_from"] = "9router/ag/x: HTTP 429: quota"
+    r["drew_provider"], r["drew_model"] = "cloudflare", G.CF_DEFAULT_MODEL
+    return b"IMG"
+
+
+G.generate_bytes = fb_bytes
+_fb = asyncio.run(G.generate_image("p", str(TMP / "fb.png"),
+                                   resolved={"ok": True, "provider": "9router", "model": "ag/x"}))
+G.generate_bytes = fake_bytes
+ok(_fb["provider"] == "cloudflare" and _fb["model"] == G.CF_DEFAULT_MODEL and "429" in _fb.get("fallback_from", ""),
+   "lùi nhà cung cấp → báo tên bên đã vẽ, kèm lý do lùi", _fb)
+
 G.set_image_settings("", "", steps=0, ink="auto", ink_radius=0)   # về mặc định rồi mới hỏi route
 s = c.get("/api/v1/images/settings").json()
 ok(s["steps"] == 0 and s["ink"] == "auto" and s["ink_modes"] == list(G.INK_MODES) and s["steps_max"] == 8,

@@ -604,6 +604,8 @@ async def _generate_bytes(r: dict, prompt: str, aspect_ratio: str = "16:9",
     khoản mới vào `r` (caller giữ `r` cho cả lô nên các shot sau đi thẳng, không tốn thêm 429).
     """
     r.pop("fallback_from", None)
+    r.pop("drew_provider", None)
+    r.pop("drew_model", None)
     try:
         if r["provider"] == "cloudflare":
             return await _cf_generate_rotating(r, prompt, aspect_ratio, timeout)
@@ -635,6 +637,10 @@ async def _generate_bytes(r: dict, prompt: str, aspect_ratio: str = "16:9",
             logger.warning("%s/%s hỏng (%s) → vẽ bằng %s/%s", r["provider"], r["model"], str(e)[:120], fb["provider"], fb["model"])
             data = await _generate_bytes(fb, prompt, aspect_ratio, reference_images, timeout)
             r["fallback_from"] = f"{r['provider']}/{r['model']}: {str(e)[:160]}"
+            # Bên VẼ THẬT là đường lùi (có thể lùi tiếp một tầng nữa) — báo cáo phải ghi tên nó, không
+            # phải nhà đã hỏng: Sheet và thẻ bước từng ghi "9router" cho ảnh Cloudflare vẽ.
+            r["drew_provider"] = fb.get("drew_provider") or fb["provider"]
+            r["drew_model"] = fb.get("drew_model") or fb["model"]
             return data
         raise
 
@@ -778,8 +784,9 @@ async def generate_image(prompt: str, out_path: str, provider: Optional[str] = N
     with open(tmp, "wb") as f:
         f.write(data)
     os.replace(tmp, out_path)
-    out = {"status": STATUS_SUCCESS, "path": out_path, "provider": r["provider"], "model": r["model"],
-           "label": r.get("label", "")}
+    out = {"status": STATUS_SUCCESS, "path": out_path,
+           "provider": r.get("drew_provider") or r["provider"],
+           "model": r.get("drew_model") or r["model"], "label": r.get("label", "")}
     if r.get("fallback_from"):
         out["fallback_from"] = r["fallback_from"]
     if r.get("rotated_to"):
