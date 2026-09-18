@@ -478,6 +478,87 @@ P._step_drive(new_state(), dict(OPTS, drive_token_id="cred_b_1"))
 ok(not [c for c in FD.calls if c[0] == "move"] and FD.files[mine["id"]]["parent"] == elsewhere["id"],
    "người dùng đã tự dời project đi chỗ khác → để yên", FD.calls[:3])
 
+print("── D. gom project của những lượt trước ─────────────────────")
+# User 18/9/2026: "chỗ task upload drive vẫn chưa gom project lưu dạng username-server/project" — bản .116 chỉ dời
+# thư mục của ĐÚNG task đang chạy, nên project tải lên trước đó vẫn nằm rải ở gốc My Drive.
+MARKS = []
+CM.codex_manager.list_tasks = lambda status="", limit=50, created_by="": [dict(m) for m in MARKS]
+WHO_B = DX.token_label(DX.resolve_token("cred_b_1", [], False))
+
+
+def mark(name, parent, email=WHO_B):
+    """Một project đã lên Drive ở lượt trước: thư mục trên Drive + dấu «đã lên Drive» trên thẻ Codex."""
+    f = FD.add(name, parent, DX.FOLDER_MIME)
+    MARKS.append({"id": f"tk_{f['id']}", "lane": "video", "status": "done",
+                  "drive": {"folder_url": f"https://drive.google.com/drive/folders/{f['id']}",
+                            "email": email, "files": 3}})
+    return f
+
+
+cur = FD.add("Project đang chạy", VPS_ID, DX.FOLDER_MIME)
+CK["t1"]["drive"] = dict(CK["t1"]["drive"], folder_id=cur["id"])
+MARKS.append({"id": "tk_cur", "lane": "video", "status": "running",
+              "drive": {"folder_url": f"https://drive.google.com/drive/folders/{cur['id']}", "email": WHO_B, "files": 3}})
+old1, old2 = mark("Tập 383", "root"), mark("El minuto veinte", "root")
+inside = mark("Đã đúng chỗ", VPS_ID)
+filed = mark("User tự xếp", elsewhere["id"])
+oldhost = FD.add("tubecli-pc-nhat", "root", DX.FOLDER_MIME)
+renamed = mark("Máy đổi tên", oldhost["id"])
+other = mark("Của tài khoản khác", "root", email="z@x.com")
+gone = mark("Đã xoá trên Drive", "root")
+FD.files[gone["id"]]["trashed"] = True
+P._DRIVE_GATHERED.clear()
+FD.calls.clear()
+P._step_drive(new_state(), dict(OPTS, drive_token_id="cred_b_1"))
+moves = {c[1] for c in FD.calls if c[0] == "move"}
+ok(moves == {old1["id"], old2["id"], renamed["id"]}
+   and all(FD.files[f["id"]]["parent"] == VPS_ID for f in (old1, old2, renamed)),
+   "gom project của lượt trước: ở gốc My Drive hay trong thư mục máy cũ → dời vào «tuan89tk-vps-k7m2qx»",
+   [c for c in FD.calls if c[0] == "move"])
+ok(FD.files[filed["id"]]["parent"] == elsewhere["id"] and filed["id"] not in moves,
+   "project user tự xếp vào thư mục riêng → ĐỂ YÊN")
+ok(other["id"] not in moves and FD.files[other["id"]]["parent"] == "root",
+   "project của tài khoản Google khác (đổi token) → không đụng")
+ok(inside["id"] not in moves and cur["id"] not in moves, "thư mục đã đúng chỗ + thư mục của task đang chạy → không dời")
+ok(gone["id"] not in moves, "thư mục đã bị xoá trên Drive → bỏ qua, không đổ bước Drive")
+ok(any(len(a) > 2 and a[2] == f"gathered 3 earlier project folders into “{ROOT_NAME}”" for a in said),
+   "thẻ bước nói đã gom mấy project", [a[2] for a in said if len(a) > 2][:5])
+FD.calls.clear()
+P._step_drive(new_state(), dict(OPTS, drive_token_id="cred_b_1"))
+ok(not [c for c in FD.calls if c[0] == "move"] and not [a for a in said if len(a) > 2 and "gathered" in str(a[2])],
+   "lượt sau: đã gom rồi thì không hỏi Google lại, không nói lại", FD.calls[:3])
+
+stray = mark("Tập 384", "root")
+stuck = mark("Tập 385", "root")
+real_move = DX.move_folder
+
+
+def picky_move(drive, fid, new_parent, old_parents):
+    if fid == stuck["id"]:
+        raise RuntimeError("<HttpError 403 insufficientFilePermissions>")
+    real_move(drive, fid, new_parent, old_parents)
+
+
+DX.move_folder = picky_move
+P._DRIVE_GATHERED.clear()
+FD.calls.clear()
+try:
+    P._step_drive(new_state(), dict(OPTS, drive_token_id="cred_b_1"))
+    moved_ok = FD.files[stray["id"]]["parent"] == VPS_ID
+finally:
+    DX.move_folder = real_move
+ok(moved_ok and FD.files[stuck["id"]]["parent"] == "root" and CK["t1"]["drive"]["files"] is not None,
+   "một thư mục dời hỏng (thiếu quyền) → các thư mục khác vẫn gom, bước Drive vẫn xong")
+ok(P._drive_past_folders(cur["id"], limit=2) and len(P._drive_past_folders("", limit=2)) == 2,
+   "có trần số thư mục xét mỗi lượt (không quét cả sổ Codex nghìn task)")
+ok([t[1] for t in P._drive_past_folders("")].count(cur["id"]) == 0
+   or P._drive_past_folders(cur["id"])[0][1] != cur["id"], "bỏ qua thư mục của task đang chạy")
+ok(bool(P._DRIVE_ROOT_RE.match("tuan89tk-vps-k7m2qx")) and bool(P._DRIVE_ROOT_RE.match("tubecli-pc-nhat"))
+   and bool(P._DRIVE_ROOT_RE.match("tubecli")) and not P._DRIVE_ROOT_RE.match("Kho riêng")
+   and not P._DRIVE_ROOT_RE.match("Tập 383"), "tên thư mục máy: «<user>-vps-<mã>» hay «tubecli-<tên máy>»")
+MARKS.clear()
+P._DRIVE_GATHERED.clear()
+
 print("── E/F. an toàn, lỗi, tắt, huỷ ─────────────────────────────")
 FD.calls.clear()
 bad = new_state(video_path=str(OUTSIDE))

@@ -5927,6 +5927,11 @@ def _drive_save(state: Dict, options: Dict) -> None:
                 f"but only {who} can open them (share it by hand in Drive, or turn sharing off for this account).")
     state["drive"] = rec
     _checkpoint_merge(state, {"drive": rec})
+    # Project của các lượt TRƯỚC còn nằm ở gốc My Drive thì gom nốt: một lần bấm Drive là Drive gọn lại.
+    try:
+        _drive_gather(drive, root, str(rec.get("folder_id") or ""), who, say)
+    except Exception as e:      # noqa: BLE001 — không có sổ Codex (chạy tay) cũng không sao
+        logger.info(f"[ContentVideo] could not gather earlier Drive folders: {e}")
 
     shots, ups = _drive_plan(state)
     # Nhân vật + cảnh của phim cho khối [CHARACTERS] / [SCENE SETTING] trong ô prompt video.
@@ -6468,6 +6473,71 @@ def backfill_drive_marks(limit: int = 300) -> int:
         else:
             codex_manager.set_drive(str(t["id"]), {})
     return marked
+
+
+# Thư mục MÁY ở gốc My Drive: «<tài khoản cloud>-vps-<mã server>», hay «tubecli-<tên máy>» khi máy chưa nối cloud.
+_DRIVE_ROOT_RE = re.compile(r"^(?:[A-Za-z0-9._-]{1,64}-vps-[a-z0-9]{4,16}|tubecli(?:-[A-Za-z0-9._-]{1,40})?)$")
+_DRIVE_FOLDER_RE = re.compile(r"/folders/([A-Za-z0-9_-]+)")
+# Thư mục đã đúng chỗ (hay đã bị xoá, hay user tự xếp chỗ khác) trong tiến trình này — khỏi hỏi Google lại.
+_DRIVE_GATHERED: set = set()
+DRIVE_GATHER_MAX = 60
+
+
+def _drive_past_folders(skip_id: str, limit: int = DRIVE_GATHER_MAX) -> List[Tuple[str, str, str]]:
+    """(task_id, folder_id, email) của project đã lên Drive ở những lượt TRƯỚC — đọc dấu trên thẻ Codex, mới
+    nhất trước (folder_url mang luôn id thư mục)."""
+    from tubecli.extensions.codex.manager import codex_manager
+
+    out: List[Tuple[str, str, str]] = []
+    for t in codex_manager.list_tasks(limit=0):
+        rec = t.get("drive") or {}
+        m = _DRIVE_FOLDER_RE.search(str(rec.get("folder_url") or ""))
+        if not m or m.group(1) == skip_id or m.group(1) in _DRIVE_GATHERED:
+            continue
+        out.append((str(t.get("id") or ""), m.group(1), str(rec.get("email") or "")))
+        if len(out) >= max(0, int(limit)):
+            break
+    return out
+
+
+def _drive_gather(drive, root: Dict[str, Any], skip_id: str, who: str, say) -> int:
+    """Dời project của các lượt TRƯỚC vào thư mục máy (18/9/2026). Bản .116 chỉ dời thư mục của đúng task đang
+    chạy, nên project tải lên trước đó vẫn nằm rải ở gốc My Drive.
+
+    Chỉ dời thư mục đang ở GỐC My Drive hoặc trong một thư mục máy khác của TubeCLI (máy đổi tên, hay lúc trước
+    chưa có danh tính cloud nên tên là «tubecli-<tên máy>»). User đã tự xếp nó vào thư mục riêng thì ĐỂ YÊN."""
+    from tubecli.extensions.content_video import drive_export as DX
+
+    moved, my_root, parent_name = 0, "", {}
+    for task_id, fid, email in _drive_past_folders(skip_id):
+        try:
+            # Thư mục của tài khoản Google khác (user đổi token): không phải việc của lượt này.
+            if email and who and email != who:
+                continue
+            folder = DX.file_alive(drive, fid)
+            if not folder or root["id"] in (folder.get("parents") or []):
+                _DRIVE_GATHERED.add(fid)
+                continue
+            parents = [p for p in (folder.get("parents") or []) if p]
+            if not my_root:
+                my_root = DX.my_drive_root_id(drive)
+            here = parents[0] if parents else ""
+            if here not in parent_name:
+                parent_name[here] = ("" if here in ("", my_root)
+                                     else str((DX.file_alive(drive, here) or {}).get("name") or ""))
+            if here != my_root and not _DRIVE_ROOT_RE.match(parent_name[here]):
+                _DRIVE_GATHERED.add(fid)
+                continue
+            DX.move_folder(drive, fid, root["id"], parents)
+            _DRIVE_GATHERED.add(fid)
+            moved += 1
+        except Exception as e:      # noqa: BLE001 — gom là việc dọn dẹp: một thư mục hỏng không được đổ bước Drive
+            logger.info(f"[ContentVideo] could not gather Drive folder {fid} of task {task_id}: {e}")
+    if moved:
+        say("drive", "running",
+            f"gathered {moved} earlier project folder{'' if moved == 1 else 's'} into "
+            f"“{root.get('name') or ''}”")
+    return moved
 
 
 def drive_sync_info(task_id: str) -> Dict[str, Any]:
