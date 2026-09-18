@@ -658,6 +658,10 @@ INK_MIN_TARGET = 3.0
 # bản thử 18/9/2026 ra 14,9 px so với đích 9,75 và mắt người que bết thành một cục đen. Nên sau khi làm dày
 # phải đo lại; quá trần thì lùi bán kính. Trần 1,35 lần: trên ngưỡng đó nét bắt đầu ăn vào chi tiết nhỏ.
 INK_OVER_LIMIT = 1.35
+# Nét vẽ bút lông chỉ có xám ở MÉP nét (khử răng cưa): đo 11 ảnh doodle thô ra 0,3–0,7 % ảnh. Tranh thuỷ mặc
+# có cả mảng mực loang: 2,5–8,4 %. Ngưỡng cũ 12 % để lọt tranh thuỷ mặc thưa mực — bị làm dày và ép xám,
+# mất độ loang mềm, con dấu đỏ thành xám (18/9/2026). 1,5 % nằm giữa hai nhóm, cách mỗi bên hơn hai lần.
+INK_MAX_MID = 0.015
 INK_MODES = ("auto", "off", "on")
 
 
@@ -693,7 +697,7 @@ def is_line_art(st: dict) -> bool:
     Sàn mực thấp (0,2 %) vì một hình người que nhỏ giữa khung 1024 chỉ chiếm chừng đó; nó chỉ để loại
     ảnh TRẮNG TRƠN (lượt vẽ hỏng) chứ không phải để đo độ dày.
     """
-    return (st["white"] >= 0.80 and st["mid"] <= 0.12 and st["sat"] <= 0.06
+    return (st["white"] >= 0.80 and st["mid"] <= INK_MAX_MID and st["sat"] <= 0.06
             and 0.002 <= st["dark"] <= 0.30)
 
 

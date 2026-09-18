@@ -269,6 +269,18 @@ finally:
 ok(narrow < wide, "quá trần độ dày → lùi bán kính (đo lại sau khi làm dày)", (wide, narrow))
 ok(width_of(G.thicken_ink(thin)) <= G.ink_stats(Image.open(io.BytesIO(thin)))["target"] * G.INK_OVER_LIMIT,
    "nét sau khi làm dày không vượt trần 1,35 lần cỡ bút lông")
+# Tranh THUỶ MẶC: nét mực đậm + mảng mực LOANG xám trên giấy trắng. Không phải nét vẽ bút lông — làm dày
+# là phá tranh (đo 18/9/2026: doodle có 0,3–0,7 % vùng xám, thuỷ mặc 2,5–8,4 %).
+wash = Image.new("L", (1024, 1024), 255)
+_d = ImageDraw.Draw(wash)
+_d.ellipse((250, 300, 750, 800), fill=150)          # mảng mực loang
+_d.line((200, 850, 820, 850), fill=0, width=3)
+_d.line((500, 200, 500, 860), fill=0, width=3)
+_wash = png(wash)
+_ws = G.ink_stats(wash)
+ok(not G.is_line_art(_ws) and G.thicken_ink(_wash) == _wash,
+   "tranh thuỷ mặc (có mảng mực loang) KHÔNG bị coi là nét vẽ → giữ nguyên", _ws)
+ok(G.is_line_art(G.ink_stats(Image.open(io.BytesIO(thin)))), "doodle nét mảnh vẫn được nhận là nét vẽ")
 ok(G.thicken_ink(thin, "off") == thin, "chế độ off → không làm gì")
 ok(G.thicken_ink(shot, "on") != shot, "chế độ on → làm dày cả ảnh không phải nét vẽ (người dùng tự quyết)")
 ok(width_of(G.thicken_ink(thin, "on", 9)) > width_of(G.thicken_ink(thin, "on", 3)), "bán kính lớn → nét dày hơn")
