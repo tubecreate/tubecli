@@ -190,6 +190,32 @@ assert not st.get("warnings"), "no ffprobe → no false alarm"
 assert P.media_seconds("/definitely/not/here.mp4") == 0.0
 print("6 render     : ffprobe length on the state; <60% of plan → warning; unmeasurable → silent")
 
+# 6b. Voice was recorded (audio_seconds) but the video is far shorter → blame the renderer, not the script
+P.media_seconds = lambda path: 177.0
+st = {"episode_id": 1, "script": " ".join(["w"] * 2500), "audio_seconds": 1000.0, "_cancelled": lambda: False, "_say": lambda *a: None}
+P._step_render(st, {})
+assert len(st["warnings"]) == 1 and st["warnings"][0].startswith("The video is 02:57 long but the recorded voice is 16:40"), st["warnings"]
+assert "planned for" not in st["warnings"][0], "one warning, the specific one"
+st = {"episode_id": 1, "script": " ".join(["w"] * 2500), "audio_seconds": 180.0, "_cancelled": lambda: False, "_say": lambda *a: None}
+P._step_render(st, {})
+assert st["warnings"] and "planned for" in st["warnings"][0], "voice itself short → the old script-length warning"
+# _audio_check: sums real files, counts dangling paths, and never raises
+import tempfile as _tf
+_d = _tf.mkdtemp(prefix="cv_audio_")
+_a = os.path.join(_d, "shot001.mp3"); open(_a, "wb").write(b"ID3" + b"\x00" * 100)
+P._storyboards = lambda ep: [{"tts_audio_url": _a}, {"tts_audio_url": os.path.join(_d, "nope.mp3")}, {"tts_audio_url": ""}]
+P.media_seconds = lambda path: 12.5
+st = {"episode_id": 1}
+P._audio_check(st)
+assert st["audio_seconds"] == 12.5 and st["audio_missing"] == 1, (st["audio_seconds"], st["audio_missing"])
+assert st["warnings"] and st["warnings"][0].startswith("1 voiced shot(s) point at an audio file that does not exist"), st["warnings"]
+P._storyboards = lambda ep: (_ for _ in ()).throw(RuntimeError("studio down"))
+st = {"episode_id": 1}
+P._audio_check(st)
+assert "audio_seconds" not in st and not st.get("warnings"), "a failed measurement must not break the run"
+assert isinstance(P._ffprobe_exe(), str)
+print("6b render    : voice recorded but video short → 'renderer used almost none of it'; _audio_check sums files, flags dangling paths")
+
 # 7. Result card leads with the video length, and the warning makes the icon ⚠️
 st = {"video_seconds": 150.0, "shot_count": 13, "title": "T", "warnings": ["The video is 02:30 long but …"]}
 out = P._render_result(st, {}, [], [], 4000.0)

@@ -282,6 +282,23 @@ P._tts_capcut(st8, {"capcut_speaker": "es_11"})
 assert len(batch_calls) == 2 and len(single_calls) == len(batch_calls[0][0]["texts"]), (len(batch_calls), len(single_calls))
 assert st8["tts_summary"] == "19 voiced (CapCut), 1 silent", st8["tts_summary"]
 
+# 8h. đợt trả audio CỤT (đọc chưa hết chữ) → đọc lại RIÊNG shot ấy; đo không được (0) thì tin đợt
+batch_calls.clear(); single_calls.clear(); puts8.clear()
+P._get = lambda path, timeout=60: ELEVEN
+P._post = fake_batch
+_real_ms = P.media_seconds
+_short = {"once": True}
+def _ms_short(path):
+    # shot 3 của đợt: 2 giây cho ~170 ký tự (< 170/40 = 4,25 s) → cụt; các shot khác không đo được (0) → tin
+    return 2.0 if path.endswith("shot003.mp3") and _short.pop("once", False) else 0.0
+P.media_seconds = _ms_short
+st8 = st_new(85)
+P._tts_capcut(st8, {"capcut_speaker": "es_11"})
+P.media_seconds = _real_ms
+assert [p["text"][:9] for p in single_calls] == ["Escena 3.", "Escena 7."], single_calls
+assert st8["tts_summary"] == "19 voiced (CapCut), 1 silent", st8["tts_summary"]
+print("8h capcut    : batch audio far shorter than its text → that shot is re-read alone; unmeasurable → trusted")
+
 # 8e. giọng sami (có mốc từng từ) và 8f. không tra được engine → giữ đường từng shot
 for label, getter, spk in (
     ("sami", lambda path, timeout=60: [{"id": "es_sami", "name": "Enrique", "language": "es", "platform": ""}], "es_sami"),

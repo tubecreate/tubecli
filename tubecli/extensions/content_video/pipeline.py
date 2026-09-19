@@ -2930,6 +2930,11 @@ def _shot_narration(shot: Dict) -> str:
     return _strip_label(_CUE_RE.sub("", str(text))).strip()
 
 
+# Giọng CapCut đọc ~13-17 ký tự/giây (đo Alejandro Durán 19/9/2026: 15,3). Audio của đợt ngắn hơn chars/40 giây
+# tức chưa được 40 % độ dài bình thường: CapCut đã đọc cụt đoạn ấy → đọc lại riêng (đường từng shot cắt ≤ 100 ký tự).
+BATCH_SHORT_CPS = 40
+
+
 # Đọc theo ĐỢT cho giọng CapCut KHÔNG có mốc từ (engine 11labs…): một lượt gọi CapCut
 # cho nhiều shot, audio về RIÊNG từng shot — không phải cắt. Đo 13/9/2026, giọng
 # Alejandro Durán, shot ~100 ký tự: 16 shot một lượt 23 giây; gọi từng shot ~93 giây
@@ -3074,7 +3079,8 @@ def _tts_capcut(state: Dict, options: Dict) -> None:
             raise RuntimeError("CapCut returned no audio")
         save(shot, i, audio, words)
 
-    def save(shot: Dict, i: int, audio: bytes, words: List[Dict]) -> None:
+    def save(shot: Dict, i: int, audio: bytes, words: List[Dict]) -> float:
+        """Ghi mp3 (+ mốc) và cập nhật shot. Trả thời lượng đo được (0 = không đo được)."""
         if words and not _marks_reliable(words):
             # Mốc hỏng (giọng ICL tiếng Nhật): ghi ra là phụ đề tô sai chữ — bỏ, Studio ước lượng theo độ dài giọng.
             marks["bad"] = True
@@ -3095,6 +3101,7 @@ def _tts_capcut(state: Dict, options: Dict) -> None:
             except OSError:
                 pass
         _put(f"/api/v1/studio/storyboards/{shot['id']}", {"tts_audio_url": path})
+        return media_seconds(path)
 
     failed_shots: List[Tuple[int, Dict]] = []
     last_err = ""
@@ -3176,7 +3183,13 @@ def _tts_capcut(state: Dict, options: Dict) -> None:
                     leftover.append((i, shot))
                     continue
                 try:
-                    save(shot, i, audio, [])
+                    dur = save(shot, i, audio, [])
+                    if 0 < dur < len(_text) / BATCH_SHORT_CPS:
+                        # Đợt trả audio cụt cho đoạn này (đọc chưa hết chữ): đọc lại một mình nó.
+                        last_err = f"batch audio too short: {dur:.1f}s for {len(_text)} chars"
+                        logger.warning(f"[ContentVideo] shot {shot.get('id')}: {last_err} — reading it alone")
+                        leftover.append((i, shot))
+                        continue
                     ok += 1
                 except Exception as e:
                     failed_shots.append((i, shot))
@@ -3320,6 +3333,46 @@ def _step_tts(state: Dict, options: Dict) -> None:
         _tts_capcut(state, options)
     else:
         _tts_edge(state, options)
+    _audio_check(state)
+
+
+def _shot_audio_file(url: str) -> str:
+    """File giọng của một shot: đường dẫn tuyệt đối (CapCut) hay /api/v1/tts/audio/<tên> (edge/vibevoice); "" nếu không có."""
+    u = str(url or "").strip()
+    if not u or u.startswith(("http://", "https://")):
+        return ""
+    if u.startswith("/api/"):
+        return _data_file(u)
+    return u if os.path.isfile(u) else ""
+
+
+def _audio_check(state: Dict) -> None:
+    """Đo lại giọng đã thu: tổng giây (`audio_seconds`) và số shot ghi đường dẫn mà FILE không có (`audio_missing`).
+
+    Máy 28 (19/9/2026): 40/40 shot «voiced», thẻ xanh, mà video 2:57 cho kịch bản 16,7 phút — bộ dựng không thấy
+    file giọng nào nên mỗi shot thành ảnh tĩnh 5 giây. Chỗ hỏng nằm GIỮA hai bước, nên phải đo ở đây và so ở bước
+    dựng; không đo được (thiếu ffprobe) thì audio_seconds = 0 và bước dựng lùi về so với số chữ như cũ."""
+    try:
+        shots = _storyboards(state["episode_id"])
+    except Exception:       # noqa: BLE001 — chỉ là phép đo, không được làm hỏng lượt chạy
+        return
+    total, missing, example = 0.0, 0, ""
+    for sh in shots:
+        url = str(sh.get("tts_audio_url") or "").strip()
+        if not url:
+            continue
+        path = _shot_audio_file(url)
+        if not path:
+            missing += 1
+            example = example or url
+            continue
+        total += media_seconds(path)
+    state["audio_seconds"] = round(total, 1)
+    state["audio_missing"] = missing
+    if missing:
+        state.setdefault("warnings", []).append(
+            f"{missing} voiced shot(s) point at an audio file that does not exist on this machine "
+            f"(e.g. {example}) — each will play as a 5-second still, so the video will be shorter than the script.")
 
 
 # Dựng video: trần tuyệt đối tối thiểu 4 giờ, và ít nhất 20 lần thời lượng
@@ -3459,7 +3512,15 @@ def _step_render(state: Dict, options: Dict) -> None:
     _use_video(state, path)
     _checkpoint_merge(state, {"video_path": path})
     planned = planned_seconds(state)
-    if state["video_seconds"] and planned and state["video_seconds"] < planned * _SHORT_VIDEO_RATIO:
+    voiced = float(state.get("audio_seconds") or 0)
+    if state["video_seconds"] and voiced and state["video_seconds"] < voiced * _SHORT_VIDEO_RATIO:
+        # Giọng đã thu dài hơn video nhiều lần: bộ dựng KHÔNG dùng giọng (không tìm thấy file, hay đường dẫn ghi
+        # ở shot không tới được) — đó là lỗi dựng, không phải kịch bản ngắn.
+        state.setdefault("warnings", []).append(
+            f"The video is {clock(state['video_seconds'])} long but the recorded voice is {clock(voiced)} — the "
+            f"renderer used almost none of it, so the shots played as silent stills. Check the Assemble log "
+            f"(subtitles on 0 shots means it found no per-shot audio) before publishing.")
+    elif state["video_seconds"] and planned and state["video_seconds"] < planned * _SHORT_VIDEO_RATIO:
         state.setdefault("warnings", []).append(
             f"The video is {clock(state['video_seconds'])} long but the script was planned for "
             f"~{clock(planned)}. Check the Voice line: shots without a voice play as 5-second stills.")
@@ -3523,12 +3584,24 @@ def planned_seconds(state: Dict) -> float:
     return words * 60.0 / WORDS_PER_MINUTE if words else 0.0
 
 
+def _ffprobe_exe() -> str:
+    """ffprobe chạy được: bộ tìm của lõi (biết cả bản đóng gói cạnh ffmpeg) rồi mới tới PATH."""
+    import shutil
+    try:
+        from tubecli.extensions.video_studio import ffmpeg_utils as _fu
+        found = _fu.find_ffprobe()
+        if found:
+            return str(found)
+    except Exception:       # noqa: BLE001 — lõi thiếu module này thì lùi về PATH
+        pass
+    return shutil.which("ffprobe") or ""
+
+
 def media_seconds(path: str) -> float:
     """Thời lượng file bằng ffprobe; 0 nếu không đo được (thiếu ffprobe, file lạ)."""
-    import shutil
     import subprocess
 
-    exe = shutil.which("ffprobe")
+    exe = _ffprobe_exe()
     if not exe or not path or not os.path.isfile(path):
         return 0.0
     try:
