@@ -187,14 +187,24 @@ async def get_stats():
     return codex_manager.get_stats()
 
 
+# Trường CHỈ dùng khi mở thẻ ra (kế hoạch AI, kết quả) — đo 20/9/2026 trên 50 task: cả gói 790 KB, riêng `plan`
+# 582 KB (74 %) và `result` 47 KB. Bảng đóng chỉ cần title/goal/status/steps. Bỏ hai trường này cho lần tải danh
+# sách, rồi mở thẻ nào tải chi tiết thẻ ấy: gói còn ~160 KB, và trang trong node Flow (đi qua tunnel) hết cảm giác treo.
+DETAIL_ONLY_FIELDS = ("plan", "result")
+
+
 @router.get("/tasks")
-async def list_tasks(status: str = "", limit: int = 50, created_by: str = ""):
+async def list_tasks(status: str = "", limit: int = 50, created_by: str = "", slim: int = 0):
     if status and status != "active" and status not in ALL_STATES:
         raise HTTPException(400, f"Unknown status: {status}")
     tasks = codex_manager.list_tasks(status=status, limit=limit, created_by=created_by)
+    if slim:
+        # `has_result` để thẻ đóng vẫn biết task đã có kết quả (nút Chấp nhận / xem trước) mà không phải chở cả bài.
+        tasks = [dict({k: v for k, v in t.items() if k not in DETAIL_ONLY_FIELDS},
+                      has_result=bool(t.get("result")), has_plan=bool(t.get("plan"))) for t in tasks]
     # `now` = đồng hồ MÁY CHỦ. Thẻ đếm "mấy phút trước" theo mốc này thay vì đồng hồ
     # máy người xem, nên máy khách sai giờ cũng không đẻ ra "task vừa tạo, 5h trước".
-    return {"tasks": tasks, "count": len(tasks), "now": codex_manager.server_now(),
+    return {"tasks": tasks, "count": len(tasks), "now": codex_manager.server_now(), "slim": bool(slim),
             # Làn đang tạm dừng vì hết quota — bảng hiện dòng báo + nút «Tiếp tục ngay».
             "lane_pauses": codex_manager.lane_pauses()}
 

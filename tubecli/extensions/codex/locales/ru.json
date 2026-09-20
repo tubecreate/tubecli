@@ -112,6 +112,7 @@
   "codex.plan_hide": "Свернуть план",
   "codex.section_preview": "Предпросмотр",
   "codex.section_result": "Результат",
+  "codex.loading_detail": "Загружаем план и результат…",
   "codex.section_steps": "Шаги",
   "codex.stat_backlog": "В очереди",
   "codex.stat_done": "Готово",

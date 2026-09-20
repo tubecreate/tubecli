@@ -112,6 +112,7 @@
   "codex.plan_hide": "收合計畫",
   "codex.section_preview": "預覽",
   "codex.section_result": "結果",
+  "codex.loading_detail": "正在載入計畫與結果…",
   "codex.section_steps": "步驟",
   "codex.stat_backlog": "排隊中",
   "codex.stat_done": "已完成",

@@ -112,6 +112,7 @@
   "codex.plan_hide": "Planı daralt",
   "codex.section_preview": "Önizleme",
   "codex.section_result": "Sonuç",
+  "codex.loading_detail": "Plan ve sonuç yükleniyor…",
   "codex.section_steps": "Adımlar",
   "codex.stat_backlog": "Sırada",
   "codex.stat_done": "Tamamlanan",

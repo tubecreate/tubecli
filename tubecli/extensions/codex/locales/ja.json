@@ -112,6 +112,7 @@
   "codex.plan_hide": "プランを折りたたむ",
   "codex.section_preview": "プレビュー",
   "codex.section_result": "結果",
+  "codex.loading_detail": "計画と結果を読み込み中…",
   "codex.section_steps": "ステップ",
   "codex.stat_backlog": "キュー待ち",
   "codex.stat_done": "完了",

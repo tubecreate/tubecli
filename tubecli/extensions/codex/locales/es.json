@@ -112,6 +112,7 @@
   "codex.plan_hide": "Ocultar el plan",
   "codex.section_preview": "Vista previa",
   "codex.section_result": "Resultado",
+  "codex.loading_detail": "Cargando el plan y el resultado…",
   "codex.section_steps": "Pasos",
   "codex.stat_backlog": "En cola",
   "codex.stat_done": "Completadas",

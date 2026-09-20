@@ -74,6 +74,9 @@ const CODEX = (() => {
     cursor: {},           // taskId -> last event ts
     eventsLoaded: {},     // taskId -> bool
     eventsBusy: {},       // taskId -> một lượt tải sự kiện đang chạy (chặn tải chồng → dòng lặp)
+    slim: false,          // máy chủ trả danh sách GỌN (không có plan/result) — xem refresh()
+    detail: {},           // taskId -> {plan, result} đã tải khi mở thẻ; gắn lại sau mỗi nhịp làm mới
+    detailBusy: {},       // taskId -> đang tải chi tiết (thẻ hiện dòng «đang tải»)
     busy: {},             // taskId -> bool (action in flight)
     planning: {},         // taskId -> bool
     planOpen: new Set(),  // task ids whose AI plan is expanded — collapsed by default
@@ -282,7 +285,7 @@ const CODEX = (() => {
 
     const results = await Promise.allSettled([
       api('/stats'),
-      api('/tasks?limit=' + TASK_LIMIT),
+      api('/tasks?slim=1&limit=' + TASK_LIMIT),
       api('/worker'),
     ]);
 
@@ -293,6 +296,10 @@ const CODEX = (() => {
       state.clock = payload.now ? { iso: payload.now, at: Date.now() } : null;
       const list = payload.tasks || [];
       list.sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+      // Danh sách gọn không mang plan/result; thẻ đang mở đã tải chi tiết rồi thì gắn lại, kẻo mỗi nhịp làm mới
+      // (5 giây) lại xoá trắng phần kế hoạch và kết quả đang xem.
+      state.slim = !!payload.slim;
+      if (state.slim) list.forEach((x) => { const d = state.detail[x.id]; if (d) Object.assign(x, d); });
       state.tasks = list;
       state.lanePauses = payload.lane_pauses || {};
       state.loaded = true;
@@ -644,6 +651,13 @@ const CODEX = (() => {
     const id = esc(task.id);
     const parts = [];
 
+    // Danh sách gọn không mang kế hoạch/kết quả; lúc chúng đang trên đường về thì nói rõ, đừng để khoảng trống.
+    if (state.detailBusy[task.id]) {
+      parts.push(`<div class="cx-section cx-detail-wait">
+          <span class="cx-spin-dot"></span>${esc(t('codex.loading_detail'))}
+        </div>`);
+    }
+
     // Goal
     parts.push(`<div class="cx-section">
         <div class="cx-section-title">${icon('flag')}${esc(t('codex.section_goal'))}</div>
@@ -900,6 +914,28 @@ const CODEX = (() => {
     state.expanded.add(taskId);
     renderList(true);
     try {
+      if (state.slim && !state.detail[taskId]) {
+        // Một lượt lấy cả task đầy đủ lẫn nhật ký (route /tasks/{id} trả cả hai), thay vì hai lượt.
+        state.detailBusy[taskId] = true;
+        renderList(true);
+        try {
+          const data = await api(taskUrl(taskId, '?events=200'));
+          const full = (data && data.task) || null;
+          if (full) {
+            state.detail[taskId] = { plan: full.plan || [], result: full.result || '' };
+            const cur = state.tasks.find((x) => x.id === taskId);
+            if (cur) Object.assign(cur, state.detail[taskId]);
+          }
+          const evs = (data && data.events) || [];
+          state.events[taskId] = evs.slice(-EVENTS_KEEP);
+          if (evs.length) state.cursor[taskId] = evs[evs.length - 1].ts || state.cursor[taskId];
+          state.eventsLoaded[taskId] = true;
+        } finally {
+          delete state.detailBusy[taskId];
+        }
+        renderList(true);
+        return;
+      }
       await loadEvents(taskId, true);
       patchEvents(taskId);
     } catch (e) {
@@ -2058,6 +2094,10 @@ const CODEX = (() => {
   }
 
   async function init() {
+    // Vẽ khung chờ NGAY, trước mọi lượt gọi mạng: i18n là 228 KB (đo 20/9/2026: 1,4 giây ngay trên máy, qua
+    // tunnel của node Flow thì lâu hơn hẳn) và trước đây nó chặn lượt vẽ đầu tiên — người dùng nhìn thấy một
+    // khoảng trống và tưởng treo. Chữ của khung chờ lúc này là khoá i18n thô, nhưng khung xương thì hiện ngay.
+    renderList(true);
     if (typeof loadI18nFromApi === 'function') {
       try { await loadI18nFromApi(); } catch (e) { /* keys render as-is */ }
     }
