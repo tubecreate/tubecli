@@ -3499,6 +3499,14 @@ def _step_render(state: Dict, options: Dict) -> None:
                 w = f"Render: {w}"
                 if w not in state.setdefault("warnings", []):
                     state["warnings"].append(w)
+            # Máy thiếu ffprobe: file giọng NẰM ĐÓ mà bộ dựng đo không ra thời lượng, nên mỗi shot thành
+            # ảnh tĩnh 5 giây và phụ đề không có gì để chạy theo (máy 28, 20/9/2026: 59 shot, video 5 phút).
+            _bad = int(done["subtitles"].get("audio_unreadable") or 0)
+            if _bad:
+                state.setdefault("warnings", []).append(
+                    f"Render: {_bad} shot(s) have a voice file the renderer could not measure, so they "
+                    f"played as 5-second silent stills with no subtitles. Install ffmpeg/ffprobe on this "
+                    f"machine (apt install ffmpeg) and Retry.")
     except RuntimeError as e:
         msg = str(e)
         if msg.startswith(("No progress", "Gave up")):
@@ -3598,9 +3606,18 @@ def _ffprobe_exe() -> str:
 
 
 def media_seconds(path: str) -> float:
-    """Thời lượng file bằng ffprobe; 0 nếu không đo được (thiếu ffprobe, file lạ)."""
+    """Thời lượng file; 0 nếu không đo được (file lạ, máy không có cả ffmpeg lẫn ffprobe)."""
     import subprocess
 
+    # Máy chỉ có ffmpeg đóng gói (imageio-ffmpeg) thì KHÔNG có ffprobe: bộ đo của lõi hỏi chính ffmpeg.
+    # Thiếu bước này thì mọi phép so «video ngắn hơn giọng» đều bỏ qua, và bộ dựng vứt hết giọng.
+    try:
+        from tubecli.extensions.video_studio import ffmpeg_utils as _fu
+        got = float(_fu.media_duration(path) or 0)
+        if got > 0:
+            return round(got, 1)
+    except Exception:           # noqa: BLE001 — lõi cũ chưa có bộ đo: chạy tiếp đường ffprobe bên dưới
+        pass
     exe = _ffprobe_exe()
     if not exe or not path or not os.path.isfile(path):
         return 0.0
@@ -6882,6 +6899,8 @@ def subtitles_line(rep: Dict) -> str:
         src.append(f"{rep['whisper']} timed by whisper")
     if rep.get("estimated"):
         src.append(f"{rep['estimated']} estimated from audio length")
+    if rep.get("audio_unreadable"):
+        src.append(f"⚠️ {rep['audio_unreadable']} shot(s) with an unmeasurable voice file")
     return (f"- **Subtitles**: {rep.get('name') or rep['style']} · {rep.get('shots', 0)} shot(s)"
             + (f" · {', '.join(src)}" if src else ""))
 

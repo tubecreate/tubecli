@@ -7,6 +7,7 @@ produces one clear message instead of a raw OSError deep in a filter chain.
 import glob
 import logging
 import os
+import re
 import subprocess
 from typing import List, Optional, Tuple
 
@@ -232,6 +233,14 @@ def find_ffprobe() -> Optional[str]:
     return None
 
 
+_DUR_RE = re.compile(r"Duration:\s*(\d+):(\d\d):(\d\d(?:\.\d+)?)")
+_TIME_RE = re.compile(r"time=\s*(\d+):(\d\d):(\d\d(?:\.\d+)?)")
+
+
+def _hms(m) -> float:
+    return int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
+
+
 def require_ffmpeg() -> str:
     exe = find_ffmpeg()
     if not exe:
@@ -266,13 +275,41 @@ def probe_size(video_path: str) -> Tuple[int, int]:
 
 
 def media_duration(path: str) -> float:
-    """Duration in seconds, 0.0 when unknown."""
+    """Duration in seconds, 0.0 when unknown.
+
+    ffprobe trước; máy KHÔNG có ffprobe thì hỏi chính ffmpeg. Gói imageio-ffmpeg đóng gói ffmpeg mà không
+    có ffprobe, nên trên những máy ấy mọi phép đo đều trả 0 — và bên gọi hiểu nhầm là «file không có
+    giọng»: máy 28 (20/9/2026) dựng 59 shot đã thu tiếng thành 59 ảnh tĩnh 5 giây, phụ đề 0 shot, tiêu đề
+    kết quả không có dòng thời lượng video.
+    """
+    if not path or not os.path.isfile(path):
+        return 0.0
     ffprobe = find_ffprobe()
-    if not ffprobe:
+    if ffprobe:
+        try:
+            r = run([ffprobe, "-v", "error", "-show_entries", "format=duration",
+                     "-of", "default=noprint_wrappers=1:nokey=1", path], timeout=30)
+            got = float((r.stdout or "0").strip() or 0)
+            if got > 0:
+                return got
+        except Exception:
+            pass
+    exe = find_ffmpeg()
+    if not exe:
         return 0.0
     try:
-        r = run([ffprobe, "-v", "error", "-show_entries", "format=duration",
-                 "-of", "default=noprint_wrappers=1:nokey=1", path], timeout=30)
-        return float((r.stdout or "0").strip() or 0)
-    except Exception:
-        return 0.0
+        # `ffmpeg -i <file>` in "Duration: HH:MM:SS.xx" ra stderr rồi thoát với mã lỗi — không giải mã
+        # nên nhanh như ffprobe.
+        r = run([exe, "-hide_banner", "-i", path], timeout=60)
+        m = _DUR_RE.search(r.stderr or "")
+        if m:
+            return round(_hms(m), 3)
+        # Định dạng không ghi sẵn Duration: giải mã bỏ đi rồi lấy mốc cuối cùng.
+        r = run([exe, "-hide_banner", "-i", path, "-f", "null", "-"], timeout=600)
+        ms = _TIME_RE.findall(r.stderr or "")
+        if ms:
+            h, mm, ss = ms[-1]
+            return round(int(h) * 3600 + int(mm) * 60 + float(ss), 3)
+    except Exception as e:      # noqa: BLE001
+        logger.info("media_duration %s: %s", path, e)
+    return 0.0

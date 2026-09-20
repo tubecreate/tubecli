@@ -146,8 +146,15 @@ python_packages() {
 # it — the user found out at the last step of a nine-step job. Best-effort on
 # purpose: a distro without the package (RHEL family needs RPM Fusion) must not
 # fail the TubeCLI install; the video features tell the user what is missing.
+#
+# ffprobe is checked too, and NOT as a nicety: pip pulls imageio-ffmpeg in with
+# the video extensions, that package bundles ffmpeg but NO ffprobe, and
+# ffmpeg_utils falls back to it. So a box can render video happily while every
+# duration measurement returns 0 — which the renderer reads as "this shot has no
+# voice". Machine 28 (20/9/2026) turned a 25-minute script into a 5-minute video
+# of silent stills with no subtitles that way, and nothing in the job said why.
 install_ffmpeg_best_effort() {
-    if command_exists ffmpeg; then
+    if command_exists ffmpeg && command_exists ffprobe; then
         return 0
     fi
     echo -e "${YELLOW}[*] Installing ffmpeg (video features need it)...${NC}"
@@ -167,9 +174,16 @@ install_ffmpeg_best_effort() {
     else
         rc=1
     fi
-    if [ "$rc" -ne 0 ] || ! command_exists ffmpeg; then
-        echo -e "${YELLOW}[!] ffmpeg could not be installed automatically. Video features (export, subtitles, TTS) need it:${NC}"
+    if [ "$rc" -ne 0 ] || ! command_exists ffmpeg || ! command_exists ffprobe; then
+        # `set -e` is on: a bare `command_exists ffmpeg && missing=…` would abort the
+        # whole install the moment ffmpeg is the one that is missing.
+        local missing="ffmpeg/ffprobe"
+        if command_exists ffmpeg; then
+            missing="ffprobe"
+        fi
+        echo -e "${YELLOW}[!] ${missing} could not be installed automatically. Video features (export, subtitles, TTS) need it:${NC}"
         echo -e "${YELLOW}    install it later (e.g. apt install ffmpeg) or set \"ffmpeg_path\" in data/global_settings.json.${NC}"
+        echo -e "${YELLOW}    Without ffprobe the renderer cannot measure voice files and builds silent 5-second stills.${NC}"
     fi
     return 0
 }
@@ -188,8 +202,12 @@ install_deps_macos() {
     if command_exists brew; then
         echo -e "${YELLOW}[*] Installing dependencies via Homebrew...${NC}"
         brew install git python >/dev/null 2>&1
-        # Same reason as on Linux: the video chain shells out to ffmpeg.
-        command -v ffmpeg >/dev/null 2>&1 || brew install ffmpeg >/dev/null 2>&1 || echo -e "${YELLOW}[!] ffmpeg not installed — video features need it (brew install ffmpeg).${NC}"
+        # Same reason as on Linux: the video chain shells out to ffmpeg, and it needs
+        # ffprobe beside it to measure voice files (see install_ffmpeg_best_effort).
+        if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
+            brew install ffmpeg >/dev/null 2>&1 \
+                || echo -e "${YELLOW}[!] ffmpeg/ffprobe not installed — video features need both (brew install ffmpeg).${NC}"
+        fi
         return 0
     else
         echo -e "${RED}[!] Homebrew is not installed. Please install Homebrew first:${NC}"
