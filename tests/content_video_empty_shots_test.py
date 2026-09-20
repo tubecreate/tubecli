@@ -163,6 +163,43 @@ ok(st.get("storyboard_filled") == 6 and st.get("storyboard_coverage", 0) > 0.9 a
 ok(all(set(p) == {"narration_text", "tts_audio_url"} for _, p in puts), "…PUT chỉ gửi lời, không đè prompt ảnh",
    [sorted(p) for _, p in puts][:1])
 
+# ── 5. «shot sẽ thiếu trong video» phải đếm ĐÚNG ─────────────────────────────
+# Tập 454 (20/9/2026): 33 shot không có `image_prompt` nhưng CẢ 33 đều có tranh trên đĩa (lấy từ kho
+# `lib:` hoặc mượn nhịp khác `@N`) — 203/203 shot có ảnh. Bản cũ đếm theo «không có prompt» nên kêu
+# «33 shot sẽ thiếu trong video» và đẩy thẻ task thành ⚠️ oan.
+print("── 5. cảnh báo thiếu ảnh không báo oan ──────────────────────")
+import os
+import tempfile as _tf
+
+_d = _tf.mkdtemp(prefix="shotmedia_")
+_have = os.path.join(_d, "co_tranh.png")
+open(_have, "wb").write(b"\x89PNG\r\n\x1a\n" + b"0" * 64)
+_FAKE = [
+    {"id": 1, "storyboard_number": 1, "image_prompt": "ink wash mountain"},          # có prompt → sẽ vẽ
+    {"id": 2, "storyboard_number": 2, "image_prompt": "", "composed_image": _have},   # lấy từ kho → CÓ tranh
+    {"id": 3, "storyboard_number": 3, "image_prompt": "", "image_url": _have},        # mượn nhịp khác
+    {"id": 4, "storyboard_number": 4, "image_prompt": ""},                            # thật sự trắng tay
+    {"id": 5, "storyboard_number": 5, "image_prompt": "",
+     "composed_image": os.path.join(_d, "khong-co-that.png")},                        # ghi đường dẫn mà file mất
+]
+_real_sb = P._storyboards
+P._storyboards = lambda ep: [dict(x) for x in _FAKE]
+try:
+    got = P._shots_without_media(9)
+finally:
+    P._storyboards = _real_sb
+ok(got == [4, 5], "chỉ đếm shot KHÔNG có prompt mà cũng KHÔNG có hình nào sẵn", got)
+
+P._storyboards = lambda ep: (_ for _ in ()).throw(RuntimeError("Studio im"))
+try:
+    quiet = P._shots_without_media(9)
+finally:
+    P._storyboards = _real_sb
+ok(quiet == [], "không đọc được storyboard thì im, không cảnh báo bừa", quiet)
+ok(P._short_list([3, 7, 12]) == "3, 7, 12"
+   and P._short_list([1, 2, 3, 4, 5, 6, 7, 8]) == "1, 2, 3, 4, 5, 6 and 2 more",
+   "danh sách shot ngắn gọn, dài thì cắt", P._short_list([1, 2, 3, 4, 5, 6, 7, 8]))
+
 print()
 print("=" * 62)
 print(f"{PASS}/{PASS + FAIL} PASS" if not FAIL else f"{PASS}/{PASS + FAIL} PASS — {FAIL} HỎNG")

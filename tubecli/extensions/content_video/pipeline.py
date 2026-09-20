@@ -2713,6 +2713,31 @@ def _pause_for_quota(state: Dict, step: str, detail: str) -> None:
                      f"continues from this step by itself ({detail})")
 
 
+def _shots_without_media(ep_id: Any) -> List[Any]:
+    """Số thứ tự các shot KHÔNG có prompt ảnh mà cũng KHÔNG có hình nào sẵn — chỉ những shot này mới
+    thật sự vắng trong video. Shot lấy tranh từ kho hay mượn tranh nhịp khác đã có `composed_image`."""
+    out: List[Any] = []
+    try:
+        shots = _storyboards(int(ep_id))
+    except Exception as e:      # noqa: BLE001 — không đọc được thì đừng cảnh báo bừa
+        logger.info(f"[ContentVideo] cannot check shot media of episode {ep_id}: {e}")
+        return out
+    for sh in shots:
+        if str(sh.get("image_prompt") or "").strip():
+            continue
+        if any(str(sh.get(k) or "").strip() and os.path.isfile(str(sh.get(k)))
+               for k in ("composed_image", "image_url", "video_url", "first_frame_image")):
+            continue
+        out.append(sh.get("storyboard_number") or sh.get("id"))
+    return out
+
+
+def _short_list(items: List[Any], keep: int = 6) -> str:
+    """«3, 7, 12 và 4 shot khác» — đủ để đi tìm mà không tràn thẻ."""
+    head = ", ".join(str(x) for x in items[:keep])
+    return head + (f" and {len(items) - keep} more" if len(items) > keep else "")
+
+
 def _step_images(state: Dict, options: Dict) -> None:
     ep_id = state["episode_id"]
     filled = _fill_missing_prompts(state)
@@ -2727,13 +2752,15 @@ def _step_images(state: Dict, options: Dict) -> None:
     res = _post(f"/api/v1/studio/episodes/{ep_id}/gen-images", body, timeout=60)
     if not res.get("task_id"):
         raise RuntimeError(f"gen-images did not start: {str(res)[:200]}")
-    # Shot vẫn không có prompt sau khi đã lấp = shot không có lấy một chữ nào. Nó sẽ
-    # vắng trong video; nói ra thay vì để video lặng lẽ ngắn đi.
-    missing = int(res.get("no_prompt") or 0)
+    # Shot vắng trong video = KHÔNG có prompt để vẽ VÀ cũng không có hình nào sẵn. Trước đây chỉ đếm
+    # "không có prompt", nên dây chuyền Diễn giải bị báo oan: nhịp lấy tranh từ kho (`lib:`) hay mượn
+    # tranh nhịp khác (`@N`) vốn không cần prompt — tập 454 (20/9/2026) bị kêu «33 shot sẽ thiếu» trong
+    # khi cả 203/203 shot đều có tranh, và thẻ task chuyển thành ⚠️ oan.
+    missing = _shots_without_media(ep_id)
     if missing and res.get("with_prompt"):
         state.setdefault("warnings", []).append(
-            f"{missing} shot(s) have no image prompt and no text to build one from — "
-            "they will be missing from the video.")
+            f"{len(missing)} shot(s) have neither an image prompt nor a picture already made "
+            f"(shot {_short_list(missing)}) — they will be missing from the video.")
     if not res.get("total"):
         # "Không có gì để vẽ" có HAI nghĩa trái ngược. Nghĩa thứ hai — KHÔNG shot
         # nào có `image_prompt` — trước đây cũng được báo là "every shot already
