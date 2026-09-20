@@ -2210,7 +2210,19 @@ def _step_studio(state: Dict, options: Dict) -> None:
         foreign = foreign_shots(shots, lang_code)
         missing = missing_scenes(shots, script)
         cov = storyboard_coverage(shots, script)
-        if foreign or missing or cov < STORYBOARD_COVERAGE_MIN:
+        broken = bool(foreign or missing or cov < STORYBOARD_COVERAGE_MIN)
+        if broken and narration_is_faithful(shots, script):
+            # Báo động sai: lời ghép lại ĐÚNG BẰNG kịch bản, chỉ khác chỗ cắt nhịp. Bộ dò ngôn ngữ hay
+            # đánh nhầm nhịp ngắn («Más tiempo.») là tiếng Bồ/Pháp. Chép lời vào lúc này sẽ đổi ranh
+            # giới nhịp, xoá tts_audio_url của gần hết các shot, và lượt dựng sau phải làm lại từ đầu.
+            _why = (f"{len(foreign)} shot(s) looked like "
+                    f"{', '.join(sorted({language_name(c) for _, c in foreign}))}" if foreign else
+                    f"storyboard coverage read {int(cov * 100)}%")
+            state["_say"]("studio", "running",
+                          f"{_why}, but the narration already matches the script word for word — "
+                          f"keeping the shots (and the voice already recorded) as they are")
+            broken = False
+        if broken:
             # Sửa tại chỗ chứ KHÔNG dựng lại: các shot đã có prompt ảnh (và có thể cả
             # ảnh) — thứ hỏng chỉ là lời thoại, và lời đúng nằm sẵn trong kịch bản.
             if foreign:
@@ -2460,6 +2472,20 @@ def _split_even(text: str, parts: int) -> List[str]:
 
 
 PUT_SAY_EVERY = 25          # cứ ngần này shot thì báo một lần — vòng lặp im lặng nhìn y hệt treo máy
+
+
+def narration_is_faithful(shots: List[Dict], script: str) -> bool:
+    """Lời của các shot ghép lại có ĐỦ CHỮ của kịch bản chưa (chỉ khác chỗ cắt nhịp)?
+
+    Cần vì hai chỗ cắt nhịp không đồng ý với nhau: Studio cắt theo CÂU (`scene_plan.split_beats`, ≤ 26
+    chữ), còn `restore_narration` chia lời mỗi cảnh ĐỀU theo ký tự. Lời đúng từng chữ mà vẫn lệch ranh
+    giới, nên phép so từng shot báo «khác» ở gần hết các shot. Ghép lại đủ chữ nghĩa là không mất gì —
+    đụng vào chỉ để đổi chỗ cắt là xoá giọng đã thu và buộc dựng lại cả video (tập 454, 20/9/2026)."""
+    joined = " ".join(_shot_narration(sh) for sh in sorted(
+        shots, key=lambda sh: (sh.get("storyboard_number") is None,
+                               sh.get("storyboard_number") or 0, sh.get("id") or 0)))
+    want = " ".join(n for _, n in scenes_of(script) if n)
+    return bool(joined.split()) and joined.split() == want.split()
 
 
 def _narration_differs(shots: List[Dict], fixed: List[Tuple[Any, str]]) -> List[Tuple[Any, str]]:

@@ -291,6 +291,52 @@ ok(len(retried) == 1 and "scenes 1-6 ONLY" in retried[0] and len(calls) == 1 + 5
 ok("topic" not in st["script"] and st["script"].count("[SHOW:") >= 25 and not any("came back in" in w for w in st["warnings"]),
    "…kịch bản cuối toàn Tây Ban Nha, đủ cảnh, không cảnh báo", st["warnings"])
 
+# ── F. báo động sai: lời ĐỦ CHỮ, chỉ khác chỗ cắt nhịp ───────────────────────
+# Tập 454 (20/9/2026): 203 nhịp ghép lại đúng bằng kịch bản TBN, mà foreign_shots gắn cờ 3 nhịp là
+# pt/fr (cả ba là tiếng TBN thuần — nhịp ngắn thì bộ dò đoán sai). Guard chép lại 191 nhịp, xoá
+# tts_audio_url, nên lượt dựng sau phải làm lại 50 phút — và lượt Retry nào cũng vậy.
+print("── F. lời đủ chữ thì đừng chép lại ──────────────────────────")
+
+# Cắt mỗi cảnh thành HAI nhịp ở ranh giới câu (kiểu scene_plan.split_beats). Cùng chữ, khác chỗ cắt:
+# restore_narration chia đều theo ký tự nên sẽ thấy «khác» ở gần hết các nhịp.
+NHIP = []
+for n in range(1, N + 1):
+    head, _, tail = es_narr(n).partition(". ")
+    NHIP.append(shot(len(NHIP) + 1, head + "."))
+    NHIP.append(shot(len(NHIP) + 1, tail))
+ok(len(NHIP) == 2 * N and P.narration_is_faithful(NHIP, SCRIPT),
+   "nhịp ngắn ghép lại ĐÚNG BẰNG kịch bản (chỉ khác chỗ cắt)", len(NHIP))
+ok(len(P._narration_differs(NHIP, P.restore_narration(NHIP, SCRIPT))) > N,
+   "…mà phép so từng shot vẫn báo «khác» ở phần lớn các nhịp — đây là cái bẫy",
+   len(P._narration_differs(NHIP, P.restore_narration(NHIP, SCRIPT))))
+
+_real_foreign = P.foreign_shots
+P.foreign_shots = lambda shots, lang: [(shots[4]["id"], "pt"), (shots[9]["id"], "fr")]
+try:
+    st, puts, streams, said, final = run_studio(NHIP)
+finally:
+    P.foreign_shots = _real_foreign
+ok(puts == [], "bộ dò báo ngoại ngữ SAI → không PUT một lời nào, giọng đã thu còn nguyên", puts[:3])
+ok("storyboard_restored" not in st and "storyboard_foreign" not in st,
+   "…không ghi vào báo cáo là đã chép lại", (st.get("storyboard_restored"), st.get("storyboard_foreign")))
+ok(any("already matches the script word for word" in str(a) for a in said),
+   "…thẻ bước NÓI RA là đã bỏ qua, không im lặng", said[-3:])
+ok(st["shot_count"] == 2 * N and not st["warnings"], "…đi tiếp với đúng số nhịp, không cảnh báo",
+   (st.get("shot_count"), st["warnings"]))
+
+# Mất chữ thật thì guard PHẢI chạy như cũ.
+THIEU = [dict(x) for x in NHIP]
+THIEU[8]["narration_text"] = ""
+ok(not P.narration_is_faithful(THIEU, SCRIPT), "mất lời một nhịp → không còn coi là đủ chữ")
+P.foreign_shots = lambda shots, lang: [(shots[4]["id"], "pt")]
+try:
+    st2, puts2, _s2, _sd2, _f2 = run_studio(THIEU)
+finally:
+    P.foreign_shots = _real_foreign
+ok(len(puts2) > 0 and st2.get("storyboard_restored", 0) > 0,
+   "…lúc ấy vẫn chép lại kịch bản như trước (chốt mới không làm mất lưới an toàn)",
+   (len(puts2), st2.get("storyboard_restored")))
+
 print()
 print("=" * 62)
 print(f"{PASS}/{PASS + FAIL} PASS" if not FAIL else f"{PASS}/{PASS + FAIL} PASS — {FAIL} HỎNG")
