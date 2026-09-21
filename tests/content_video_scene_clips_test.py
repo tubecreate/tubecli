@@ -14,8 +14,16 @@ VÌ SAO CÓ FILE NÀY
   C. route scene-clips: idempotent, mốc = cộng dồn giọng, shot câm = STILL_SECONDS
   D. _drive_plan: thêm scenes/scene_NNN.mp4 + cột «Scene video» trong Sheet; hỏng thì mọi thứ khác vẫn lên
 
+  Rồi user: «nếu có thể thì bạn ghép bố cục thành 1 file mp4 riêng (lấy layout dài nhất làm gốc, các layout khác
+  loop theo)» → build_layout_clip: bố cục MỘT MÌNH (khung + người dẫn), lỗ để trống, dài bằng clip người dẫn dài
+  nhất. Chồng nó lên các file scene_NNN.mp4 ở trình dựng khác là ra đúng video đã xem.
+
+  E. build_layout_clip: dài bằng clip dài nhất, clip ngắn lặp, ảnh lặp một khung, chrome trên cùng, hỏng trả {}
+  F. route layout-clip + dòng «Layout overlay» trong Sheet
+
 Run:  python tests/content_video_scene_clips_test.py     (exit 0 = pass) — không mạng, không ffmpeg thật.
 """
+import asyncio
 import io
 import os
 import re
@@ -125,6 +133,129 @@ keep_call = seg(eng_src, "    # Video TỪNG CẢNH (bản thô)", "    if progr
 ok("raw=two_pass" in keep_call and "(m or {}).get(\"path\") for m in metas" in keep_call,
    "hai lượt lấy bản CHƯA phủ bố cục; một lượt lấy bản đã ghép")
 ok("except Exception as e:" in keep_call, "giữ cảnh hỏng thì video vẫn xuất bình thường")
+
+# ── E. build_layout_clip chạy THẬT (ffmpeg giả, chuỗi lọc thật) ──
+print("── E. bố cục thành một mp4 riêng ───────────────────────────")
+sys.path.insert(0, str(CS))
+from vlayout import ffmpeg_chain as CHAIN          # noqa: E402 — chỉ dựng chuỗi lọc, không phụ thuộc gì
+
+
+def mc(box, clip, **kw):
+    d = {"box": box, "fit": "contain", "chroma": "chromakey=0x00b140:0.1:0.1", "clip": clip,
+         "opacity": 1.0, "crop_y": 0.0, "trim": [0, 0, 0, 0]}
+    d.update(kw)
+    return d
+
+
+DUR = {}
+CALLS = []
+RUN_OK = [True]
+CHROME = [str(TMP / "chrome.png")]
+MCS = [mc([1200, 600, 600, 400], str(TMP / "mc_long.mp4"), layer=0),
+       mc([40, 620, 380, 400], str(TMP / "mc_short.mp4"), layer=1)]
+DUR["mc_long.mp4"] = 62.5
+DUR["mc_short.mp4"] = 11.0
+
+
+async def fake_get_duration(p):
+    return DUR.get(os.path.basename(str(p)), 0.0)
+
+
+async def fake_run_ff(cmd, duration=0.0, on_frac=None):
+    CALLS.append(list(cmd))
+    if not RUN_OK[0]:
+        return 1, b"boom"
+    with open(cmd[-1], "wb") as f:
+        f.write(b"M" * 5000)
+    return 0, b""
+
+
+mod.__dict__.update({
+    "_ff": lambda n: n,
+    "_tail": lambda e, lines=2: str(e),
+    "_get_duration": fake_get_duration,
+    "_run_ff": fake_run_ff,
+    "_layout_load": lambda lid, frame, report=None, validate=False: (
+        type("V", (), {"chain": CHAIN}), {"id": lid}, {"box": [480, 120, 960, 540]}),
+    "_render_chrome_locked": lambda v, lay, var, out_dir, lang: CHROME[0],
+    "_mc_ctxs": lambda v, lay, out_dir, seed="", report=None: list(MCS),
+})
+
+got = asyncio.run(mod.build_layout_clip({"id": 77}, layout_id="vl_1", frame=(1920, 1080),
+                                        variables={"channel": "X"}))
+cmd = CALLS[-1]
+fc = cmd[cmd.index("-filter_complex") + 1]
+ok(got.get("seconds") == 62.5 and cmd[cmd.index("-t") + 1] == "62.500",
+   "độ dài = clip người dẫn DÀI NHẤT (không phải tổng, không phải ngắn nhất)", (got.get("seconds"), cmd))
+ok(cmd.count("-stream_loop") == 2 and cmd[cmd.index("-stream_loop") + 1] == "-1",
+   "MỌI clip lặp vô hạn rồi để -t cắt — clip ngắn không để lại khoảng trống cuối", cmd)
+ok([l["looped"] for l in got["layers"]] == [False, True],
+   "báo rõ lớp nào phải lặp (11 s trong 62,5 s) và lớp nào không", got["layers"])
+ok(fc.index("[mc0]overlay=1200:600") < fc.index("[chrome]overlay=0:0"),
+   "người dẫn nằm DƯỚI khung — đúng thứ tự của lượt phủ lớp trong video thật", fc)
+ok("[mc1]overlay=40:620" in fc, "mỗi lớp dán đúng toạ độ hộp của nó")
+ok(CHAIN.mc_filter(MCS[0], 30) in fc,
+   "dùng ĐÚNG chuỗi tách phông của bản dựng thật (một bản duy nhất, không chép lại)")
+ok("color=c=0x00b140:s=1920x1080:r=30" in " ".join(cmd),
+   "nền = xanh phông, ghi 0xRRGGBB (lavfi đọc chắc chắn hơn #RRGGBB)", cmd)
+ok("-an" in cmd and "+faststart" in cmd and "yuv420p" in cmd,
+   "không tiếng (tiếng nằm ở file cảnh), tua được ngay")
+ok(got["path"].endswith("layout.mp4") and os.path.dirname(got["path"]) == mod.scenes_dir({"id": 77}),
+   "nằm cùng thư mục với video từng cảnh — Drive lấy cả cụm một lần", got.get("path"))
+
+got = asyncio.run(mod.build_layout_clip({"id": 77}, layout_id="vl_1", frame=(1920, 1080), alpha=True))
+cmd = CALLS[-1]
+fc = cmd[cmd.index("-filter_complex") + 1]
+ok(got["path"].endswith("layout.mov") and got["alpha"] is True and got["background"] == "",
+   "alpha=True ra .mov — mp4 KHÔNG mang được kênh trong suốt, nên phải là vỏ khác", got.get("path"))
+ok(cmd[cmd.index("-c:v") + 1] == "qtrle" and cmd[cmd.index("-pix_fmt") + 1] == "argb"
+   and "yuv420p" not in fc,
+   "qtrle/argb (RLE không mất dữ liệu, cái lỗ trong suốt nén còn gần như không gì)", cmd)
+ok("color=c=black@0:" in " ".join(cmd) and fc.startswith("[0:v]format=rgba,"),
+   "nền TRONG SUỐT thật, không phải xanh phông tô đè", fc[:60])
+ok(fc.endswith("format=rgba[v]"), "giữ alpha đến tận khung ra")
+
+MCS[:] = [mc([1200, 600, 600, 400], str(TMP / "sticker.png"), layer=0)]
+got = asyncio.run(mod.build_layout_clip({"id": 77}, layout_id="vl_1", frame=(1920, 1080)))
+cmd = CALLS[-1]
+ok("-stream_loop" not in cmd and cmd[cmd.index("-loop") + 1] == "1",
+   "nguồn là ẢNH thì lặp MỘT khung (-loop 1), không -stream_loop", cmd)
+ok(got["seconds"] == 5.0 and cmd[cmd.index("-t") + 1] == "5.000",
+   "không lớp nào là video → đoạn tĩnh STILL_SECONDS giây, không phải 0 giây", got)
+
+CHROME[0], MCS[:] = "", []
+ok(asyncio.run(mod.build_layout_clip({"id": 77}, layout_id="vl_1", frame=(1920, 1080))) == {},
+   "bố cục rỗng (không khung, không người dẫn) → KHÔNG đẻ file")
+CHROME[0] = str(TMP / "chrome.png")
+RUN_OK[0] = False
+ok(asyncio.run(mod.build_layout_clip({"id": 77}, layout_id="vl_1", frame=(1920, 1080))) == {},
+   "ffmpeg hỏng thì trả {} — bước Drive chỉ thiếu file bố cục, không ném")
+RUN_OK[0] = True
+
+ok(mod.layout_variables({"id": 1, "title": "T", "episode_number": 3})["badge"] == "Tập 3"
+   and "badge" not in mod.layout_variables({"id": 1, "title": "T"}),
+   "khe chữ: có số tập mới có chip; MỘT bản dùng cho cả video lẫn file bố cục")
+ok("lay_vars = layout_variables(episode, layout_vars)" in eng_src,
+   "bản dựng video gọi CHÍNH hàm ấy (hai nơi tự bơm khe sẽ trôi khỏi nhau)")
+
+# ── F. route + Drive ──
+print("── F. route layout-clip + Drive ────────────────────────────")
+lr = seg(routes_src, '@router.post("/api/v1/studio/episodes/{episode_id}/layout-clip")',
+         '@router.get("/api/v1/studio/export-video/{filename}")')
+ok('if os.path.isfile(out) and os.path.getsize(out) > 1000 and not body.get("rebuild")' in lr,
+   "đã có thì trả luôn, ép dựng lại được")
+ok("This project does not use a video layout." in lr, "dự án không dùng bố cục thì nói thẳng")
+ok('(1080, 1920) if ar == "9:16"' in lr and '(1080, 1080) if ar == "1:1"' in lr,
+   "khung dọc/vuông ra đúng cỡ — sai cỡ thì chồng lên video là lệch")
+ok("FE.layout_variables(ep," in lr, "khe chữ lấy từ hàm chung, không bịa lại")
+ok(routes_src.count('if f.startswith("scene_") and f.endswith(".mp4")') == 2,
+   "route scene-clips chỉ đếm file CẢNH (cả lúc kiểm tra lẫn lúc trả danh sách) — layout.mp4 ở cùng thư mục")
+ok('add("layout", lay["path"], f"{base} (layout)", "", "layout")' in pipe_src,
+   "file bố cục lên Drive cạnh video, tên có «(layout)»")
+ok('["Layout overlay", links.get("layout", "")]' in pipe_src, "Sheet có dòng «Layout overlay»")
+ok("layout clip unavailable" in pipe_src, "không dựng được bố cục thì mọi thứ khác vẫn lên Drive")
+ok("per scene, the layout overlay" in pipe_src,
+   "dòng xin duyệt nói đúng những gì sắp lên Drive")
 
 shutil.rmtree(TMP, ignore_errors=True)
 print(f"\n{PASS}/{PASS + FAIL} PASS" if not FAIL else f"\n{PASS}/{PASS + FAIL} PASS — {FAIL} HỎNG")

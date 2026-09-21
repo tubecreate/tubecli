@@ -635,8 +635,8 @@ ok(P.RENDER_STEPS[-1] == ("drive", "Save to Google Drive", "drive", True) and "d
    and P.DEFAULTS["drive"] is False and P.DEFAULTS["drive_token_id"] == "", "bước cuối, tuỳ chọn, mặc định tắt")
 ok(CAP.JOBS["drive"]["requires"] == ["auth_manager"] and "auth_manager" in CAP.EXTENSIONS, "năng lực: cần Auth Manager")
 d = P.describe_plan({"drive": True, "drive_token_id": "cred_a_1", "title": "Mây"})
-ok("- Save to Google Drive: a folder «Mây» inside «tuan89tk-vps-k7m2qx» on a@x.com — content sheet, images, voice, video "
-   "and its subtitles (.srt)" in d,
+ok("- Save to Google Drive: a folder «Mây» inside «tuan89tk-vps-k7m2qx» on a@x.com — content sheet, images, voice, "
+   "one clip per scene, the layout overlay, the video and its subtitles (.srt)" in d,
    "dòng kế hoạch: thư mục (trong thư mục của máy) + tài khoản", d)
 d2 = P.describe_plan({"drive": True})
 ok("named after the video title inside «tuan89tk-vps-k7m2qx» on the Google account granted to the agent in its Auth tab" in d2,

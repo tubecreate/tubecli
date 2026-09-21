@@ -5513,8 +5513,8 @@ def _drive_plan_note(options: Dict) -> str:
     folder = f"«{title[:80]}»" if title else "named after the video title"
     share = ("anyone with the link can view and download"
              if _truthy(options.get("drive_public"), True) else "private to that account")
-    return (f"a folder {folder} inside «{_drive_root_name()}» on {who} — content sheet, images, voice, video and "
-            f"its subtitles (.srt) ({share})")
+    return (f"a folder {folder} inside «{_drive_root_name()}» on {who} — content sheet, images, voice, one clip "
+            f"per scene, the layout overlay, the video and its subtitles (.srt) ({share})")
 
 
 # ── Phụ đề .srt cạnh video (17/9/2026) ────────────────────────────────────────────────────────────────────────────
@@ -5804,6 +5804,16 @@ def _drive_plan(state: Dict) -> Tuple[List[Dict], List[Dict]]:
             state["drive_scene_clips"] = int(got["count"])
     except Exception as e:      # noqa: BLE001
         logger.info(f"[ContentVideo] scene clips unavailable: {e}")
+    # Bố cục MỘT MÌNH thành một mp4 (khung + người dẫn, lỗ để trống, dài bằng clip người dẫn dài nhất).
+    # Chồng file này lên video từng cảnh ở trình dựng khác là ra đúng video đã xem. Dự án không dùng bố
+    # cục thì route trả 400 và ở đây bỏ qua — mọi thứ khác vẫn lên Drive.
+    try:
+        lay = _post(f"/api/v1/studio/episodes/{state['episode_id']}/layout-clip", {}, timeout=1800) or {}
+        if lay.get("path"):
+            add("layout", lay["path"], f"{base} (layout)", "", "layout")
+            state["drive_layout_clip"] = float(lay.get("seconds") or 0)
+    except Exception as e:      # noqa: BLE001
+        logger.info(f"[ContentVideo] layout clip unavailable: {e}")
     for i, sh in enumerate(shots, 1):
         n = f"scene_{i:03d}"
         add(f"image:{i}", next((v for v in (sh.get("composed_image"), sh.get("image_url")) if _data_file(v)), ""),
@@ -5987,6 +5997,8 @@ def _drive_tabs(state: Dict, shots: List[Dict], links: Dict[str, str], rec: Dict
         ["Video (download)", links.get("video#dl", "")],
         ["Video (no layout)", links.get("main", "")],
         ["Video (no layout, download)", links.get("main#dl", "")],
+        # Lớp phủ để chồng lên các file trong scenes/ — xem cột «Scene video».
+        ["Layout overlay", links.get("layout", "")],
         ["Thumbnail", links.get("thumbnail", "")],
         ["Subtitles (.srt)", links.get("subtitles", "")],
         ["Subtitles (.srt, download)", links.get("subtitles#dl", "")],
