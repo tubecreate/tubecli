@@ -300,13 +300,18 @@ assert st8["tts_summary"] == "19 voiced (CapCut), 1 silent", st8["tts_summary"]
 print("8h capcut    : batch audio far shorter than its text → that shot is re-read alone; unmeasurable → trusted")
 
 # 8e. giọng sami (có mốc từng từ) và 8f. không tra được engine → giữ đường từng shot
-for label, getter, spk in (
-    ("sami", lambda path, timeout=60: [{"id": "es_sami", "name": "Enrique", "language": "es", "platform": ""}], "es_sami"),
-    ("lookup down", lambda path, timeout=60: (_ for _ in ()).throw(RuntimeError("speakers → HTTP 502: down")), "es_11"),
+# Giọng sami trong test TRẢ MỐC THẬT (trước 21/9/2026 bản giả trả [] — từ khi «đọc mãi không có mốc nào → chuyển sang
+# đợt» thì bản giả ấy mô tả một giọng khác hẳn). Không tra được engine thì không có mốc cũng giữ đường cũ.
+ES_GOOD = [{"word": w, "start": round(k * 0.4, 2), "end": round(k * 0.4 + 0.35, 2)} for k, w in enumerate("la vida es un río que fluye".split())]
+for label, getter, spk, got in (
+    ("sami", lambda path, timeout=60: [{"id": "es_sami", "name": "Enrique", "language": "es", "platform": ""}], "es_sami", ES_GOOD),
+    ("lookup down", lambda path, timeout=60: (_ for _ in ()).throw(RuntimeError("speakers → HTTP 502: down")), "es_11", []),
 ):
     batch_calls.clear(); single_calls.clear()
     P._get = getter
     P._post = fake_batch
+    P._post_audio_marks = (lambda w: (lambda path, payload, timeout=180:
+                                      (single_calls.append(payload) or (b"ID3" + b"\x01" * 2000), list(w))))(got)
     st8 = st_new(84)
     P._tts_capcut(st8, {"capcut_speaker": spk})
     assert batch_calls == [] and len(single_calls) == 19, (label, len(batch_calls), len(single_calls))
@@ -376,5 +381,101 @@ P._tts_capcut(st, {"capcut_speaker": "ja_icl"})
 assert len(batch_calls) == 1 and len(single_calls) == 19 and st["tts_summary"] == "19 voiced (CapCut), 1 silent", \
     (len(batch_calls), len(single_calls), st["tts_summary"])
 print("9 capcut marks: mốc hỏng (ICL tiếng Nhật 30 ms/chữ) → bỏ mốc + đọc phần còn lại theo đợt; mốc tốt giữ từng shot; CapCut cũ → từng shot")
+
+# ── 10. video KHÔNG dùng mốc từ → đọc theo đợt NGAY TỪ CÂU ĐẦU (21/9/2026) ──
+# User (ảnh thẻ «74/321 · CapCut · about 50m left»): "tiếng nhật không patch voice được à? nó làm từng câu tới hơn 300
+# lần capcut limit". Mẫu jp_telop không tô từng từ nên không ai đọc tới mốc, vậy mà giọng sami cứ đi đường một lượt gọi
+# mỗi câu; lối thoát duy nhất là ĐO thấy mốc hỏng — phép đo trượt là cả 321 câu đi lẻ.
+import json as _json10
+studio10 = tempfile.mkdtemp(prefix="cv-studio-")
+os.makedirs(os.path.join(studio10, "assets"))
+with open(os.path.join(studio10, "assets", "subtitle_presets.json"), "w", encoding="utf-8-sig") as f:
+    _json10.dump([{"id": "capcut_bold", "word": {"kind": "highlight"}}, {"id": "jp_telop", "word": {"kind": "none"}},
+                  {"id": "no_word"}], f)
+_real_studio_dir = P._studio_dir
+P._studio_dir = lambda: studio10
+assert P._subtitle_word_kind("jp_telop") == "none" and P._subtitle_word_kind("capcut_bold") == "highlight"
+assert P._subtitle_word_kind("no_word") == "" and P._subtitle_word_kind("khong_co") == "" and P._subtitle_word_kind("") == ""
+
+
+def preset10(meta):
+    return {"name": "Edo", "fields": {"language": "ja", "metadata": meta}}
+
+
+assert P._wants_word_marks({}) is True and P._wants_word_marks({"preset": None}) is True, "không có mẫu → giữ đường cũ"
+assert P._wants_word_marks({"preset": preset10({"scene_kit": "edo"})}) is True, "mẫu cũ chưa có trường phụ đề → giữ đường cũ"
+assert P._wants_word_marks({"preset": preset10({"subtitle_style": "jp_telop"})}) is False
+assert P._wants_word_marks({"preset": preset10(_json10.dumps({"subtitle_style": "jp_telop"}))}) is False, "metadata dạng chuỗi JSON"
+assert P._wants_word_marks({"preset": preset10({"subtitle_style": ""})}) is False, "mẫu TẮT phụ đề"
+assert P._wants_word_marks({"preset": preset10({"subtitle_style": "capcut_bold"})}) is True
+assert P._wants_word_marks({"preset": preset10({"subtitle_style": "khong_co"})}) is True, "không tra được mẫu phụ đề → giữ đường cũ"
+assert P._wants_word_marks({"preset": preset10("{hỏng")}) is True
+with open(os.path.join(studio10, "assets", "subtitle_presets.json"), "w", encoding="utf-8") as f:
+    f.write("{hỏng")
+assert P._subtitle_word_kind("jp_telop") == "", "file mẫu hỏng → không tra được, không nổ"
+with open(os.path.join(studio10, "assets", "subtitle_presets.json"), "w", encoding="utf-8") as f:
+    _json10.dump({"presets": {"jp_telop": {"word": {"kind": "None"}}, "capcut_bold": {"word": {"kind": "highlight"}}}}, f)
+assert P._subtitle_word_kind("jp_telop") == "none", "dạng {presets: {id: …}} + chữ hoa"
+P._studio_dir = lambda: ""
+assert P._wants_word_marks({"preset": preset10({"subtitle_style": "jp_telop"})}) is True, "Studio chưa cài → giữ đường cũ"
+P._studio_dir = lambda: studio10
+
+tmp10 = tempfile.mkdtemp(prefix="cv-nomarks-")
+CFG.DATA_DIR = tmp10
+P._get = lambda path, timeout=60: [{"id": "ja_icl", "name": "Yukiko", "language": "ja", "platform": ""}]
+GOOD10 = list(ZH_GOOD)
+for label, meta, words, want_single, want_batch in (
+    ("jp_telop", {"subtitle_style": "jp_telop"}, GOOD10, 1, 19),          # mốc TỐT cũng không cần: không ai dùng
+    ("tắt phụ đề", {"subtitle_style": ""}, GOOD10, 1, 19),
+    ("tô từng từ", {"subtitle_style": "capcut_bold"}, GOOD10, 19, 0),
+    ("không mẫu", None, GOOD10, 19, 0),
+    ("không có mốc nào", {"subtitle_style": "capcut_bold"}, [], 4, 16),   # 3 câu đầu trắng mốc → phần còn lại theo đợt
+):
+    batch_calls.clear(); single_calls.clear(); puts8.clear(); said9.clear()
+    P._post = fake_batch
+    P._post_audio_marks = (lambda w: (lambda path, payload, timeout=180:
+                                      (single_calls.append(payload) or (b"ID3" + b"\x03" * 2000), list(w))))(words)
+    st = st9(100)
+    if meta is not None:
+        st["preset"] = preset10(meta)
+    P._tts_capcut(st, {"capcut_speaker": "ja_icl"})
+    texts = [t for c in batch_calls for t in c[0]["texts"]]
+    assert (len(single_calls), len(texts)) == (want_single, want_batch), (label, len(single_calls), len(texts))
+    assert st["tts_summary"] == "19 voiced (CapCut), 1 silent", (label, st["tts_summary"])
+    msgs = [str(a[2]) for a in said9 if len(a) > 2]
+    if label in ("jp_telop", "tắt phụ đề"):
+        assert texts[0].startswith("Escena 1."), "đợt bắt đầu từ CÂU ĐẦU, không đọc lẻ câu nào để «đo»"
+        assert [p["text"][:9] for p in single_calls] == ["Escena 7."], "chỉ câu CapCut từ chối mới đọc riêng"
+        assert any("do not follow single words" in m for m in msgs) and any("· CapCut · batch" in m for m in msgs), msgs
+        assert len(batch_calls) == 2, "20 câu = 2 lượt gọi CapCut thay vì 19"
+    elif label == "không có mốc nào":
+        assert any("returns no word timings" in m for m in msgs), msgs
+        assert texts[0].startswith("Escena 4."), texts[0][:12]
+    else:
+        assert not any("in batches" in m for m in msgs), (label, msgs)
+
+# 10b. đi đợt từ đầu mà CapCut TTS cũ chưa có route đợt → ĐÚNG MỘT lượt thử, rồi từng câu; lý do LÊN THẺ, không chỉ log.
+# Mốc hỏng ở đường từng câu KHÔNG được kéo thêm một lượt thử đợt nữa.
+batch_calls.clear(); single_calls.clear(); puts8.clear(); said9.clear()
+P._post = batch_404
+P._post_audio_marks = lambda path, payload, timeout=180: (single_calls.append(payload) or (b"ID3" + b"\x03" * 2000), list(JA_BAD))
+st = st9(101)
+st["preset"] = preset10({"subtitle_style": "jp_telop"})
+P._tts_capcut(st, {"capcut_speaker": "ja_icl"})
+assert len(batch_calls) == 1 and len(single_calls) == 19, (len(batch_calls), len(single_calls))
+notes = [w for w in st.get("warnings") or [] if "cannot read in batches" in w]
+assert len(notes) == 1 and "Update CapCut TTS" in notes[0], st.get("warnings")
+
+# 10c. file mẫu THẬT của Content Studio (nếu có trên máy này): jp_telop không tô từ, capcut_bold có
+_cand = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "extensions_external", "content_studio")
+if os.path.isfile(os.path.join(_cand, "assets", "subtitle_presets.json")):
+    P._studio_dir = lambda: _cand
+    assert P._subtitle_word_kind("jp_telop") == "none" and P._subtitle_word_kind("capcut_bold") == "highlight"
+    real10 = "file mẫu thật: jp_telop = none"
+else:
+    real10 = "(máy này chưa cài Content Studio — bỏ qua file mẫu thật)"
+P._studio_dir = _real_studio_dir
+print("10 no marks  : mẫu không tô từ / tắt phụ đề → đợt từ câu đầu (20 câu = 2 lượt gọi); không có mốc nào → đợt sau 3 câu; "
+      "CapCut cũ → 1 lượt thử + lý do lên thẻ · " + real10)
 print()
-print("ALL 9 GROUPS PASSED")
+print("ALL 10 GROUPS PASSED")

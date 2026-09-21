@@ -3037,6 +3037,57 @@ def _marks_reliable(words: List[Dict]) -> bool:
     return spans[len(spans) // 2] >= MARK_MIN_MEDIAN_SEC
 
 
+# Đọc từng shot mà KHÔNG nhận về mốc nào thì đường ấy không còn lý do tồn tại: sau chừng này shot liền không có mốc
+# (CapCut TTS cũ, giọng không trả mốc) → phần còn lại đọc theo đợt.
+MARKS_ABSENT_AFTER = 3
+
+
+def _subtitle_word_kind(style: str) -> str:
+    """`word.kind` của một mẫu phụ đề trong Content Studio ("highlight", "none"…); "" khi không tra được."""
+    root = _studio_dir()
+    path = os.path.join(root, "assets", "subtitle_presets.json") if root else ""
+    if not (style and path and os.path.isfile(path)):
+        return ""
+    try:
+        with open(path, "r", encoding="utf-8-sig") as f:
+            data = json.load(f)
+    except Exception as e:      # noqa: BLE001
+        logger.info(f"[ContentVideo] subtitle presets not readable: {e}")
+        return ""
+    presets = data.get("presets") if isinstance(data, dict) else data
+    if isinstance(presets, dict):
+        presets = [dict(v, id=k) for k, v in presets.items() if isinstance(v, dict)]
+    for p in presets or []:
+        if isinstance(p, dict) and str(p.get("id") or "") == style:
+            return str((p.get("word") or {}).get("kind") or "").strip().lower()
+    return ""
+
+
+def _wants_word_marks(state: Dict) -> bool:
+    """Video này có DÙNG mốc từng từ của giọng đọc không.
+
+    Mốc từ chỉ để phụ đề tô/nảy TỪNG TỪ theo giọng. Mẫu tắt phụ đề, hay mẫu phụ đề không tô từ (`word.kind` =
+    "none": jp_telop — chữ Nhật to, đứng yên) thì không ai đọc tới mốc, mà đường lấy mốc lại là đường gọi CapCut MỘT
+    LƯỢT MỖI CÂU. Bài tiếng Nhật 8.000 chữ (21/9/2026) là 321 lượt gọi, ~65 phút, sát trần hạn mức của tài khoản —
+    user: «nó làm từng câu tới hơn 300 lần capcut limit». Đọc theo đợt là ~21 lượt.
+
+    Không có mẫu, hay không tra được mẫu phụ đề → True (giữ đường cũ: thà chậm còn hơn mất phụ đề chạy chữ).
+    """
+    fields = (state.get("preset") or {}).get("fields") or {}
+    meta = fields.get("metadata")
+    if isinstance(meta, str):
+        try:
+            meta = json.loads(meta)
+        except ValueError:
+            meta = None
+    if not isinstance(meta, dict) or "subtitle_style" not in meta:
+        return True
+    style = str(meta.get("subtitle_style") or "").strip()
+    if not style:
+        return False
+    return _subtitle_word_kind(style) != "none"
+
+
 def _capcut_batch_timeout(chars: int) -> int:
     """Timeout NGOÀI cho một đợt — lớn hơn tổng các timeout TRONG (cùng lý do với
     _capcut_timeout): chờ tới lượt tài khoản (≤90 giây) + một lượt đợt + một lượt đối
@@ -3082,7 +3133,7 @@ def _tts_capcut(state: Dict, options: Dict) -> None:
     total = len(todo)
     last_pct = -1
     speaker = options.get("capcut_speaker") or state.get("capcut_speaker")
-    marks = {"bad": False}
+    marks = {"bad": False, "read": 0, "got": 0}
 
     def _capcut_timeout(text: str) -> int:
         """Timeout NGOÀI phải lớn hơn tổng các timeout TRONG.
@@ -3130,6 +3181,8 @@ def _tts_capcut(state: Dict, options: Dict) -> None:
             audio, words = _post_audio_marks("/api/v1/capcut-tts/synthesize", body, timeout=_to)
         if not audio or len(audio) < 1000:
             raise RuntimeError("CapCut returned no audio")
+        marks["read"] += 1
+        marks["got"] += 1 if words else 0
         save(shot, i, audio, words)
 
     def save(shot: Dict, i: int, audio: bytes, words: List[Dict]) -> float:
@@ -3188,6 +3241,13 @@ def _tts_capcut(state: Dict, options: Dict) -> None:
     if platform is None and speaker:
         platform = _capcut_voice_platform(email, str(speaker))
     use_batch = bool(platform) and platform != "sami" and len(speakable) > 1
+    # Giọng sami mà video KHÔNG dùng mốc từ (mẫu phụ đề không tô từ, hay tắt phụ đề) → cũng đọc theo đợt, ngay từ câu
+    # đầu. Trước đây chỉ chuyển khi ĐO thấy mốc hỏng ở một shot đã đọc — phép đo trượt (CapCut không trả mốc nào, shot
+    # quá ngắn) là cả bài đi đường từng câu.
+    sami = platform is not None and not use_batch
+    if sami and len(speakable) > 1 and not _wants_word_marks(state):
+        use_batch = True
+        state["_say"]("tts", "running", "these subtitles do not follow single words — reading the narration in batches")
 
     def read_batches(items: List[Tuple[int, Dict, str]]) -> List[Tuple[int, Dict]]:
         """Đọc theo ĐỢT; trả các shot phải đọc lại từng cái (đợt hỏng, shot không có audio, CapCut cũ chưa có đợt)."""
@@ -3211,6 +3271,11 @@ def _tts_capcut(state: Dict, options: Dict) -> None:
                     # động lại sau khi cập nhật: phần còn lại đọc từng shot như trước.
                     logger.info(f"[ContentVideo] capcut batch unavailable, reading shot by shot: {e}")
                     use_batch = False
+                    note = ("CapCut TTS on this server cannot read in batches (it is an old version, or its service was "
+                            "not restarted after an update), so every shot was one CapCut request. Update CapCut TTS "
+                            "from the Market, then restart TubeCLI.")
+                    if note not in state.setdefault("warnings", []):
+                        state["warnings"].append(note)
                     for rest in groups[g:]:
                         leftover.extend((n, sh) for n, sh, _ in rest)
                     break
@@ -3251,12 +3316,14 @@ def _tts_capcut(state: Dict, options: Dict) -> None:
             report()
         return leftover
 
+    batched_first = use_batch
     if use_batch:
         per_shot = read_batches(speakable)
     else:
         per_shot = [(i, shot) for i, shot, _ in speakable]
 
-    switched = False
+    # Đã đi đường đợt ngay từ đầu (và có thể vừa bị CapCut cũ trả 404) thì vòng dưới không thử chuyển sang đợt lần nữa.
+    switched = batched_first
     while per_shot:
         i, shot = per_shot.pop(0)
         if state["_cancelled"]():
@@ -3273,14 +3340,16 @@ def _tts_capcut(state: Dict, options: Dict) -> None:
             last_err = str(e)[:200]
             logger.warning(f"[ContentVideo] capcut tts failed for shot {shot.get('id')}: {e}")
         report()
-        if marks["bad"] and not use_batch and not switched and len(per_shot) > 1:
+        absent = sami and marks["read"] >= MARKS_ABSENT_AFTER and marks["got"] == 0
+        if (marks["bad"] or absent) and not use_batch and not switched and len(per_shot) > 1:
             # Giọng sami mà mốc từ hỏng (giọng ICL tiếng Nhật): đọc từng shot chỉ để lấy mốc là vô ích → phần còn lại
             # đọc THEO ĐỢT (một lượt gọi nhiều shot, nhanh gấp mấy lần). Một lần thôi: CapCut cũ không có đợt thì
             # read_batches trả lại cả phần còn lại và vòng này đọc từng shot tiếp.
             switched = True
             use_batch = True
             state["_say"]("tts", "running",
-                          "this voice's word timings are unreliable — reading the remaining shots in batches")
+                          ("this voice's word timings are unreliable" if marks["bad"] else
+                           "this voice returns no word timings") + " — reading the remaining shots in batches")
             per_shot = read_batches([(n, sh, _shot_narration(sh)) for n, sh in per_shot])
     # Một shot không có giọng KHÔNG làm lượt chạy hỏng: khâu dựng gán cho nó 5
     # giây ảnh tĩnh và video lặng lẽ ngắn đi. CapCut hay rớt lẻ tẻ, nên thử lại
