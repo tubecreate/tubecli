@@ -364,9 +364,10 @@ ok(field(ov, "Video") == FD.by_name(f"{base}.mp4")[0]["webViewLink"] and field(o
    and field(ov, "Uploaded from") == ROOT_NAME,
    "Overview: link video, thư mục, ai đăng từ máy nào, YouTube, tag, nguồn, thời lượng, số cảnh", ov)
 sc = rows_of(last, "Scenes")
-ok(sc[0] == ["Scene", "Image prompt", "Video prompt", "Narration", "Seconds", "Image file", "Voice file"]
-   and len(sc) == 4,
-   "Scenes: prompt ảnh, prompt video đầy đủ trong MỘT ô (không tách Camera / Sound), lời, giây, link file", sc[0])
+ok(sc[0] == ["Scene", "Image prompt", "Video prompt", "Narration", "Seconds", "Image file", "Voice file",
+             "Scene video"] and len(sc) == 4,
+   "Scenes: prompt ảnh, prompt video đầy đủ trong MỘT ô (không tách Camera / Sound), lời, giây, link file, "
+   "link video từng cảnh", sc[0])
 FULL = ("[VIDEO PROMPT]\n"
         "pan slowly. Camera: medium shot, eye-level angle, static camera. Action: The person sits still. "
         "Mood and light: Silencio denso, tono melancólico. "

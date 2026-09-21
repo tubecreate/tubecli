@@ -5421,7 +5421,7 @@ def _step_publish(state: Dict, options: Dict) -> None:
 # User 15/9/2026: "lưu nội dung đã tạo vào drive: nội dung lưu vào sheet, file audio, image và video upload lên
 # drive trong 1 project, folder đặt tên theo tiêu đề; chọn auth trong tạo task như đã chọn trong auth của agent".
 DRIVE_WIDTHS = {"Overview": {0: 170, 1: 560},
-                "Scenes": {1: 320, 2: 460, 3: 420, 5: 220, 6: 220},
+                "Scenes": {1: 320, 2: 460, 3: 420, 5: 220, 6: 220, 7: 220},
                 "Script": {0: 760}}
 
 
@@ -5789,12 +5789,28 @@ def _drive_plan(state: Dict) -> Tuple[List[Dict], List[Dict]]:
             state.setdefault("warnings", []).append(
                 f"Google Drive: could not read the scenes from Content Studio ({str(e)[:120]}) — the scene "
                 "images and voice files were not saved.")
+    # Video TỪNG CẢNH (bản thô: hình + giọng, chưa phủ bố cục) — user 21/9/2026 muốn mang từng cảnh đi dựng
+    # lại ở chỗ khác. Studio giữ sẵn khi dựng bằng đường trình chiếu; dự án «Diễn giải» thì route cắt từ video
+    # cuối. Hỏng thì chỉ thiếu thư mục scenes, mọi thứ khác vẫn lên Drive như cũ.
+    clips = {}
+    try:
+        got = _post(f"/api/v1/studio/episodes/{state['episode_id']}/scene-clips", {}, timeout=1800) or {}
+        d = str(got.get("dir") or "")
+        for f in got.get("files") or []:
+            k = "".join(ch for ch in os.path.splitext(str(f))[0] if ch.isdigit())
+            if k.isdigit() and d:
+                clips[int(k)] = os.path.join(d, str(f))
+        if got.get("count"):
+            state["drive_scene_clips"] = int(got["count"])
+    except Exception as e:      # noqa: BLE001
+        logger.info(f"[ContentVideo] scene clips unavailable: {e}")
     for i, sh in enumerate(shots, 1):
         n = f"scene_{i:03d}"
         add(f"image:{i}", next((v for v in (sh.get("composed_image"), sh.get("image_url")) if _data_file(v)), ""),
             n, "images", "image")
         audio = _data_file(sh.get("tts_audio_url"))
         add(f"audio:{i}", audio, n, "audio", "voice")
+        add(f"clip:{i}", clips.get(i, ""), n, "scenes", "scene")
         sh["_seconds"] = media_seconds(audio) if audio else 0.0
     # Phụ đề .srt CÙNG TÊN và cùng thư mục với video — trình phát tự nạp; bản trên máy nằm cạnh mp4 (xoá task là xoá
     # theo, cùng mẫu episode_<id>_*). Hỏng thì chỉ cảnh báo: video và mọi thứ khác vẫn lên Drive.
@@ -5989,13 +6005,15 @@ def _drive_tabs(state: Dict, shots: List[Dict], links: Dict[str, str], rec: Dict
     # thời lượng) — copy một ô là tạo được video. Từng có hai cột Camera / Sound tách riêng nhưng chúng chỉ lặp
     # lại nội dung đã nằm trong prompt; user: "cứ dồn prompt video vào 1 chỗ" (16/9/2026). Studio sinh
     # video_prompt trong agents/storyboard_breaker.py nhưng chỉ 80–200 ký tự — xem full_video_prompt.
-    scenes = [["Scene", "Image prompt", "Video prompt", "Narration", "Seconds", "Image file", "Voice file"]]
+    scenes = [["Scene", "Image prompt", "Video prompt", "Narration", "Seconds", "Image file", "Voice file",
+               "Scene video"]]
     for i, sh in enumerate(shots, 1):
         scenes.append([i, str(sh.get("image_prompt") or sh.get("description") or ""),
                        full_video_prompt(sh, state.get("_drive_cast"), state.get("_drive_places")),
                        _shot_narration(sh),
                        sh.get("_seconds") or sh.get("duration") or "",
-                       links.get(f"image:{i}", ""), links.get(f"audio:{i}", "")])
+                       links.get(f"image:{i}", ""), links.get(f"audio:{i}", ""),
+                       links.get(f"clip:{i}", "")])
     script = [["Script"]] + [[line] for line in str(state.get("script") or "").splitlines() if line.strip()]
     return [("Overview", overview), ("Scenes", scenes), ("Script", script)]
 
@@ -6112,7 +6130,7 @@ def _drive_save(state: Dict, options: Dict) -> None:
 
     parents = {"": rec["folder_id"]}
     have = {"": DX.list_children(drive, rec["folder_id"])}
-    for sub in ("images", "audio"):
+    for sub in ("images", "audio", "scenes"):
         if any(u["sub"] == sub for u in ups):
             parents[sub] = DX.ensure_folder(drive, rec["folder_id"], sub, have[""])["id"]
             have[sub] = DX.list_children(drive, parents[sub])
