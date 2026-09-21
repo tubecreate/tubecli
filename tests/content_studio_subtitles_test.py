@@ -43,7 +43,7 @@ def check(label, ok, detail=""):
 
 # A. preset file + lookup
 presets = S.list_presets()
-check("A 16 mẫu", len(presets) == 16, len(presets))
+check("A 17 mẫu (16 mẫu gốc + jp_telop, 21/9/2026)", len(presets) == 17, len(presets))
 check("A capcut_bold", S.get_preset("capcut_bold")["font"]["size"] == 78)
 
 # ── A2. Cỡ chữ: mặc định phải ĐỌC ĐƯỢC, và ô chọn cỡ phải có tác dụng ───────
@@ -74,7 +74,7 @@ check("A2 mọi mẫu đều đã nâng cỡ",
 check("A id lạ → dự phòng", S.get_preset("no_such")["id"] == "capcut_bold")
 check("A rỗng → None", S.get_preset("") is None and S.get_preset(None) is None)
 ui = S.styles_for_ui()
-check("A UI 6 nổi bật + tóm tắt", ui["featured"] == 6 and len(ui["styles"]) == 16
+check("A UI 6 nổi bật + tóm tắt", ui["featured"] == 6 and len(ui["styles"]) == 17
       and ui["styles"][0]["color"]["active"] == "#facc15" and "layout" in ui["styles"][0], ui["styles"][0])
 check("A font đóng gói", (S.FONTS_DIR / "BeVietnamPro-Bold.ttf").exists())
 
@@ -214,7 +214,7 @@ check("I preset cũ không có khoá", "subtitle_style" not in f["metadata"])
 f = R.preset_drama_fields({"wizSubtitleStyle": ""})
 check("I chọn None → rỗng", f["metadata"]["subtitle_style"] == "")
 res = asyncio.run(R.list_subtitle_styles())
-check("I route styles", res["success"] and len(res["styles"]) == 16 and res["featured"] == 6)
+check("I route styles", res["success"] and len(res["styles"]) == 17 and res["featured"] == 6)
 
 # I2. giọng đọc lưu trong preset → drama metadata (edge / vibevoice / capcut / auto)
 m = R.preset_drama_fields({"wizTtsPreset": "vi-VN-HoaiMyNeural", "wizTtsEngine": "edge"})["metadata"]
