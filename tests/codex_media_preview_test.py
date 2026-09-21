@@ -73,9 +73,19 @@ print("2 range     : 200 trọn file, 206 đúng byte, đuôi mở, 416 ngoài f
 # 3. JS: nhận diện, gộp trùng theo tên file, link 127.0.0.1 → đường dẫn cùng gốc, đường dẫn máy → route task/file
 js = (ROOT / "tubecli" / "extensions" / "codex" / "static" / "codex.js").read_text(encoding="utf-8")
 for needle in ["function mediaRefs(", "function mediaSrc(", "function mediaPreviewHtml(", "${mediaPreviewHtml(task)}",
-               "/tasks/${encodeURIComponent(taskId)}/file?path=", "<video controls preload=\"metadata\"",
+               "/tasks/${encodeURIComponent(taskId)}/file?path=", "<video controls preload=\"none\"",
                "seen.has(name)", "127\\.0\\.0\\.1|localhost"]:
     assert needle in js, needle
+# preload="none", KHÔNG phải "metadata": mp4 do dây chuyền xuất ra từng để `moov` ở CUỐI file, nên
+# "metadata" bắt trình duyệt với tới cuối một file cả GB qua tunnel — mỗi lần thẻ được dựng lại.
+preview_fn = js.split("function mediaPreviewHtml(")[1].split("function esc(")[0]
+assert '<video controls preload="metadata"' not in js, "thẻ <video> không được dùng preload=metadata nữa"
+# <audio> thì GIỮ metadata: mp3 để header ở đầu file nên đọc thời lượng chỉ tốn vài KB.
+assert '<audio controls preload="metadata"' in preview_fn, "audio vẫn nên đọc metadata (rẻ)"
+assert "poster=" in preview_fn, "video phải có poster để thẻ vẫn có hình mà không chạm vào file"
+# Bảng tự làm mới 5 giây: chỉ được thay ĐÚNG thẻ đổi, không gán lại innerHTML cả danh sách —
+# gán lại là huỷ luôn <video> đang mở, trình duyệt xin lại video từ đầu.
+assert "function buildListCards(" in js and "el.outerHTML = c.html" in js, "renderList phải vá theo từng thẻ"
 css = (ROOT / "tubecli" / "extensions" / "codex" / "static" / "codex.css").read_text(encoding="utf-8")
 assert ".cx-media {" in css and "auto-fill, minmax(240px, 1fr)" in css
 import json

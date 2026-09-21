@@ -35,7 +35,9 @@ console.log('── bodyHtml: thu gọn mặc định ────────�
 const a = js.indexOf('  function bodyHtml(task) {');
 const b = js.indexOf('  function collapse(taskId) {');
 check('cắt được bodyHtml khỏi codex.js', a > 0 && b > a, { a, b });
-const state = { planOpen: new Set(), planning: {}, busy: {}, events: {}, eventsLoaded: {} };
+// detailBusy: bodyHtml đọc state.detailBusy[task.id] từ bản «mở thẻ mới tải chi tiết» — thiếu nó
+// thì test ném TypeError chứ không phải báo sai kết quả.
+const state = { planOpen: new Set(), planning: {}, busy: {}, detailBusy: {}, events: {}, eventsLoaded: {} };
 const stubs = {
     state,
     t: (k, p) => k + (p ? JSON.stringify(p) : ''),

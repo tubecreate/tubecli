@@ -91,6 +91,7 @@ const CODEX = (() => {
     noteMode: '',
     noteTaskId: '',
     lastListHtml: '',
+    lastCards: null,      // [{id, html}] của lượt vẽ trước — để chỉ thay thẻ nào đổi
     lastErrToast: 0,
   };
 
@@ -136,11 +137,18 @@ const CODEX = (() => {
   function mediaPreviewHtml(task) {
     const refs = mediaRefs(task.result);
     if (!refs.length) return '';
+    // Ảnh đầu tiên trong kết quả làm POSTER cho video: thẻ vẫn có hình để nhìn mà không phải
+    // chạm vào file video.
+    const posterRef = refs.find(({ name }) => /\.(png|jpe?g|webp|gif)$/i.test(name));
+    const poster = posterRef ? ` poster="${esc(mediaSrc(posterRef.ref, task.id))}"` : '';
     const items = refs.map(({ ref, name }) => {
       const src = mediaSrc(ref, task.id);
       const ext = (name.split('.').pop() || '').toLowerCase();
       let el;
-      if (['mp4', 'webm', 'mov', 'm4v'].includes(ext)) el = `<video controls preload="metadata" src="${esc(src)}"></video>`;
+      // preload="none": KHÔNG tải một byte nào cho tới khi người dùng bấm play. Bản cũ dùng
+      // "metadata", mà mp4 do dây chuyền xuất ra để `moov` ở CUỐI file (cả GB) nên mỗi lần thẻ
+      // được dựng lại là một chuyến với tới cuối file qua tunnel.
+      if (['mp4', 'webm', 'mov', 'm4v'].includes(ext)) el = `<video controls preload="none"${poster} src="${esc(src)}"></video>`;
       else if (['mp3', 'wav'].includes(ext)) el = `<audio controls preload="metadata" src="${esc(src)}"></audio>`;
       else el = `<a href="${esc(src)}" target="_blank" rel="noopener"><img src="${esc(src)}" alt="${esc(name)}" loading="lazy"></a>`;
       return `<figure class="cx-media-item">${el}<figcaption title="${esc(ref)}">${esc(name)}</figcaption></figure>`;
@@ -426,6 +434,7 @@ const CODEX = (() => {
     if (atBottom) box.scrollTop = box.scrollHeight;
     // Keep the render cache in sync so the next board tick does not redraw.
     state.lastListHtml = buildListHtml();
+    state.lastCards = buildListCards();
   }
 
   async function loadAssignees() {
@@ -516,15 +525,41 @@ const CODEX = (() => {
   function renderList(force) {
     const box = $('cx-list');
     if (!box) return;
+    const cards = buildListCards();
+    // Bảng tự làm mới mỗi 5 giây. Task đang chạy có ETA nhảy nên HTML luôn khác, mà bản cũ so
+    // CẢ DANH SÁCH rồi gán box.innerHTML — tức đập sạch DOM, kể cả <video> của thẻ đang mở, nên
+    // trình duyệt xin lại video mỗi 5 giây. Nay chỉ thay đúng những thẻ có HTML đổi.
+    const same = !force && cards && state.lastCards
+      && cards.length === state.lastCards.length
+      && cards.every((c, i) => c.id === state.lastCards[i].id);
+    if (same) {
+      const touched = [];
+      cards.forEach((c, i) => {
+        if (c.html === state.lastCards[i].html) return;
+        const el = $('cx-card-' + c.id);
+        if (el) { el.outerHTML = c.html; touched.push(c.id); }
+      });
+      state.lastCards = cards;
+      state.lastListHtml = cards.map(c => c.html).join('');
+      touched.forEach(id => {
+        const ev = $('cx-ev-' + id);
+        if (ev) ev.scrollTop = ev.scrollHeight;
+      });
+      patchNow();
+      return;
+    }
     const html = buildListHtml();
     if (force || html !== state.lastListHtml) {
       box.innerHTML = html;
       state.lastListHtml = html;
+      state.lastCards = cards;
       // Pin every visible event log to the newest line.
       state.expanded.forEach(id => {
         const ev = $('cx-ev-' + id);
         if (ev) ev.scrollTop = ev.scrollHeight;
       });
+    } else {
+      state.lastCards = cards;
     }
     patchNow();
   }
@@ -545,6 +580,14 @@ const CODEX = (() => {
         </div>`;
     }
     return items.map(cardHtml).join('');
+  }
+
+  // Cùng dữ liệu như buildListHtml nhưng tách theo thẻ, để renderList thay ĐÚNG thẻ nào đổi.
+  function buildListCards() {
+    if (!state.loaded) return null;
+    const items = visibleTasks();
+    if (!items.length) return null;
+    return items.map((task) => ({ id: task.id, html: cardHtml(task) }));
   }
 
   function cardHtml(task) {
