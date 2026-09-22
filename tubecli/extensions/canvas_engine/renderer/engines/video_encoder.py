@@ -290,6 +290,31 @@ def _salvage_part(path: str) -> int:
         return 0
 
 
+# ── Encoder GPU có CHẠY được không — hỏi bằng cách mã hoá thử một khung, không tin danh sách -encoders ──────────
+# VPS 23/28 (22/9/2026): ffmpeg bản tĩnh LIỆT KÊ h264_nvenc dù máy không có card NVIDIA → bộ dựng giao 3 chunk cho
+# GPU → «[h264_nvenc] Cannot load libcuda.so.1», toàn bộ lượt hỏng. Kết quả nhớ theo tiến trình (thử ~0,5 giây).
+_ENCODER_OK: dict = {}
+
+
+def _probe_encoder(codec: str) -> bool:
+    if codec in _ENCODER_OK:
+        return _ENCODER_OK[codec]
+    ok = False
+    try:
+        import subprocess
+        r = subprocess.run([_find_executable("ffmpeg"), "-v", "error", "-f", "lavfi", "-i", "color=c=black:s=64x64:r=30",
+                            "-frames:v", "1", "-c:v", codec, "-f", "null", "-"],
+                           capture_output=True, text=True, timeout=60,
+                           creationflags=(_CREATE_NO_WINDOW if os.name == "nt" else 0))
+        ok = r.returncode == 0
+        if not ok:
+            logger.warning(f"[Encoder] {codec} không dùng được trên máy này: {(r.stderr or '').strip()[-200:]}")
+    except Exception as e:      # noqa: BLE001
+        logger.warning(f"[Encoder] không thử được {codec}: {e}")
+    _ENCODER_OK[codec] = ok
+    return ok
+
+
 # Encoder presets for ffmpeg
 ENCODER_MAP = {
     "cpu":   {"codec": "libx264",    "preset": "fast",     "extra": ["-crf", "22", "-threads", "0"]},
@@ -745,6 +770,12 @@ async def _render_pipe(node_exe, ext_dir, script_path, timing_path, output_dir,
     import math
     sub_args = list(sub_args or [])      # ['--subtitle', '<json>'] hoặc []
     enc = ENCODER_MAP.get(gpu_encoder, ENCODER_MAP["nvenc"])
+    if gpu_encoder != "cpu" and not _probe_encoder(enc["codec"]):
+        # Máy không chạy được encoder GPU đã chọn (không có card / thiếu libcuda) → CPU, nói ra một dòng.
+        logger.warning(f"[Pipe] {gpu_encoder} ({enc['codec']}) không mã hoá được trên máy này — dùng CPU (libx264)")
+        if progress_callback:
+            progress_callback(8, f"⚠️ {gpu_encoder} encoder does not work on this machine — encoding on CPU")
+        gpu_encoder, enc = "cpu", ENCODER_MAP["cpu"]
     encoder_label = {"cpu": "CPU", "nvenc": "NVIDIA GPU", "qsv": "Intel QSV", "amf": "AMD AMF"}.get(gpu_encoder, gpu_encoder)
 
     # 1. Determine total duration and total frames

@@ -104,6 +104,20 @@ if C is not None:
     C.load_settings = lambda: {}
 ok(src_enc.count("node_exe, *_node_heap_args(), str(CANVAS_RENDERER_JS)") == 3, "đường 1 tiến trình, đường chunk và đường khung hình đều đặt trần heap")
 
+print("── encoder GPU phải THỬ được, không tin danh sách -encoders ──")
+# VPS 23/28: ffmpeg tĩnh liệt kê h264_nvenc dù không có card → «Cannot load libcuda.so.1», cả lượt hỏng.
+import shutil as _sh
+if _sh.which("ffmpeg"):
+    ok(VE._probe_encoder("libx264") is True, "libx264 mã hoá thử một khung → dùng được")
+    ok(VE._probe_encoder("khong_co_codec_nay") is False, "codec không tồn tại → False (không nổ)")
+    VE._ENCODER_OK["h264_nvenc"] = False          # giả máy không có NVIDIA
+    ok(VE._probe_encoder("h264_nvenc") is False, "kết quả được nhớ theo tiến trình")
+    VE._ENCODER_OK.clear()
+else:
+    print("  (không có ffmpeg trên PATH — bỏ qua thử encoder)")
+ok('if gpu_encoder != "cpu" and not _probe_encoder(enc["codec"]):' in src_enc and 'gpu_encoder, enc = "cpu", ENCODER_MAP["cpu"]' in src_enc,
+   "_render_pipe: encoder GPU không chạy được → hạ về CPU trước khi chia chunk (cả đường 1 tiến trình lẫn chunk)")
+
 print("── đĩa: trần bitrate chunk CPU + kiểm trước khi dựng ──────")
 ok('"-maxrate", f"{CPU_CHUNK_MAXRATE_MBPS}M"' in src_enc and '"veryfast"' in src_enc and 'chunk_preset = "libx264", "ultrafast"' not in src_enc,
    "chunk CPU: veryfast + trần 12 Mbit/s (trước ultrafast crf 22 không trần → 60–90 Mbit/s cho tranh có vân giấy)")
