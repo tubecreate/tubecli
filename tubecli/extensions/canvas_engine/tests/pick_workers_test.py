@@ -87,13 +87,24 @@ print("── worker chết → thử lại với ít worker hơn, không rơi x
 ok(VE._after_parallel_failure(3, [0, -9, None]) == ("retry", 1), "3 worker, một bị SIGKILL → thử lại với 1 (3 // 2)")
 ok(VE._after_parallel_failure(8, [1, 0, 0, 0, 0, 0, 0, 0]) == ("retry", 4), "8 worker, một lỗi thường → vẫn thử lại với 4 trước")
 ok(VE._after_parallel_failure(2, [137, 0]) == ("retry", 1), "2 worker, exit 137 (OOM) → thử lại với 1")
-ok(VE._after_parallel_failure(1, [-9]) == ("raise", None), "1 worker vẫn bị GIẾT → báo lỗi thẳng (thiếu RAM), KHÔNG ghi từng khung")
-ok(VE._after_parallel_failure(1, [137]) == ("raise", None), "exit 137 = bị giết")
-ok(VE._after_parallel_failure(1, [1]) == ("frames", None), "1 worker lỗi thường (không phải tín hiệu) → đường khung hình cũ")
-ok(VE._after_parallel_failure(1, [None]) == ("frames", None), "không biết mã thoát → đường cũ")
+ok(VE._after_parallel_failure(1, [-9]) == ("raise", "killed"), "1 worker vẫn bị GIẾT → báo lỗi thẳng (thiếu RAM), KHÔNG ghi từng khung")
+ok(VE._after_parallel_failure(1, [137]) == ("raise", "killed"), "exit 137 = bị giết")
+ok(VE._after_parallel_failure(1, [1]) == ("raise", "error"), "1 worker lỗi thường → báo lỗi, GIỮ điểm lưu (không còn rơi xuống PNG)")
+ok(VE._after_parallel_failure(1, [None]) == ("raise", "error"), "không biết mã thoát → báo lỗi thường")
+
+src_enc = open(os.path.join(R, "engines", "video_encoder.py"), encoding="utf-8").read()
+print("── heap V8 của worker có trần ─────────────────────────────")
+ok(VE._node_heap_args() == [f"--max-old-space-size={VE.NODE_HEAP_MB}"] and 512 <= VE.NODE_HEAP_MB <= 1024,
+   "mặc định --max-old-space-size=768: V8 dọn rác trong trần thay vì phình tới khi bị giết", VE._node_heap_args())
+if C is not None:
+    C.load_settings = lambda: {"node_heap_mb": 100}
+    ok(VE._node_heap_args() == ["--max-old-space-size=256"], "ép quá thấp → sàn 256")
+    C.load_settings = lambda: {"node_heap_mb": 2048}
+    ok(VE._node_heap_args() == ["--max-old-space-size=2048"], "ép 2048 → tôn trọng")
+    C.load_settings = lambda: {}
+ok(src_enc.count("node_exe, *_node_heap_args(), str(CANVAS_RENDERER_JS)") == 3, "đường 1 tiến trình, đường chunk và đường khung hình đều đặt trần heap")
 
 print("── đĩa: trần bitrate chunk CPU + kiểm trước khi dựng ──────")
-src_enc = open(os.path.join(R, "engines", "video_encoder.py"), encoding="utf-8").read()
 ok('"-maxrate", f"{CPU_CHUNK_MAXRATE_MBPS}M"' in src_enc and '"veryfast"' in src_enc and 'chunk_preset = "libx264", "ultrafast"' not in src_enc,
    "chunk CPU: veryfast + trần 12 Mbit/s (trước ultrafast crf 22 không trần → 60–90 Mbit/s cho tranh có vân giấy)")
 need_45min = VE._disk_need_mb(45 * 60 * 30)
@@ -101,7 +112,7 @@ ok(10_000 <= need_45min <= 16_000, "video 45 phút cần ~12 GB đĩa (3 bản s
 ok(VE._free_disk_mb(os.getcwd()) > 0 and VE._free_disk_mb(os.path.join(os.getcwd(), "khong", "co", "thu", "muc")) > 0,
    "đo đĩa trống theo thư mục cha gần nhất có thật")
 ok("Not enough disk space" in src_enc and "_free_disk_mb(output_dir)" in src_enc, "kiểm đĩa TRƯỚC khi dựng, câu lỗi nói cần bao nhiêu")
-ok("workers_override=fewer" in src_enc and "retrying with {fewer}" in src_enc, "thử lại đi đúng đường pipe với số worker ép")
+ok("workers_override=fewer" in src_enc and "resuming with {fewer}" in src_enc, "thử lại đi đúng đường pipe với số worker ép — và DỰNG TIẾP từ khung đã có")
 
 print(f"\n{PASS}/{PASS + FAIL} PASS" if not FAIL else f"\n{PASS}/{PASS + FAIL} PASS — {FAIL} HỎNG")
 sys.exit(1 if FAIL else 0)

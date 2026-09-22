@@ -7,7 +7,7 @@ import json
 import asyncio
 import shutil
 import logging
-from typing import Optional, Callable, List
+from typing import Optional, Callable, List, Any
 from pathlib import Path
 
 logger = logging.getLogger("EduVideoStudio.VideoEncoder")
@@ -160,13 +160,14 @@ def _pick_workers(aspect_ratio: str = "9:16") -> int:
 # Nay: còn > 1 worker thì thử lại đường pipe với một nửa số worker; 1 worker mà vẫn bị GIẾT (tín hiệu) thì báo lỗi
 # thẳng — chế độ khung hình chỉ còn cho lỗi KHÔNG phải tài nguyên ở 1 worker (đường cũ, hiếm).
 def _after_parallel_failure(num_workers: int, returncodes: List[Optional[int]]):
-    """('retry', k) | ('frames', None) | ('raise', None)."""
+    """('retry', k) | ('raise', 'killed' | 'error').
+
+    Không còn rơi xuống chế độ ghi từng khung PNG (22/9/2026): trên chính cái máy vừa hết RAM/đĩa nó chỉ làm mọi thứ
+    tệ hơn, và dọn mất điểm lưu. Muốn chế độ ấy thì chọn hẳn render_mode = frames trong cài đặt."""
     killed = any(rc is not None and (rc < 0 or rc in (137, 134, 139)) for rc in returncodes)
     if num_workers > 1:
         return ("retry", max(1, num_workers // 2))
-    if killed:
-        return ("raise", None)
-    return ("frames", None)
+    return ("raise", "killed" if killed else "error")
 
 
 # Chunk CPU nay bị chặn ≤ 12 Mbit/s (VBV) như chunk GPU (8M/12M): trước «ultrafast crf 22» cho tranh phủ khung có vân
@@ -189,6 +190,103 @@ def _free_disk_mb(path: str) -> int:
             probe = os.path.dirname(probe)
         return int(shutil.disk_usage(probe or os.getcwd()).free / 1048576)
     except Exception:       # noqa: BLE001
+        return 0
+
+
+# ── Điểm lưu của lượt dựng nhiều chunk (xem _render_pipe) ────────────────────────────────────────────────────────
+FRAG_MOVFLAGS = "+frag_keyframe+empty_moov+default_base_moof"
+PLAN_FILE = "plan.json"
+
+
+def _load_plan(temp_dir: str, total_frames: int) -> Optional[dict]:
+    """plan.json của lượt trước, nếu vẫn là CÙNG video (cùng tổng số khung); khác → None (dựng lại từ đầu)."""
+    try:
+        with open(os.path.join(temp_dir, PLAN_FILE), "r", encoding="utf-8") as f:
+            plan = json.load(f)
+        if int(plan.get("total_frames") or 0) != int(total_frames):
+            return None
+        ranges = plan.get("ranges") or []
+        parts = plan.get("parts") or []
+        if not ranges or len(parts) != len(ranges):
+            return None
+        return {"total_frames": int(total_frames), "fps": int(plan.get("fps") or 30),
+                "ranges": [[int(a), int(b)] for a, b in ranges], "parts": [list(p) for p in parts]}
+    except Exception:       # noqa: BLE001
+        return None
+
+
+def _save_plan(temp_dir: str, plan: dict) -> None:
+    tmp = os.path.join(temp_dir, PLAN_FILE + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(plan, f)
+    os.replace(tmp, os.path.join(temp_dir, PLAN_FILE))
+
+
+def _count_frames(path: str) -> int:
+    """Số khung hình đọc được trong một phần chunk (0 = file rỗng/hỏng). MP4 phân mảnh bị giết giữa chừng vẫn đếm
+    được tới mảnh cuối đã ghi xong."""
+    try:
+        if not os.path.isfile(path) or os.path.getsize(path) < 1024:
+            return 0
+        import subprocess
+        r = subprocess.run([_find_executable("ffprobe"), "-v", "error", "-select_streams", "v:0", "-count_packets",
+                            "-show_entries", "stream=nb_read_packets", "-of", "csv=p=0", path],
+                           capture_output=True, text=True, timeout=600,
+                           creationflags=(_CREATE_NO_WINDOW if os.name == "nt" else 0))
+        return max(0, int((r.stdout or "0").strip().splitlines()[0] or 0)) if r.returncode == 0 and r.stdout.strip() else 0
+    except Exception:       # noqa: BLE001
+        return 0
+
+
+SALVAGE_DROP_TAIL = 2       # gói cuối của phần bị giết có thể ghi dở → bỏ 2 gói cuối cho chắc
+
+# Heap V8 của mỗi worker node. Đo 22/9/2026 (1 worker, video Diễn giải 3 phút): RSS 177 → 415 MB trong 13 phút, không
+# có cache nào không giới hạn — V8 chỉ dọn rác khi TỰ thấy cần, mà trần mặc định của nó tính theo RAM máy (tới vài GB).
+# Trên VPS 8 GB, 2–3 worker cứ thế phình tới lúc hệ thống giết một cái — hai lượt đều chết đúng ~48 % vì tổng rác tỉ lệ
+# với TỔNG khung đã dựng, không phụ thuộc số worker. Đặt trần thì V8 dọn trong trần ấy; RAM native (cairo, tranh LRU)
+# nằm ngoài con số này. Ép khác bằng settings["node_heap_mb"].
+NODE_HEAP_MB = 768
+
+
+def _node_heap_args() -> List[str]:
+    mb = NODE_HEAP_MB
+    try:
+        from config import load_settings
+        mb = int(load_settings().get("node_heap_mb", 0) or 0) or NODE_HEAP_MB
+    except Exception:       # noqa: BLE001
+        pass
+    return [f"--max-old-space-size={max(256, min(mb, 8192))}"]
+
+
+def _salvage_part(path: str) -> int:
+    """Làm sạch một phần chunk có thể bị giết giữa chừng: remux `-c copy` (bỏ mảnh cuối ghi dở), giữ n-2 khung.
+    Trả số khung còn lại trong file đã sạch (0 = bỏ đi). Phần ghi trọn vẹn cũng đi qua đây — copy nhanh, vô hại."""
+    n = _count_frames(path)
+    keep = n - SALVAGE_DROP_TAIL
+    if keep <= 0:
+        return 0
+    fixed = path + ".fixed.mp4"
+    try:
+        import subprocess
+        r = subprocess.run([_find_executable("ffmpeg"), "-v", "error", "-y", "-i", path, "-map", "0:v:0", "-c", "copy",
+                            "-frames:v", str(keep), "-movflags", FRAG_MOVFLAGS, fixed],
+                           capture_output=True, text=True, timeout=1800,
+                           creationflags=(_CREATE_NO_WINDOW if os.name == "nt" else 0))
+        got = _count_frames(fixed) if r.returncode == 0 else 0
+        if got <= 0:
+            try:
+                os.remove(fixed)
+            except OSError:
+                pass
+            return 0
+        os.replace(fixed, path)
+        return got
+    except Exception as e:      # noqa: BLE001
+        logger.warning(f"[Pipe] could not salvage {os.path.basename(path)}: {e}")
+        try:
+            os.remove(fixed)
+        except OSError:
+            pass
         return 0
 
 
@@ -676,10 +774,15 @@ async def _render_pipe(node_exe, ext_dir, script_path, timing_path, output_dir,
 
     logger.info(f"[Pipe] Rendering → {final_video} (encoder: {encoder_label}, workers: {num_workers}, frames: {total_frames})")
 
+    # Video từ 5 giây trở lên LUÔN đi đường chunk (ít nhất 2 chunk) — kể cả máy chỉ chạy nổi 1 worker (chạy tuần tự):
+    # chunk là điểm lưu, bị giết / khởi động lại thì lượt sau dựng tiếp. Đường một tiến trình chỉ còn cho video tí hon.
+    if total_frames >= 150 and num_workers == 1:
+        num_workers = 2
+        workers_override = 1
     if num_workers == 1:
         # Single process fallback
         cmd = [
-            node_exe, str(CANVAS_RENDERER_JS),
+            node_exe, *_node_heap_args(), str(CANVAS_RENDERER_JS),
             "--script", script_path,
             "--timing", timing_path,
             "--output", output_dir,
@@ -711,32 +814,67 @@ async def _render_pipe(node_exe, ext_dir, script_path, timing_path, output_dir,
                 sub_args=sub_args,
             )
     else:
-        # Multi-process parallel rendering
+        # Multi-process parallel rendering — DỰNG TIẾP ĐƯỢC sau khi bị giết / khởi động lại (22/9/2026).
+        #
+        # VPS 8 GB: hai lượt dựng 12 giờ và 40 phút đều chết ở 48 %, chạy lại dựng từ 0 vì (1) chunk mp4 bị giết giữa
+        # chừng không có mục lục cuối file → không đọc được, (2) thư mục tạm bị dọn khi lỗi. User: «sao render tới đó khi
+        # chạy lại thì nó render lại từ đầu?». Nay: bố cục chunk ghi vào plan.json; mỗi chunk mã hoá dạng MP4 phân mảnh
+        # (đọc được tới mảnh cuối cùng đã ghi xong); lượt sau đếm khung đã có trong từng phần, dựng tiếp từ đó vào phần
+        # mới (chunk_w.pK.mp4) rồi ghép tất cả theo thứ tự. Số tiến trình chạy cùng lúc có thể ÍT hơn số chunk (thử lại
+        # sau khi hết RAM) — bố cục chunk giữ nguyên, chỉ giới hạn đồng thời.
         temp_dir = os.path.join(output_dir, f"temp_chunks_{os.path.basename(final_video)}")
         os.makedirs(temp_dir, exist_ok=True)
 
-        chunk_size = total_frames // num_workers
-        workers_ranges = []
-        for w in range(num_workers):
-            start = w * chunk_size
-            end = total_frames if w == num_workers - 1 else (w + 1) * chunk_size
-            workers_ranges.append((start, end))
+        plan = _load_plan(temp_dir, total_frames)
+        if plan is None:
+            for old in os.listdir(temp_dir):
+                try:
+                    os.remove(os.path.join(temp_dir, old))
+                except OSError:
+                    pass
+            chunk_size = total_frames // num_workers
+            ranges = []
+            for w in range(num_workers):
+                start = w * chunk_size
+                end = total_frames if w == num_workers - 1 else (w + 1) * chunk_size
+                ranges.append([start, end])
+            plan = {"total_frames": total_frames, "fps": 30, "ranges": ranges, "parts": [[] for _ in ranges]}
+            _save_plan(temp_dir, plan)
+        ranges = [tuple(r) for r in plan["ranges"]]
+        n_chunks = len(ranges)
+        concurrency = max(1, min(workers_override if workers_override > 0 else num_workers, n_chunks))
+
+        # Khung đã dựng xong của từng chunk (đếm trong các phần đã có; phần hỏng/rỗng bị bỏ).
+        done_before = []
+        for w, (start, end) in enumerate(ranges):
+            kept, frames = [], 0
+            for part in list(plan["parts"][w]):
+                pth = os.path.join(temp_dir, part)
+                n = _salvage_part(pth)
+                if n > 0:
+                    kept.append(part)
+                    frames += n
+                else:
+                    try:
+                        os.remove(pth)
+                    except OSError:
+                        pass
+            plan["parts"][w] = kept
+            done_before.append(min(frames, end - start))
+        _save_plan(temp_dir, plan)
+        resumed = sum(done_before)
+        if resumed:
+            logger.info(f"[Pipe] Resuming: {resumed}/{total_frames} frames already rendered in {temp_dir}")
+            if progress_callback:
+                progress_callback(int(8 + (resumed / total_frames) * 88),
+                                  f"⏩ Resuming from {resumed}/{total_frames} frames already rendered")
 
         # ── HYBRID GPU+CPU encode (mỗi worker = 1 tiến trình node vẽ khung hình
         # BẰNG CPU (cairo — không có bản GPU) rồi TỰ PIPE thẳng vào 1 ffmpeg con
-        # riêng, không qua đĩa). TRƯỚC ĐÂY mọi chunk đều ép cứng libx264 CPU dù
-        # người dùng đã chọn GPU (nhãn tiến trình "NVIDIA GPU" khi đó SAI — đo
-        # thực tế 27/07: GPU 15%, CPU 44%) ⇒ card hình cắm ngồi không, còn CPU
-        # phải cõng CẢ vẽ khung hình LẪN encode libx264 của tất cả worker.
-        # Giờ: vài chunk ĐẦU giao thẳng cho GPU (encoder đã chọn ở Cài đặt) —
-        # gần như KHÔNG tốn CPU nữa vì chip encode riêng xử lý — số còn lại vẫn
-        # CPU libx264 ultrafast (đã là preset nhanh nhất) chạy SONG SONG. Encode
-        # dời bớt sang GPU ⇒ CPU rảnh hơn cho phần vẽ khung hình (nút thắt thật).
-        # Trần vài chunk GPU thay vì TẤT CẢ: card tiêu dùng thường chỉ có 1-2
-        # khối NVENC vật lý — giao 12 tiến trình cùng lúc không tăng thêm thông
-        # lượng, có khi driver cũ còn lỗi "hết phiên". 3 là mức an toàn đo được
-        # trên phần lớn GPU NVIDIA phổ thông; ép tay qua settings.json khi cần
-        # (khoá "gpu_chunks", 0 = trần mặc định).
+        # riêng, không qua đĩa). Vài chunk ĐẦU giao thẳng cho GPU (encoder đã chọn
+        # ở Cài đặt), số còn lại CPU libx264 chạy song song. Trần vài chunk GPU:
+        # card tiêu dùng thường chỉ có 1-2 khối NVENC vật lý; ép tay qua
+        # settings.json khi cần (khoá "gpu_chunks", 0 = trần mặc định).
         _GPU_CHUNK_CAP = {"nvenc": 3, "qsv": 2, "amf": 2}
         gpu_chunks = 0
         if gpu_encoder in _GPU_CHUNK_CAP:
@@ -745,30 +883,44 @@ async def _render_pipe(node_exe, ext_dir, script_path, timing_path, output_dir,
                 forced_gc = int(load_settings().get("gpu_chunks", 0) or 0)
             except Exception:
                 forced_gc = 0
-            gpu_chunks = (max(0, min(forced_gc, num_workers)) if forced_gc > 0
-                         else min(_GPU_CHUNK_CAP[gpu_encoder], num_workers))
+            gpu_chunks = (max(0, min(forced_gc, n_chunks)) if forced_gc > 0
+                         else min(_GPU_CHUNK_CAP[gpu_encoder], n_chunks))
         if gpu_chunks > 0:
             logger.info(f"[Pipe] Encode: {gpu_chunks} chunk qua {encoder_label} "
-                       f"(GPU) + {num_workers - gpu_chunks} chunk qua CPU — chạy song song.")
+                       f"(GPU) + {n_chunks - gpu_chunks} chunk qua CPU — chạy song song.")
+        logger.info(f"[Pipe] {n_chunks} chunk, {concurrency} tiến trình cùng lúc")
 
-        procs = []
-        for w, (start, end) in enumerate(workers_ranges):
-            chunk_path = os.path.join(temp_dir, f"chunk_{w}.mp4")
-            if w < gpu_chunks:
-                # Chunk này encode BẰNG GPU — dùng đúng codec/preset người dùng
-                # đã chọn (nvenc/qsv/amf), y hệt đường 1-worker ở trên.
+        worker_progress = list(done_before)
+        procs: List[Any] = []
+        failures: List[str] = []
+        sem = asyncio.Semaphore(concurrency)
+
+        def _emit_progress():
+            total_done = sum(worker_progress)
+            pct = int((total_done / total_frames) * 100)
+            mapped_pct = int(8 + (pct / 100.0) * (96 - 8))
+            if progress_callback:
+                progress_callback(mapped_pct, f"⚡ Pipe + {encoder_label}: rendering... {pct}% ({total_done}/{total_frames} frames)")
+
+        async def run_chunk(w_idx: int):
+            start, end = ranges[w_idx]
+            first = start + done_before[w_idx]
+            if first >= end:
+                return                              # chunk này đã xong ở lượt trước
+            part_name = f"chunk_{w_idx}.mp4" if not plan["parts"][w_idx] else f"chunk_{w_idx}.p{len(plan['parts'][w_idx])}.mp4"
+            chunk_path = os.path.join(temp_dir, part_name)
+            if w_idx < gpu_chunks:
                 chunk_codec, chunk_preset = enc["codec"], enc["preset"]
-                # -profile:v high ép CẢ hai nhánh GPU/CPU ra CÙNG profile H.264
-                # — thiếu dòng này, nvenc mặc định "main" còn x264 mặc định
-                # "high" → nối 2 kiểu khác profile bằng concat -c copy có thể
-                # giật 1 khung ở đúng chỗ nối 2 chunk (hiếm nhưng có thật).
+                # -profile:v high ép CẢ hai nhánh GPU/CPU ra CÙNG profile H.264 — nối bằng concat -c copy không giật.
                 chunk_extra = list(enc.get("extra") or []) + ["-profile:v", "high"]
             else:
                 chunk_codec, chunk_preset = "libx264", "veryfast"
                 chunk_extra = ["-crf", "23", "-maxrate", f"{CPU_CHUNK_MAXRATE_MBPS}M",
                                "-bufsize", f"{CPU_CHUNK_MAXRATE_MBPS * 2}M", "-threads", "2", "-profile:v", "high"]
+            # MP4 phân mảnh: bị giết giữa chừng vẫn đọc được tới mảnh cuối đã ghi xong (mp4 thường mất mục lục → mất hết).
+            chunk_extra += ["-movflags", FRAG_MOVFLAGS]
             cmd_w = [
-                node_exe, str(CANVAS_RENDERER_JS),
+                node_exe, *_node_heap_args(), str(CANVAS_RENDERER_JS),
                 "--script", script_path,
                 "--timing", timing_path,
                 "--output", output_dir,
@@ -779,76 +931,61 @@ async def _render_pipe(node_exe, ext_dir, script_path, timing_path, output_dir,
                 "--outputFile", chunk_path,
                 "--codec", chunk_codec,
                 "--preset", chunk_preset,
-                "--startFrame", str(start),
+                "--startFrame", str(first),
                 "--endFrame", str(end)
-            ] + sub_args      # MỌI chunk phải có cùng cờ phụ đề, không thì
-                              # phân đoạn nào thiếu là phụ đề biến mất giữa video
+            ] + sub_args      # MỌI chunk phải có cùng cờ phụ đề, không thì phân đoạn nào thiếu là phụ đề biến mất
             cmd_w.extend(["--ffmpegExtra", " ".join(chunk_extra)])
             # Note: We do NOT pass --audio to workers to avoid audio sync issues in chunked videos
 
-            proc = await _exec(
-                *cmd_w,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=str(ext_dir),
-                env=env,
-            )
-            procs.append(proc)
-            if proc_registry is not None:
-                proc_registry.append(proc)
-
-        worker_progress = [0] * num_workers
-
-        async def monitor_worker(w_idx, proc):
-            stderr_lines = []
-            async def read_stderr():
-                await _drain_stderr(proc, stderr_lines)
-
-            stderr_task = asyncio.create_task(read_stderr())
-
-            # Lỗi renderer nằm trên STDOUT (json status:'error') — giữ lại để
-            # không báo "failed: " rỗng khi stderr trống (xem _run_node_renderer)
-            stdout_error = ""
-            try:
-                while True:
-                    line = await proc.stdout.readline()
-                    if not line:
-                        break
-                    line_str = line.decode("utf-8", errors="replace").strip()
-                    if line_str.startswith("{"):
-                        try:
-                            msg = json.loads(line_str)
-                            if msg.get("type") == "progress":
-                                f = msg.get("frame", 0)
-                                start = msg.get("startFrame", 0)
-                                worker_progress[w_idx] = max(0, f - start)
-
-                                # Aggregate progress
-                                total_done = sum(worker_progress)
-                                pct = int((total_done / total_frames) * 100)
-                                mapped_pct = int(8 + (pct / 100.0) * (96 - 8))
-                                if progress_callback:
-                                    progress_callback(mapped_pct, f"⚡ Pipe + {encoder_label}: rendering... {pct}% ({total_done}/{total_frames} frames)")
-                            elif msg.get("status") == "error" or msg.get("type") == "error":
-                                stdout_error = str(msg.get("message") or msg.get("error") or line_str)
-                        except json.JSONDecodeError:
-                            pass
-            finally:
-                await proc.wait()
-                await stderr_task
-                stderr_content = b"".join(stderr_lines).decode("utf-8", errors="replace")
+            async with sem:
+                plan["parts"][w_idx].append(part_name)
+                _save_plan(temp_dir, plan)
+                proc = await _exec(*cmd_w, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+                                   cwd=str(ext_dir), env=env)
+                procs.append(proc)
+                if proc_registry is not None:
+                    proc_registry.append(proc)
+                stderr_lines: List[bytes] = []
+                stderr_task = asyncio.create_task(_drain_stderr(proc, stderr_lines))
+                # Lỗi renderer nằm trên STDOUT (json status:'error') — giữ lại để không báo "failed: " rỗng
+                stdout_error = ""
+                try:
+                    while True:
+                        line = await proc.stdout.readline()
+                        if not line:
+                            break
+                        line_str = line.decode("utf-8", errors="replace").strip()
+                        if line_str.startswith("{"):
+                            try:
+                                msg = json.loads(line_str)
+                                if msg.get("type") == "progress":
+                                    f = msg.get("frame", 0)
+                                    sf = msg.get("startFrame", first)
+                                    worker_progress[w_idx] = min(end - start, done_before[w_idx] + max(0, f - sf))
+                                    _emit_progress()
+                                elif msg.get("status") == "error" or msg.get("type") == "error":
+                                    stdout_error = str(msg.get("message") or msg.get("error") or line_str)
+                            except json.JSONDecodeError:
+                                pass
+                finally:
+                    await proc.wait()
+                    await stderr_task
                 if proc.returncode != 0:
+                    stderr_content = b"".join(stderr_lines).decode("utf-8", errors="replace")
                     error_lines = [l for l in stderr_content.split('\n') if l.strip() and not l.strip().startswith('[Renderer]')]
                     error_msg = '\n'.join(error_lines[-10:]) if error_lines else stderr_content[-1000:]
                     if not error_msg.strip():
                         error_msg = stdout_error or "(renderer không in lỗi nào ra stderr)"
-                    raise RuntimeError(f"Worker {w_idx} failed (exit code {proc.returncode}): {error_msg}")
+                    failures.append(f"Worker {w_idx} failed (exit code {proc.returncode}): {error_msg}")
+                    raise RuntimeError(failures[-1])
 
-        tasks = [monitor_worker(i, procs[i]) for i in range(num_workers)]
+        tasks = [asyncio.create_task(run_chunk(i)) for i in range(n_chunks)]
         try:
             await asyncio.gather(*tasks)
         except Exception as e:
             logger.error(f"[Pipe] Parallel rendering error: {e}")
+            for t in tasks:
+                t.cancel()
             for p in procs:
                 try:
                     p.terminate()
@@ -859,46 +996,39 @@ async def _render_pipe(node_exe, ext_dir, script_path, timing_path, output_dir,
                     await asyncio.wait_for(p.wait(), timeout=15)
                 except Exception:       # noqa: BLE001
                     pass
-            # Cleanup temp directory on error
-            try:
-                shutil.rmtree(temp_dir, ignore_errors=True)
-            except Exception:
-                pass
-            action, fewer = _after_parallel_failure(num_workers, [p.returncode for p in procs])
+            # KHÔNG dọn temp_dir: các phần đã ghi là điểm lưu cho lượt sau (thử lại ngay bên dưới, hoặc Retry của người dùng).
+            action, fewer = _after_parallel_failure(n_chunks if concurrency > 1 else 1, [p.returncode for p in procs])
             if action == "retry":
-                logger.warning(f"[Pipe] a render worker died with {num_workers} workers — retrying with {fewer} "
+                fewer = max(1, min(fewer, concurrency - 1)) if concurrency > 1 else 1
+                logger.warning(f"[Pipe] a render worker died with {concurrency} concurrent workers — resuming with {fewer} "
                                f"(exit codes {[p.returncode for p in procs]}): {str(e)[:200]}")
                 if progress_callback:
-                    progress_callback(8, f"⚠️ A render worker died (out of memory?) — retrying with {fewer} worker(s)")
+                    progress_callback(8, f"⚠️ A render worker died (out of memory?) — resuming with {fewer} worker(s)")
                 return await _render_pipe(
                     node_exe, ext_dir, script_path, timing_path, output_dir,
                     theme, bg_color, aspect_ratio, art_style, audio_path, final_video, env, progress_callback, gpu_encoder,
                     sub_args=sub_args, proc_registry=proc_registry, workers_override=fewer,
                 )
-            if action == "raise":
+            kept = sum(worker_progress)
+            if fewer == "killed":
                 raise RuntimeError(
                     f"The render worker was killed by the system even with a single worker (exit codes "
                     f"{[p.returncode for p in procs]}) — this machine does not have enough free memory for this video. "
-                    f"Close other programs or use a machine with more RAM, then Retry. Detail: {str(e)[:300]}") from e
-            # Fallback to frames CPU mode — chỉ cho lỗi KHÔNG phải tài nguyên ở 1 worker
-            logger.warning("[Pipe] Parallel render failed, falling back to frames + CPU...")
-            if progress_callback:
-                progress_callback(10, "⚠️ Parallel render failed, switching to CPU frames mode...")
-            return await _render_frames(
-                node_exe, ext_dir, script_path, timing_path, output_dir,
-                theme, bg_color, aspect_ratio, art_style, audio_path, final_video, env, progress_callback, "cpu",
-                sub_args=sub_args,
-            )
+                    f"Close other programs or use a machine with more RAM, then Retry: {kept}/{total_frames} frames are "
+                    f"kept and the render continues from there. Detail: {str(e)[:300]}") from e
+            raise RuntimeError(
+                f"Render failed: {str(e)[:600]} — {kept}/{total_frames} frames are kept; Retry continues from there.") from e
 
-        # 3. Concatenate video chunks using FFmpeg demuxer
+        # 3. Concatenate video chunks using FFmpeg demuxer — mọi PHẦN của mọi chunk, đúng thứ tự
         if progress_callback:
             progress_callback(96, "🎬 Ghép các phân đoạn video...")
 
         concat_list_path = os.path.join(temp_dir, "concat_list.txt")
         with open(concat_list_path, "w", encoding="utf-8") as f_list:
-            for w in range(num_workers):
-                chunk_file = os.path.join(temp_dir, f"chunk_{w}.mp4").replace("\\", "/")
-                f_list.write(f"file '{chunk_file}'\n")
+            for w in range(n_chunks):
+                for part in plan["parts"][w]:
+                    chunk_file = os.path.join(temp_dir, part).replace("\\", "/")
+                    f_list.write(f"file '{chunk_file}'\n")
 
         raw_video = os.path.join(temp_dir, "raw_video.mp4")
         ffmpeg_exe = _find_executable("ffmpeg")
@@ -1045,7 +1175,7 @@ async def _render_frames(node_exe, ext_dir, script_path, timing_path, output_dir
         procs = []
         for w, (start, end) in enumerate(workers_ranges):
             cmd_w = [
-                node_exe, str(CANVAS_RENDERER_JS),
+                node_exe, *_node_heap_args(), str(CANVAS_RENDERER_JS),
                 "--script", script_path,
                 "--timing", timing_path,
                 "--output", frames_dir,
