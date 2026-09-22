@@ -45,10 +45,21 @@ PROFILE_PATH = "/api/town/agents"
 SIG_WINDOW_SEC = 300
 PUSH_EVERY_SEC = 120.0          # nhịp sống: cloud coi agent là offline sau ~5 phút im lặng
 INVOKE_TIMEOUT_SEC = 40.0       # cloud chờ 50 giây, chừa 10 giây cho đường về
-MAX_RUNNING_PER_AGENT = 2
-MAX_RUNNING_TOTAL = 4
+MAX_RUNNING_TOTAL = 4          # cả máy, mọi agent cộng lại — chủ không nới được
 DEFAULT_DAILY_CAP = 100
 MAX_DAILY_CAP = 1000
+
+# Ngưỡng chủ đặt cho TỪNG agent (user chốt 22/9/2026). Trạng thái người xem thấy trên Town:
+#   rảnh · bận (đủ lượt song song) · mệt (máy quá tải → tạm ngừng nhận) ·
+#   sắp hết quota (≥ warn_pct % trần/ngày) · hết quota (đủ trần)
+# CPU/RAM đặt 100 = không bao giờ «mệt».
+THRESHOLDS = {
+    # khoá: (mặc định, nhỏ nhất, lớn nhất)
+    "warn_pct": (80, 50, 95),
+    "max_parallel": (2, 1, 4),
+    "cpu_tired": (85, 50, 100),
+    "ram_tired": (90, 50, 100),
+}
 
 _NAME_RE = re.compile(r"^[\w .\-]{2,32}$", re.UNICODE)
 _HASH_RE = re.compile(r"^[a-f0-9]{16}$")
@@ -153,13 +164,57 @@ def normalise(raw: Dict[str, Any], agent_name: str = "") -> Dict[str, Any]:
     enabled = bool(raw.get("enabled"))
     if enabled and not skills:
         raise ValueError("no_skills")
-    return {
+    out = {
         "enabled": enabled,
         "name": name,
         "bio": _clean_text(raw.get("bio"), 160),
         "skills": skills,
         "daily_cap": max(1, min(MAX_DAILY_CAP, cap)),
     }
+    for k, (dflt, lo, hi) in THRESHOLDS.items():
+        try:
+            v = int(raw.get(k) if raw.get(k) not in (None, "") else dflt)
+        except (TypeError, ValueError):
+            v = dflt
+        out[k] = max(lo, min(hi, v))
+    return out
+
+
+def threshold(st: Dict[str, Any], key: str) -> int:
+    """Ngưỡng của một agent; cài đặt cũ (trước khi có ngưỡng) rơi về mặc định."""
+    dflt, lo, hi = THRESHOLDS[key]
+    try:
+        return max(lo, min(hi, int(st.get(key, dflt))))
+    except (TypeError, ValueError):
+        return dflt
+
+
+# ── Tải của máy («mệt») ─────────────────────────────────────────────────────
+_load_cache = {"at": 0.0, "cpu": 0.0, "ram": 0.0}
+
+
+def machine_load() -> Optional[Dict[str, float]]:
+    """{cpu, ram} phần trăm, cache 10 giây. psutil.cpu_percent(None) đo từ lần gọi trước,
+    nên gọi thưa thì ra trung bình cả khoảng — đúng thứ cần để nói «máy đang quá tải»,
+    không phải một cú nhảy tức thời. Không có psutil → None (không bao giờ «mệt»)."""
+    now = time.time()
+    if now - _load_cache["at"] < 10:
+        return {"cpu": _load_cache["cpu"], "ram": _load_cache["ram"]}
+    try:
+        import psutil
+
+        _load_cache.update(at=now, cpu=float(psutil.cpu_percent(interval=None)),
+                           ram=float(psutil.virtual_memory().percent))
+    except Exception:
+        return None
+    return {"cpu": _load_cache["cpu"], "ram": _load_cache["ram"]}
+
+
+def is_tired(st: Dict[str, Any], load: Optional[Dict[str, float]]) -> bool:
+    if not load:
+        return False
+    cpu_t, ram_t = threshold(st, "cpu_tired"), threshold(st, "ram_tired")
+    return (cpu_t < 100 and load["cpu"] >= cpu_t) or (ram_t < 100 and load["ram"] >= ram_t)
 
 
 def get_settings(agent_id: str) -> Dict[str, Any]:
@@ -204,10 +259,13 @@ def public_entries() -> List[Dict[str, Any]]:
     return out
 
 
-def _profile_row(entry: Dict[str, Any]) -> Dict[str, Any]:
+def _profile_row(entry: Dict[str, Any], load: Optional[Dict[str, float]] = None) -> Dict[str, Any]:
+    """Hồ sơ đẩy lên cloud. Chỉ ngưỡng và cờ «mệt» — KHÔNG số CPU/RAM thô của máy."""
     st = entry["settings"]
     return {"a": entry["hash"], "name": st.get("name", ""), "bio": st.get("bio", ""),
-            "skills": st["skills"], "cap": int(st.get("daily_cap") or DEFAULT_DAILY_CAP)}
+            "skills": st["skills"], "cap": int(st.get("daily_cap") or DEFAULT_DAILY_CAP),
+            "warn": threshold(st, "warn_pct"), "par": threshold(st, "max_parallel"),
+            "tired": is_tired(st, load)}
 
 
 # ── Chữ ký ───────────────────────────────────────────────────────────────────
@@ -292,14 +350,14 @@ class _Gate:
         self._day = ""
         self._count: Dict[str, int] = {}
 
-    def enter(self, agent_id: str, cap: int) -> str:
+    def enter(self, agent_id: str, cap: int, parallel: int = 2) -> str:
         today = time.strftime("%Y-%m-%d", time.gmtime())
         with self._lock:
             if today != self._day:
                 self._day, self._count = today, {}
             if self._count.get(agent_id, 0) >= cap:
                 return "daily_cap"
-            if self._running.get(agent_id, 0) >= MAX_RUNNING_PER_AGENT or self._total >= MAX_RUNNING_TOTAL:
+            if self._running.get(agent_id, 0) >= parallel or self._total >= MAX_RUNNING_TOTAL:
                 return "busy"
             self._running[agent_id] = self._running.get(agent_id, 0) + 1
             self._total += 1
@@ -310,6 +368,17 @@ class _Gate:
         with self._lock:
             self._running[agent_id] = max(0, self._running.get(agent_id, 0) - 1)
             self._total = max(0, self._total - 1)
+
+    def usage(self, agent_id: str) -> Dict[str, int]:
+        today = time.strftime("%Y-%m-%d", time.gmtime())
+        with self._lock:
+            used = self._count.get(agent_id, 0) if today == self._day else 0
+            return {"used": used, "running": self._running.get(agent_id, 0)}
+
+
+def usage(agent_id: str) -> Dict[str, int]:
+    """Số lượt hôm nay (UTC) và số lượt đang chạy — cho tab Công khai của chủ."""
+    return _gate.usage(str(agent_id))
 
 
 _gate = _Gate()
@@ -339,7 +408,12 @@ async def invoke(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise PublicSkillError("bad_input")
 
     agent_id = entry["agent_id"]
-    why = _gate.enter(agent_id, int(entry["settings"].get("daily_cap") or DEFAULT_DAILY_CAP))
+    st = entry["settings"]
+    # «Mệt»: máy đang quá ngưỡng chủ đặt → tạm ngừng nhận việc công khai, để việc của
+    # chính chủ không bị người lạ làm chậm. Đo ngay lúc gọi, không đợi nhịp đẩy hồ sơ.
+    if is_tired(st, machine_load()):
+        raise PublicSkillError("tired", status=429)
+    why = _gate.enter(agent_id, int(st.get("daily_cap") or DEFAULT_DAILY_CAP), threshold(st, "max_parallel"))
     if why:
         raise PublicSkillError(why, status=429)
 
@@ -421,7 +495,8 @@ class _Pusher:
         ident = _identity()
         if not ident:
             return None
-        body = json.dumps({"agents": [_profile_row(e) for e in entries]},
+        load = machine_load()
+        body = json.dumps({"agents": [_profile_row(e, load) for e in entries]},
                           ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         ts = str(int(time.time()))
         req = urllib.request.Request(

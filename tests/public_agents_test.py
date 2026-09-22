@@ -71,6 +71,9 @@ class _A:
 
 AGENTS = {"ag-1": _A("ag-1", "Nhà làm phim"), "ag-2": _A("ag-2", "Second")}
 pa._agents_by_id = lambda: dict(AGENTS)
+# Tải máy giả: không đo CPU thật (máy chạy test đang bận là bài test chập chờn).
+LOAD = {"cpu": 10.0, "ram": 20.0}
+pa.machine_load = lambda: dict(LOAD)
 
 # ── 1. Chuẩn hoá cài đặt ─────────────────────────────────────────────────────
 try:
@@ -91,6 +94,17 @@ check("tiểu sử cắt 160 ký tự, không còn ký tự điều khiển",
       len(n["bio"]) <= 160 and "\x00" not in n["bio"] and "\n" not in n["bio"], repr(n["bio"][:20]))
 check("trần/ngày bị kẹp về MAX_DAILY_CAP", n["daily_cap"] == pa.MAX_DAILY_CAP, n["daily_cap"])
 check("tên trống → lấy tên agent", pa.normalise({"name": ""}, "Agent Tên")["name"] == "Agent Tên")
+d0 = pa.normalise({"name": "Ok name"})
+check("ngưỡng mặc định: cảnh báo 80%, song song 2, CPU 85, RAM 90",
+      (d0["warn_pct"], d0["max_parallel"], d0["cpu_tired"], d0["ram_tired"]) == (80, 2, 85, 90), d0)
+dk = pa.normalise({"name": "Ok name", "warn_pct": 5, "max_parallel": 99, "cpu_tired": "abc", "ram_tired": 100})
+check("ngưỡng bị kẹp vào khoảng cho phép (50–95, 1–4), rác → mặc định, RAM 100 giữ nguyên",
+      (dk["warn_pct"], dk["max_parallel"], dk["cpu_tired"], dk["ram_tired"]) == (50, 4, 85, 100), dk)
+check("cài đặt cũ không có ngưỡng → đọc ra mặc định", pa.threshold({}, "max_parallel") == 2)
+check("mệt khi CPU ≥ ngưỡng", pa.is_tired({"cpu_tired": 70}, {"cpu": 70.0, "ram": 10.0}))
+check("mệt khi RAM ≥ ngưỡng", pa.is_tired({"ram_tired": 60}, {"cpu": 1.0, "ram": 61.0}))
+check("ngưỡng 100 = không bao giờ mệt", not pa.is_tired({"cpu_tired": 100, "ram_tired": 100}, {"cpu": 100.0, "ram": 100.0}))
+check("không đo được tải → không mệt", not pa.is_tired({"cpu_tired": 50}, None))
 
 saved = pa.set_settings("ag-1", {"enabled": True, "name": "Douyin Helper", "skills": ["douyin.resolve"], "daily_cap": 2})
 check("lưu cài đặt thì đánh thức việc đẩy hồ sơ", kicks, kicks)
@@ -101,10 +115,13 @@ pa.set_settings("ag-2", {"enabled": False, "name": "Second", "skills": ["douyin.
 entries = pa.public_entries()
 check("chỉ agent ĐANG bật vào hồ sơ", [e["agent_id"] for e in entries] == ["ag-1"], entries)
 row = pa._profile_row(entries[0])
-check("hồ sơ chỉ gồm a/name/bio/skills/cap — không id thật, không tên agent gốc",
-      set(row) == {"a", "name", "bio", "skills", "cap"} and "ag-1" not in json.dumps(row)
+check("hồ sơ chỉ gồm a/name/bio/skills/cap/warn/par/tired — không id thật, không tên agent gốc",
+      set(row) == {"a", "name", "bio", "skills", "cap", "warn", "par", "tired"} and "ag-1" not in json.dumps(row)
       and "Nhà làm phim" not in json.dumps(row, ensure_ascii=False), row)
 check("mã agent trong hồ sơ = băm của telemetry Town", row["a"] == town_telemetry.agent_hash("ag-1"))
+hot = pa._profile_row(entries[0], {"cpu": 97.5, "ram": 40.0})
+check("hồ sơ chỉ mang CỜ mệt, không mang số CPU/RAM thô của máy",
+      hot["tired"] is True and "97" not in json.dumps(hot) and "cpu" not in hot and "ram" not in hot, hot)
 AGENTS.pop("ag-2")
 data = json.load(open(pa._path(), encoding="utf-8"))
 data["ghost"] = {"enabled": True, "name": "Ghost", "skills": ["douyin.resolve"]}
@@ -186,6 +203,10 @@ check("trần/ngày (2) chặn lượt thứ ba → daily_cap 429",
       run({"agent": h, "skill": "douyin.resolve", "input": "x"}) == ("daily_cap", 429))
 
 pa._gate = pa._Gate()
+LOAD.update(cpu=99.0)
+check("máy quá ngưỡng CPU → tired 429, không chạy handler, không tính lượt",
+      run({"agent": h, "skill": "douyin.resolve", "input": "x"}) == ("tired", 429) and pa.usage("ag-1")["used"] == 0)
+LOAD.update(cpu=10.0)
 pa.INVOKE_TIMEOUT_SEC = 0.2
 check("handler treo → timeout 504", run({"agent": h, "skill": "douyin.resolve", "input": "slow"}) == ("timeout", 504))
 g = pa._Gate()
@@ -193,6 +214,9 @@ check("cổng song song: 2 lượt cùng agent qua, lượt 3 → busy",
       [g.enter("z", 100), g.enter("z", 100), g.enter("z", 100)] == ["", "", "busy"])
 g.leave("z")
 check("xong một lượt thì lượt mới lại qua", g.enter("z", 100) == "")
+g1 = pa._Gate()
+check("chủ đặt song song = 1 → lượt thứ hai busy", [g1.enter("y", 100, 1), g1.enter("y", 100, 1)] == ["", "busy"])
+check("đếm lượt hôm nay + đang chạy cho tab của chủ", g1.usage("y") == {"used": 1, "running": 1}, g1.usage("y"))
 
 # Tắt công khai → dừng ngay ở lượt kế
 pa._gate = pa._Gate()

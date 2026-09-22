@@ -38,6 +38,10 @@ class PublicAgentSettings(BaseModel):
     bio: str = ""
     skills: List[str] = []
     daily_cap: Optional[int] = None
+    warn_pct: Optional[int] = None
+    max_parallel: Optional[int] = None
+    cpu_tired: Optional[int] = None
+    ram_tired: Optional[int] = None
 
 
 @router.get("/api/v1/public-agents")
@@ -53,12 +57,16 @@ async def list_public_agents(request: Request):
             "avatar_icon": getattr(a, "avatar_icon", ""),
             "avatar_color": getattr(a, "avatar_color", ""),
             "public": public_agents.get_settings(a.id) or None,
+            "usage": public_agents.usage(a.id),
         })
     return {
         "cloud_ready": public_agents.cloud_ready(),
         "skills": public_agents.available_skills(),
         "agents": agents,
+        # Số CPU/RAM thô chỉ ở đây (chủ xem); lên cloud chỉ có cờ «mệt».
+        "load": public_agents.machine_load(),
         "defaults": {"daily_cap": public_agents.DEFAULT_DAILY_CAP, "max_daily_cap": public_agents.MAX_DAILY_CAP},
+        "thresholds": {k: {"default": d, "min": lo, "max": hi} for k, (d, lo, hi) in public_agents.THRESHOLDS.items()},
     }
 
 
