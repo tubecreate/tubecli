@@ -116,7 +116,7 @@ def _sprite_pack_mb() -> int:
     return min(_SPRITE_BUDGET_MB, total // 1048576)
 
 
-def _pick_workers(aspect_ratio: str = "9:16") -> int:
+def _pick_workers(aspect_ratio: str = "9:16", extra_mb: int = 0) -> int:
     """Số tiến trình render song song an toàn cho máy này.
 
     settings['render_workers']: 0 = tự động (mặc định), >0 = ép cứng.
@@ -143,7 +143,7 @@ def _pick_workers(aspect_ratio: str = "9:16") -> int:
     free = _free_ram_mb()
     if free <= 0:
         return by_cpu                          # không đo được RAM → theo lõi
-    need = _RAM_PER_WORKER_MB.get(aspect_ratio, 1500) + _sprite_pack_mb() + _FFMPEG_MB
+    need = _RAM_PER_WORKER_MB.get(aspect_ratio, 1500) + _sprite_pack_mb() + _FFMPEG_MB + max(0, int(extra_mb))
     # Chừa chỗ cho app + hệ điều hành, phần còn lại chia cho worker
     by_ram = max(1, int((free - _OS_RESERVE_MB) / need))
 
@@ -198,18 +198,31 @@ FRAG_MOVFLAGS = "+frag_keyframe+empty_moov+default_base_moof"
 PLAN_FILE = "plan.json"
 
 
-def _load_plan(temp_dir: str, total_frames: int) -> Optional[dict]:
-    """plan.json của lượt trước, nếu vẫn là CÙNG video (cùng tổng số khung); khác → None (dựng lại từ đầu)."""
+def clean_path_for(final_video: str) -> str:
+    """Bản KHÔNG phụ đề đi cạnh video chính (render_and_encode(clean_output=True))."""
+    root, ext = os.path.splitext(final_video)
+    return f"{root}_clean{ext or '.mp4'}"
+
+
+def _clean_part(part: str) -> str:
+    root, ext = os.path.splitext(part)
+    return f"{root}.clean{ext or '.mp4'}"
+
+
+def _load_plan(temp_dir: str, total_frames: int, clean: bool = False) -> Optional[dict]:
+    """plan.json của lượt trước, nếu vẫn là CÙNG video (cùng tổng số khung, cùng có/không bản sạch); khác → None."""
     try:
         with open(os.path.join(temp_dir, PLAN_FILE), "r", encoding="utf-8") as f:
             plan = json.load(f)
         if int(plan.get("total_frames") or 0) != int(total_frames):
             return None
+        if bool(plan.get("clean", False)) != bool(clean):
+            return None
         ranges = plan.get("ranges") or []
         parts = plan.get("parts") or []
         if not ranges or len(parts) != len(ranges):
             return None
-        return {"total_frames": int(total_frames), "fps": int(plan.get("fps") or 30),
+        return {"total_frames": int(total_frames), "fps": int(plan.get("fps") or 30), "clean": bool(clean),
                 "ranges": [[int(a), int(b)] for a, b in ranges], "parts": [list(p) for p in parts]}
     except Exception:       # noqa: BLE001
         return None
@@ -258,11 +271,14 @@ def _node_heap_args() -> List[str]:
     return [f"--max-old-space-size={max(256, min(mb, 8192))}"]
 
 
-def _salvage_part(path: str) -> int:
+def _salvage_part(path: str, cap: Optional[int] = None, counted: Optional[int] = None) -> int:
     """Làm sạch một phần chunk có thể bị giết giữa chừng: remux `-c copy` (bỏ mảnh cuối ghi dở), giữ n-2 khung.
-    Trả số khung còn lại trong file đã sạch (0 = bỏ đi). Phần ghi trọn vẹn cũng đi qua đây — copy nhanh, vô hại."""
-    n = _count_frames(path)
+    Trả số khung còn lại trong file đã sạch (0 = bỏ đi). Phần ghi trọn vẹn cũng đi qua đây — copy nhanh, vô hại.
+    cap: giữ tối đa ngần này khung (bản chính và bản sạch của cùng một phần phải DÀI BẰNG NHAU)."""
+    n = _count_frames(path) if counted is None else counted
     keep = n - SALVAGE_DROP_TAIL
+    if cap is not None:
+        keep = min(keep, cap)
     if keep <= 0:
         return 0
     fixed = path + ".fixed.mp4"
@@ -540,6 +556,7 @@ async def render_and_encode(
     outro_video_path: Optional[str] = None,
     progress_callback: Optional[Callable] = None,
     proc_registry: Optional[list] = None,   # caller truyền list rỗng để HUỶ giữa chừng
+    clean_output: bool = False,         # ghi THÊM bản không phụ đề ra clean_path_for(<video>) — chỉ đường pipe
 ) -> str:
     """Render + encode video. Supports 'pipe' and 'frames' modes.
 
@@ -627,7 +644,7 @@ async def render_and_encode(
         await _render_pipe(
             node_exe, ext_dir, script_path, timing_path, output_dir,
             theme, bg_color, aspect_ratio, art_style, audio_path, final_video, env, progress_callback, gpu_encoder,
-            sub_args=sub_args, proc_registry=proc_registry,
+            sub_args=sub_args, proc_registry=proc_registry, clean=clean_output,
         )
     else:
         await _render_frames(
@@ -761,14 +778,50 @@ async def _run_node_renderer(node_exe, ext_dir, cmd, env, progress_callback, pct
     return proc
 
 
+async def _stitch_clean(temp_dir: str, plan: dict, n_chunks: int, audio_path: str, out: str, ffmpeg_exe: str) -> None:
+    """Ghép các phần .clean.mp4 (cùng thứ tự với bản chính) + tiếng → out. Ném lỗi khi không ra file."""
+    lst = os.path.join(temp_dir, "concat_clean.txt")
+    with open(lst, "w", encoding="utf-8") as f_list:
+        for w in range(n_chunks):
+            for part in plan["parts"][w]:
+                cf = os.path.join(temp_dir, _clean_part(part))
+                if not os.path.isfile(cf):
+                    raise RuntimeError(f"missing {os.path.basename(cf)}")
+                f_list.write(f"file '{cf.replace(chr(92), '/')}'\n")
+    raw_clean = os.path.join(temp_dir, "raw_clean.mp4")
+    p = await _exec(ffmpeg_exe, "-y", "-f", "concat", "-safe", "0", "-i", lst, "-c", "copy", raw_clean,
+                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    _, err = await p.communicate()
+    if p.returncode != 0 or not os.path.isfile(raw_clean):
+        raise RuntimeError(f"concat failed: {err.decode('utf-8', 'replace')[-300:]}")
+    if audio_path and os.path.isfile(audio_path):
+        p = await _exec(ffmpeg_exe, "-y", "-i", raw_clean, "-i", audio_path, "-c:v", "copy", "-c:a", "aac", "-b:a", "128k",
+                        "-shortest", "-movflags", "+faststart", out,
+                        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        _, err = await p.communicate()
+        if p.returncode != 0 or not os.path.isfile(out):
+            raise RuntimeError(f"audio mux failed: {err.decode('utf-8', 'replace')[-300:]}")
+    else:
+        shutil.move(raw_clean, out)
+    logger.info(f"[Pipe] clean (no-subtitle) video → {out}")
+
+
 async def _render_pipe(node_exe, ext_dir, script_path, timing_path, output_dir,
                        theme, bg_color, aspect_ratio, art_style, audio_path, final_video, env, progress_callback, gpu_encoder="nvenc",
-                       sub_args=None, proc_registry=None, workers_override: int = 0):
+                       sub_args=None, proc_registry=None, workers_override: int = 0, clean: bool = False):
     """PIPE MODE: render + encode in single step (fast). Uses multi-process chunk rendering.
 
-    workers_override > 0: số worker ép cứng cho lượt THỬ LẠI sau khi một worker chết (xem _after_parallel_failure)."""
+    workers_override > 0: số worker ép cứng cho lượt THỬ LẠI sau khi một worker chết (xem _after_parallel_failure).
+    clean: ghi THÊM bản không phụ đề ra clean_path_for(final_video) — cùng lượt vẽ, thêm một ffmpeg mỗi worker."""
     import math
     sub_args = list(sub_args or [])      # ['--subtitle', '<json>'] hoặc []
+    clean = bool(clean and sub_args)      # không có phụ đề thì bản chính đã sạch
+    clean_video = clean_path_for(final_video)
+    if os.path.exists(clean_video):
+        try:
+            os.remove(clean_video)        # bản sạch của lượt TRƯỚC không được đi kèm video mới
+        except OSError:
+            pass
     enc = ENCODER_MAP.get(gpu_encoder, ENCODER_MAP["nvenc"])
     if gpu_encoder != "cpu" and not _probe_encoder(enc["codec"]):
         # Máy không chạy được encoder GPU đã chọn (không có card / thiếu libcuda) → CPU, nói ra một dòng.
@@ -790,9 +843,9 @@ async def _render_pipe(node_exe, ext_dir, script_path, timing_path, output_dir,
     total_frames = math.ceil(total_duration * 30)
 
     # 2. Số worker theo SỨC MÁY THẬT (không chỉ số lõi)
-    num_workers = workers_override if workers_override > 0 else _pick_workers(aspect_ratio)
+    num_workers = workers_override if workers_override > 0 else _pick_workers(aspect_ratio, _FFMPEG_MB if clean else 0)
 
-    need_mb, free_mb = _disk_need_mb(total_frames), _free_disk_mb(output_dir)
+    need_mb, free_mb = _disk_need_mb(total_frames) * (2 if clean else 1), _free_disk_mb(output_dir)
     if free_mb and free_mb < need_mb:
         raise RuntimeError(
             f"Not enough disk space to assemble this video: about {need_mb // 1024 + 1} GB is needed for the temporary "
@@ -824,7 +877,7 @@ async def _render_pipe(node_exe, ext_dir, script_path, timing_path, output_dir,
             "--outputFile", final_video,
             "--codec", enc["codec"],
             "--preset", enc["preset"],
-        ] + sub_args
+        ] + sub_args + (["--cleanOutputFile", clean_video] if clean else [])
         if enc.get("extra"):
             cmd.extend(["--ffmpegExtra", " ".join(enc["extra"])])
         if os.path.isfile(audio_path):
@@ -856,7 +909,7 @@ async def _render_pipe(node_exe, ext_dir, script_path, timing_path, output_dir,
         temp_dir = os.path.join(output_dir, f"temp_chunks_{os.path.basename(final_video)}")
         os.makedirs(temp_dir, exist_ok=True)
 
-        plan = _load_plan(temp_dir, total_frames)
+        plan = _load_plan(temp_dir, total_frames, clean)
         if plan is None:
             for old in os.listdir(temp_dir):
                 try:
@@ -869,7 +922,8 @@ async def _render_pipe(node_exe, ext_dir, script_path, timing_path, output_dir,
                 start = w * chunk_size
                 end = total_frames if w == num_workers - 1 else (w + 1) * chunk_size
                 ranges.append([start, end])
-            plan = {"total_frames": total_frames, "fps": 30, "ranges": ranges, "parts": [[] for _ in ranges]}
+            plan = {"total_frames": total_frames, "fps": 30, "clean": clean, "ranges": ranges,
+                    "parts": [[] for _ in ranges]}
             _save_plan(temp_dir, plan)
         ranges = [tuple(r) for r in plan["ranges"]]
         n_chunks = len(ranges)
@@ -881,15 +935,25 @@ async def _render_pipe(node_exe, ext_dir, script_path, timing_path, output_dir,
             kept, frames = [], 0
             for part in list(plan["parts"][w]):
                 pth = os.path.join(temp_dir, part)
-                n = _salvage_part(pth)
+                if clean:
+                    cth = os.path.join(temp_dir, _clean_part(part))
+                    nm, nc = _count_frames(pth), _count_frames(cth)
+                    cap = min(nm, nc) - SALVAGE_DROP_TAIL
+                    n = _salvage_part(pth, cap, nm) if cap > 0 else 0
+                    n2 = _salvage_part(cth, cap, nc) if n > 0 else 0
+                    if n <= 0 or n2 != n:
+                        n = 0
+                else:
+                    n = _salvage_part(pth)
                 if n > 0:
                     kept.append(part)
                     frames += n
                 else:
-                    try:
-                        os.remove(pth)
-                    except OSError:
-                        pass
+                    for gone in ([pth, os.path.join(temp_dir, _clean_part(part))] if clean else [pth]):
+                        try:
+                            os.remove(gone)
+                        except OSError:
+                            pass
             plan["parts"][w] = kept
             done_before.append(min(frames, end - start))
         _save_plan(temp_dir, plan)
@@ -965,6 +1029,8 @@ async def _render_pipe(node_exe, ext_dir, script_path, timing_path, output_dir,
                 "--startFrame", str(first),
                 "--endFrame", str(end)
             ] + sub_args      # MỌI chunk phải có cùng cờ phụ đề, không thì phân đoạn nào thiếu là phụ đề biến mất
+            if clean:
+                cmd_w += ["--cleanOutputFile", os.path.join(temp_dir, _clean_part(part_name))]
             cmd_w.extend(["--ffmpegExtra", " ".join(chunk_extra)])
             # Note: We do NOT pass --audio to workers to avoid audio sync issues in chunked videos
 
@@ -1042,7 +1108,7 @@ async def _render_pipe(node_exe, ext_dir, script_path, timing_path, output_dir,
                 return await _render_pipe(
                     node_exe, ext_dir, script_path, timing_path, output_dir,
                     theme, bg_color, aspect_ratio, art_style, audio_path, final_video, env, progress_callback, gpu_encoder,
-                    sub_args=sub_args, proc_registry=proc_registry, workers_override=fewer,
+                    sub_args=sub_args, proc_registry=proc_registry, workers_override=fewer, clean=clean,
                 )
             kept = sum(worker_progress)
             if fewer == "killed":
@@ -1121,6 +1187,14 @@ async def _render_pipe(node_exe, ext_dir, script_path, timing_path, output_dir,
                 await proc_fb.communicate()
         else:
             shutil.copy2(raw_video, final_video)
+
+        # 4b. Bản KHÔNG phụ đề: ghép các phần .clean theo đúng thứ tự, gắn cùng tiếng. Hỏng thì chỉ mất bản sạch —
+        # video chính đã xong, bên dùng (cắt video từng cảnh) tự lùi về video chính.
+        if clean:
+            try:
+                await _stitch_clean(temp_dir, plan, n_chunks, audio_path, clean_video, ffmpeg_exe)
+            except Exception as e:      # noqa: BLE001
+                logger.warning(f"[Pipe] clean (no-subtitle) video not built: {e}")
 
         # 5. Cleanup temp chunk files
         try:

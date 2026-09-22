@@ -3602,7 +3602,10 @@ def _step_render(state: Dict, options: Dict) -> None:
         state["_say"]("render", "running", f"export {old} is still {stt} — waiting for it, not starting another")
         task_id = old
     else:
-        res = _post(f"/api/v1/studio/episodes/{ep_id}/export-ffmpeg", {}, timeout=60)
+        # clean_scenes: task lưu lên Drive thì Studio ghi thêm bản KHÔNG phụ đề để cắt video từng cảnh (user 22/9/2026:
+        # «scene upload lên drive… bỏ phần subtitle đi»). Studio cũ lờ khoá này.
+        res = _post(f"/api/v1/studio/episodes/{ep_id}/export-ffmpeg",
+                    {"clean_scenes": bool(options.get("drive"))}, timeout=60)
         if not res.get("task_id"):
             raise RuntimeError(f"export-ffmpeg did not start: {str(res)[:200]}")
         task_id = str(res["task_id"])
@@ -5871,6 +5874,12 @@ def _drive_plan(state: Dict) -> Tuple[List[Dict], List[Dict]]:
                 clips[int(k)] = os.path.join(d, str(f))
         if got.get("count"):
             state["drive_scene_clips"] = int(got["count"])
+        if got.get("subtitles") == "burned" and str((state.get("subtitles") or {}).get("style") or ""):
+            note = ("Google Drive: the per-scene clips still show the subtitles — this video was rendered before "
+                    "subtitle-free scene clips existed, or Content Studio / TubeCLI is out of date. Update both and "
+                    "render again to get clean scene clips.")
+            if note not in state.setdefault("warnings", []):
+                state["warnings"].append(note)
     except Exception as e:      # noqa: BLE001
         logger.info(f"[ContentVideo] scene clips unavailable: {e}")
     # Bố cục MỘT MÌNH thành một mp4 (khung + người dẫn, lỗ để trống, dài bằng clip người dẫn dài nhất).

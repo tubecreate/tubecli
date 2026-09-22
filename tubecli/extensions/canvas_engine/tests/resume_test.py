@@ -48,12 +48,34 @@ plan = {"total_frames": 9000, "fps": 30, "ranges": [[0, 3000], [3000, 6000], [60
 VE._save_plan(tmp, plan)
 ok(os.path.isfile(os.path.join(tmp, "plan.json")) and not os.path.exists(os.path.join(tmp, "plan.json.tmp")), "ghi qua file tạm rồi đổi tên")
 back = VE._load_plan(tmp, 9000)
-ok(back == plan, "đọc lại đúng bố cục + danh sách phần", back)
+ok(back == dict(plan, clean=False), "đọc lại đúng bố cục + danh sách phần (plan cũ không có khoá clean = False)", back)
 ok(VE._load_plan(tmp, 9001) is None, "tổng số khung khác → None (video đã đổi, dựng lại từ đầu)")
 ok(VE._load_plan(tempfile.mkdtemp(prefix="ce-empty-"), 9000) is None, "không có plan.json → None")
 with open(os.path.join(tmp, "plan.json"), "w", encoding="utf-8") as f:
     f.write("{hỏng")
 ok(VE._load_plan(tmp, 9000) is None, "plan.json hỏng → None, không nổ")
+
+print("── 1b. bản KHÔNG phụ đề (video từng cảnh lên Drive, 22/9/2026) ──")
+ok(VE.clean_path_for("/x/edu_ep1_16_9.mp4") == "/x/edu_ep1_16_9_clean.mp4" and VE._clean_part("chunk_0.p1.mp4") == "chunk_0.p1.clean.mp4",
+   "tên bản sạch: <video>_clean.mp4, phần chunk: chunk_w.pK.clean.mp4")
+tmpc = tempfile.mkdtemp(prefix="ce-resume-clean-")
+VE._save_plan(tmpc, {"total_frames": 900, "fps": 30, "clean": True, "ranges": [[0, 450], [450, 900]], "parts": [[], []]})
+ok(VE._load_plan(tmpc, 900, clean=True) is not None and VE._load_plan(tmpc, 900, clean=False) is None,
+   "plan ghi có/không bản sạch; đổi yêu cầu → dựng lại (phần cũ không có bản song song)")
+VE._save_plan(tmpc, {"total_frames": 900, "fps": 30, "ranges": [[0, 900]], "parts": [[]]})
+ok(VE._load_plan(tmpc, 900) is not None and VE._load_plan(tmpc, 900, clean=True) is None, "plan cũ (không có khoá clean) = không bản sạch")
+js = open(os.path.join(str(R), "engines", "canvas_renderer.js"), "rb").read().decode("utf-8", "replace")
+ok("if (SUB_ENGINE && !globalThis.T2_SKIP_SUB)" in js and "function paintSubtitleOnly(currentTime)" in js
+   and "startFfmpeg(cleanFile, ' clean')" in js and "globalThis.T2_SKIP_SUB = true;" in js,
+   "renderer: một lượt vẽ, khung không phụ đề → bản sạch, vẽ đè phụ đề → bản chính")
+ok("(typeof args.cleanOutputFile === 'string' && SUB_ENGINE)" in js, "không có phụ đề thì KHÔNG mở ffmpeg thứ hai (bản chính đã sạch)")
+enc_src = open(os.path.join(str(R), "engines", "video_encoder.py"), encoding="utf-8").read()
+ok('cmd_w += ["--cleanOutputFile", os.path.join(temp_dir, _clean_part(part_name))]' in enc_src
+   and '["--cleanOutputFile", clean_video] if clean else []' in enc_src, "cả đường chunk lẫn đường 1 tiến trình đều xin bản sạch")
+ok("cap = min(nm, nc) - SALVAGE_DROP_TAIL" in enc_src and "_stitch_clean(temp_dir, plan, n_chunks" in enc_src,
+   "dựng tiếp: bản chính và bản sạch của cùng một phần cắt về CÙNG số khung; ghép bản sạch sau bản chính")
+ok("workers_override=fewer, clean=clean" in enc_src and "_pick_workers(aspect_ratio, _FFMPEG_MB if clean else 0)" in enc_src,
+   "thử lại giữ yêu cầu bản sạch; ffmpeg thứ hai được tính vào RAM mỗi worker")
 
 print("── 2. MP4 phân mảnh sống sót khi bị cắt ────────────────────")
 ffmpeg, ffprobe = shutil.which("ffmpeg"), shutil.which("ffprobe")
@@ -88,7 +110,7 @@ else:
 print("── 3. luật thử lại + thứ tự ghép ───────────────────────────")
 src = open(os.path.join(str(R), "engines", "video_encoder.py"), encoding="utf-8").read()
 body = src.split("# Multi-process parallel rendering")[1].split("raw_video = os.path.join(temp_dir")[0]
-ok("plan = _load_plan(temp_dir, total_frames)" in body and "_save_plan(temp_dir, plan)" in body, "lượt dựng đọc/ghi plan.json")
+ok("plan = _load_plan(temp_dir, total_frames, clean)" in body and "_save_plan(temp_dir, plan)" in body, "lượt dựng đọc/ghi plan.json")
 ok('"--startFrame", str(first)' in body and "first = start + done_before[w_idx]" in body, "chunk dựng tiếp từ start + khung đã có")
 ok("asyncio.Semaphore(concurrency)" in body and "concurrency = max(1, min(workers_override if workers_override > 0 else num_workers, n_chunks))" in body,
    "số tiến trình cùng lúc tách khỏi bố cục chunk (thử lại ít worker hơn vẫn giữ nguyên chunk)")

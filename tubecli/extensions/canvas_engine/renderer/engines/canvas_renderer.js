@@ -7973,6 +7973,24 @@ function t2EditBox(el, x, y, w, h) {
     });
 }
 
+// Vẽ RIÊNG lớp phụ đề lên khung vừa dựng — dùng cho --cleanOutputFile: khung đã dựng KHÔNG phụ đề được ghi ra bản
+// sạch trước, rồi phụ đề mới được vẽ đè để ra bản chính. Một lượt vẽ, hai file (user 22/9/2026: «scene lên Drive bỏ
+// phần subtitle… các hiệu ứng khác thì có thể để»).
+function paintSubtitleOnly(currentTime) {
+    if (!SUB_ENGINE) return;
+    ctx.setTransform(RSCALE, 0, 0, RSCALE, 0, 0);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.shadowBlur = 0;
+    ctx.shadowColor = 'rgba(0,0,0,0)';
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 0;
+    ctx.setLineDash([]);
+    ctx.filter = 'none';
+    ctx.save();
+    try { drawSubtitle(currentTime); } finally { ctx.restore(); }
+}
+
 function renderFrame(currentTime) {
 
     // Reset canvas state to prevent state leaks / singular matrix corruption from previous frames
@@ -8698,12 +8716,9 @@ function renderFrame(currentTime) {
     // sống trong save/restore của renderUnifiedElements).
     // Trạng thái đặt TƯỜNG MINH chứ không tin vào restore(): custom_js do AI
     // sinh có thể để lệch ngăn xếp save/restore → transform/alpha rò rỉ sang đây.
-    if (SUB_ENGINE) {
-
+    if (SUB_ENGINE && !globalThis.T2_SKIP_SUB) {
         ctx.setTransform(RSCALE, 0, 0, RSCALE, 0, 0);
-
         ctx.globalAlpha = 1;
-
         ctx.globalCompositeOperation = 'source-over';
 
         ctx.shadowBlur = 0;
@@ -9898,91 +9913,67 @@ try { global.Image = require('canvas').Image; } catch(e) {}
         }
 
         const codec = args.codec || 'libx264';
-
         const preset = args.preset || 'medium';
-
         const extraArgs = args.ffmpegExtra ? args.ffmpegExtra.split(' ') : [];
-
         ffArgs.push(
-
             '-c:v', codec,
-
             '-preset', preset,
-
             ...extraArgs,
-
             '-pix_fmt', 'yuv420p',
-
             '-shortest',
-
-            outputFile
-
         );
-
         // -nostats: dong thong ke tung khung cua ffmpeg ket bang CR (khong LF), chuyen tiep len
         // stderr lam driver Python doc theo dong bi nghen sau ~15 phut (xem video_encoder._drain_stderr).
         if (!ffArgs.includes('-nostats')) ffArgs.unshift('-hide_banner', '-nostats', '-loglevel', 'warning');
-        const ffmpeg = spawn('ffmpeg', ffArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
-
-        ffmpeg.stderr.on('data', (d) => {
-
-            process.stderr.write(`[FFmpeg] ${d.toString()}`);
-
-        });
-
-        let ffmpegDone = new Promise((resolve, reject) => {
-
-            ffmpeg.on('close', (code) => {
-
-                if (code === 0) resolve();
-
-                else reject(new Error(`FFmpeg exited with code ${code}`));
-
+        // Một tiến trình ffmpeg cho một file ra. Bản sạch (--cleanOutputFile, không phụ đề) đi ffmpeg thứ hai cùng
+        // tham số — chỉ khi thật có phụ đề để bỏ; không có phụ đề thì bản chính đã sạch.
+        function startFfmpeg(outFile, tag) {
+            const p = spawn('ffmpeg', ffArgs.concat([outFile]), { stdio: ['pipe', 'pipe', 'pipe'] });
+            p.stderr.on('data', (d) => { process.stderr.write(`[FFmpeg${tag}] ${d.toString()}`); });
+            const done = new Promise((resolve, reject) => {
+                p.on('close', (code) => {
+                    if (code === 0) resolve();
+                    else reject(new Error(`FFmpeg${tag} exited with code ${code}`));
+                });
+                p.on('error', reject);
             });
-
-            ffmpeg.on('error', reject);
-
-        });
-
-        // Write with backpressure: wait for drain if buffer is full
-
-        function writeFrame(buf) {
-
-            return new Promise((resolve) => {
-
-                const ok = ffmpeg.stdin.write(buf);
-
+            const out = { proc: p, done, error: null };
+            p.stdin.on('error', (err) => { out.error = err; });
+            // Write with backpressure: wait for drain if buffer is full
+            out.write = (buf) => new Promise((resolve) => {
+                const ok = p.stdin.write(buf);
                 if (ok) resolve();
-
-                else ffmpeg.stdin.once('drain', resolve);
-
+                else p.stdin.once('drain', resolve);
             });
-
+            return out;
         }
-
+        const cleanFile = (typeof args.cleanOutputFile === 'string' && SUB_ENGINE) ? args.cleanOutputFile : '';
+        const mainFf = startFfmpeg(outputFile, '');
+        const cleanFf = cleanFile ? startFfmpeg(cleanFile, ' clean') : null;
+        const ffmpeg = mainFf.proc;
+        const ffmpegDone = cleanFf ? Promise.all([mainFf.done, cleanFf.done]) : mainFf.done;
         // Render frames and pipe raw pixel data
-
         let pipeError = null;
-
-        ffmpeg.stdin.on('error', (err) => { pipeError = err; });
-
         for (let f = startF; f < endF; f++) {
-
+            pipeError = pipeError || mainFf.error || (cleanFf && cleanFf.error);
             if (pipeError) {
-
                 process.stderr.write(`[Renderer] Pipe broken at frame ${f}: ${pipeError.message}\n`);
-
                 break;
-
             }
-
-            renderFrame(f / FPS);
-
+            if (cleanFf) {
+                // Một lượt vẽ, hai khung: dựng KHÔNG phụ đề → ghi bản sạch → vẽ đè phụ đề → ghi bản chính.
+                // toBuffer('raw') trả bản CHÉP, nên vẽ phụ đề sau đó không đụng tới khung đã gửi cho bản sạch.
+                globalThis.T2_SKIP_SUB = true;
+                try { renderFrame(f / FPS); } finally { globalThis.T2_SKIP_SUB = false; }
+                const cbuf = canvas.toBuffer('raw');
+                try { await cleanFf.write(cbuf); } catch(e) { pipeError = e; break; }
+                paintSubtitleOnly(f / FPS);
+            } else {
+                renderFrame(f / FPS);
+            }
             // node-canvas 'raw' outputs BGRA natively — ffmpeg now expects bgra, no swap needed
-
             const buf = canvas.toBuffer('raw');
-
-            try { await writeFrame(buf); } catch(e) { pipeError = e; break; }
+            try { await mainFf.write(buf); } catch(e) { pipeError = e; break; }
 
             if (f % 30 === 0 || f === endF - 1) {
 
@@ -10015,7 +10006,7 @@ try { global.Image = require('canvas').Image; } catch(e) {}
         }
 
         ffmpeg.stdin.end();
-
+        if (cleanFf) cleanFf.proc.stdin.end();
         try { await ffmpegDone; } catch(e) {
 
             process.stderr.write(`[Renderer] FFmpeg error: ${e.message}\n`);
