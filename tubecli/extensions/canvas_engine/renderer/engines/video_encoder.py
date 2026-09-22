@@ -972,8 +972,12 @@ async def _render_pipe(node_exe, ext_dir, script_path, timing_path, output_dir,
                     await stderr_task
                 if proc.returncode != 0:
                     stderr_content = b"".join(stderr_lines).decode("utf-8", errors="replace")
-                    error_lines = [l for l in stderr_content.split('\n') if l.strip() and not l.strip().startswith('[Renderer]')]
-                    error_msg = '\n'.join(error_lines[-10:]) if error_lines else stderr_content[-1000:]
+                    lines = [l for l in stderr_content.split('\n') if l.strip()]
+                    # Lời của CHÍNH ffmpeg ([FFmpeg] …) là thứ nói vì sao nó chết — trước bị 10 dòng stack trace của node
+                    # đẩy ra ngoài, thẻ chỉ còn «FFmpeg exited with code 255» (VPS 23/28, 22/9/2026).
+                    ff = [l for l in lines if l.strip().startswith('[FFmpeg]')]
+                    other = [l for l in lines if not l.strip().startswith(('[Renderer]', '[FFmpeg]'))]
+                    error_msg = '\n'.join(ff[-6:] + other[-6:]) if (ff or other) else stderr_content[-1000:]
                     if not error_msg.strip():
                         error_msg = stdout_error or "(renderer không in lỗi nào ra stderr)"
                     failures.append(f"Worker {w_idx} failed (exit code {proc.returncode}): {error_msg}")
