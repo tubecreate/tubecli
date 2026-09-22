@@ -9937,14 +9937,17 @@ try { global.Image = require('canvas').Image; } catch(e) {}
                 });
                 p.on('error', reject);
             });
-            const out = { proc: p, done, error: null };
+            const out = { proc: p, done, error: null, pending: null };
             p.stdin.on('error', (err) => { out.error = err; });
-            // Write with backpressure: wait for drain if buffer is full
-            out.write = (buf) => new Promise((resolve) => {
+            // Ghi có áp lực ngược, nhưng CHỜ TRƯỚC lần ghi KẾ TIẾP chứ không chờ ngay: khung f nằm trong ống cho ffmpeg
+            // đọc trong lúc node vẽ khung f+1 (mỗi ống giữ tối đa một khung chờ, ~8 MB). Trước đây node đứng chờ ffmpeg
+            // đọc hết từng khung rồi mới vẽ tiếp; bản chính + bản sạch còn nối đuôi nhau (đo 22/9/2026: +55 % thời gian).
+            out.write = async (buf) => {
+                if (out.pending) await out.pending;
                 const ok = p.stdin.write(buf);
-                if (ok) resolve();
-                else p.stdin.once('drain', resolve);
-            });
+                out.pending = ok ? null : new Promise((resolve) => p.stdin.once('drain', resolve));
+            };
+            out.flush = async () => { if (out.pending) await out.pending; out.pending = null; };
             return out;
         }
         const cleanFile = (typeof args.cleanOutputFile === 'string' && SUB_ENGINE) ? args.cleanOutputFile : '';
@@ -10005,6 +10008,8 @@ try { global.Image = require('canvas').Image; } catch(e) {}
 
         }
 
+        await mainFf.flush();
+        if (cleanFf) await cleanFf.flush();
         ffmpeg.stdin.end();
         if (cleanFf) cleanFf.proc.stdin.end();
         try { await ffmpegDone; } catch(e) {
