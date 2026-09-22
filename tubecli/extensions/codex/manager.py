@@ -1341,6 +1341,10 @@ class CodexManager:
         if not changed:
             logger.warning(f"[Codex] second failure for {task_id} ignored, already failed")
             return updated
+        # Bước đang chạy lúc task hỏng phải hỏng theo. Trước đây «Assemble the video» giữ nguyên RUNNING 48 % sau khi
+        # task đã «cancelled by shutdown» (VPS 21/9/2026): đồng hồ của bước chạy tiếp qua đêm — «running 11h 59m ·
+        # about 12h 59m left» — nên người dùng tưởng máy dựng 12 giờ mới tới 48 %, hỏi «có phải quá tải không».
+        updated = self._fail_running_steps(task_id, error) or updated
         self.append_event(task_id, "error", error[:2000], actor="worker")
         self.notify(
             updated,
@@ -1349,6 +1353,24 @@ class CodexManager:
         )
         self.post_to_chat(updated, "❌", error or "")
         return updated
+
+    def _fail_running_steps(self, task_id: str, error: str) -> Optional[Dict[str, Any]]:
+        """Mọi bước còn `running` của một task vừa hỏng → `error` + ended_at, giữ tiến độ đang có. Trả task đã sửa."""
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if not task:
+                return None
+            now, touched = _now(), False
+            for step in task.get("steps") or []:
+                if step.get("status") == STEP_RUNNING:
+                    step["status"] = STEP_ERROR
+                    step["message"] = f"stopped: {str(error or '')[:160]}"
+                    step["ended_at"] = now
+                    touched = True
+            if touched:
+                task["updated_at"] = now
+                self._save()
+            return dict(task)
 
     def is_cancel_requested(self, task_id: str) -> bool:
         if task_id in self._cancel_requested:

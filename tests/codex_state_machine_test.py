@@ -174,6 +174,19 @@ cm.report_failure(t5["id"], "lỗi ĐÈ LÊN")
 check("C lỗi thứ hai không đè lên lỗi đầu",
       cm.get_task(t5["id"])["error"] == "lỗi thật", cm.get_task(t5["id"])["error"])
 
+# Task hỏng giữa chừng (TubeCLI bị tắt): bước đang chạy phải hỏng theo — thẻ từng hiện «Assemble the video RUNNING
+# 48 % · running 11h 59m» qua đêm vì bước không bao giờ được đóng (VPS 21/9/2026).
+t5b = new_task("e2", approval_required=False)
+assert cm.claim_next()["id"] == t5b["id"]
+cm.report_step(t5b["id"], "images", "success", "every shot already has an image", "Generate shot images", 100)
+cm.report_step(t5b["id"], "render", "running", "48/100", "Assemble the video", 48)
+cm.report_failure(t5b["id"], "Task was cancelled by shutdown.")
+steps5b = {s["name"]: s for s in cm.get_task(t5b["id"])["steps"]}
+check("C task hỏng → bước đang chạy thành error, có ended_at, giữ tiến độ 48",
+      steps5b["render"]["status"] == "error" and steps5b["render"]["ended_at"] and steps5b["render"]["progress"] == 48
+      and "cancelled by shutdown" in steps5b["render"]["message"], steps5b["render"])
+check("C … bước đã xong không bị đụng", steps5b["images"]["status"] == "success", steps5b["images"])
+
 # "yêu cầu sửa" hai lần: câu góp ý không được dán vào goal hai lần
 t6 = task_in_review(kind="content_video.plan", goal="f")
 cm.complete_review(t6, False, actor="owner", feedback="ngắn hơn")
