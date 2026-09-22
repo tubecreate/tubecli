@@ -90,7 +90,11 @@ _AUTH_EXEMPT_EXACT = {"/login", "/api/v1/auth/login", "/api/v1/auth/status",
                       # works from the user's laptop as the install-check the
                       # summary screen advertises. It returns strictly less than
                       # the already-exempt /auth/status.
-                      "/api/v1/health"}
+                      "/api/v1/health",
+                      # Agent công khai: CHỈ cloud gọi, chìa khoá là chữ ký HMAC bằng town_key
+                      # của máy + mốc giờ ±5 phút + nonce dùng một lần (core/public_agents.py).
+                      # Route không có phiên nào để kiểm, và không chạy gì ngoài PUBLIC_SKILLS.
+                      "/api/v1/public/invoke"}
 # /s/ = link chia sẻ công khai của File Manager (token ngẫu nhiên là chìa khoá;
 # route tự kiểm hạn dùng + file còn tồn tại). Người nhận không có tài khoản.
 _AUTH_EXEMPT_PREFIX = ("/webui/static/", "/static/", "/s/")
@@ -1963,6 +1967,13 @@ async def startup_event():
     _widen_thread_pool()
     from tubecli.core.telegram_listener import telegram_listener
     telegram_listener.start()
+
+    # Đẩy hồ sơ agent công khai lên cloud (không có agent công khai thì im, không gọi mạng)
+    try:
+        from tubecli.core import public_agents
+        public_agents.start()
+    except Exception as e:  # tính năng phụ: hỏng thì máy vẫn phải khởi động được
+        print(f"[public-agents] start skipped: {e}")
 
     # Pre-fetch Core update in background once on server startup
     import asyncio
@@ -5774,6 +5785,14 @@ app.include_router(_image_router)
 # Drive của task video đặt theo «<username>-vps-<mã server>/<tên project>» (17/9/2026).
 from tubecli.api.instance_routes import router as _instance_router
 app.include_router(_instance_router)
+
+# Agent công khai trên Agent Town: người xem chat với agent qua cloud (22/9/2026).
+# Bọc try: đây là tính năng phụ — thiếu/hỏng module thì máy vẫn phải lên, chỉ mất tính năng này.
+try:
+    from tubecli.api.public_routes import router as _public_router
+    app.include_router(_public_router)
+except Exception as _e:
+    print(f"[public-agents] routes not loaded: {_e}")
 
 
 # ── Register Extension Routes ───────────────────────────────────────
