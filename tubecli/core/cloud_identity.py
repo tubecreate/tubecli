@@ -23,6 +23,8 @@ from typing import Any, Dict
 _USERNAME = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 # Mã server cloud cấp: 6 ký tự a-z 2-9 (chừa rộng 4–16 cho sau này).
 _CODE = re.compile(r"^[a-z0-9]{4,16}$")
+# Khoá ký telemetry Agent Town: hex, cloud cấp 48 ký tự (chừa rộng cho sau này).
+_TOWN_KEY = re.compile(r"^[a-f0-9]{32,128}$")
 
 
 def _path() -> str:
@@ -32,7 +34,7 @@ def _path() -> str:
 
 
 def load() -> Dict[str, Any]:
-    """{"username", "server_code", "seen"} hay {} khi chưa biết / file hỏng / file cũ chỉ có số thứ tự."""
+    """{"username", "server_code", "seen", "town_key"} hay {} khi chưa biết / file hỏng / file cũ chỉ có số thứ tự."""
     try:
         with open(_path(), encoding="utf-8") as f:
             data = json.load(f) or {}
@@ -43,11 +45,21 @@ def load() -> Dict[str, Any]:
     u, code = data.get("username"), data.get("server_code")
     if not (isinstance(u, str) and _USERNAME.match(u) and isinstance(code, str) and _CODE.match(code)):
         return {}
-    return {"username": u, "server_code": code, "seen": data.get("seen")}
+    key = data.get("town_key")
+    return {
+        "username": u,
+        "server_code": code,
+        "seen": data.get("seen"),
+        "town_key": key if isinstance(key, str) and _TOWN_KEY.match(key) else "",
+    }
 
 
-def save(username: Any, server_code: Any) -> Dict[str, Any]:
-    """Ghi danh tính cloud báo; sai dạng → ValueError. Không đổi gì thì không ghi lại file."""
+def save(username: Any, server_code: Any, town_key: Any = None) -> Dict[str, Any]:
+    """Ghi danh tính cloud báo; sai dạng → ValueError. Không đổi gì thì không ghi lại file.
+
+    town_key là khoá ký telemetry Agent Town (cloud suy ra từ server_code, lib/town.js).
+    Truyền None = giữ khoá đang có: bản cloud cũ chưa gửi khoá thì không được xoá mất
+    khoá máy đã nhận từ trước."""
     u = str(username or "").strip()
     if not _USERNAME.match(u):
         raise ValueError("username must be 1-64 characters of A-Z a-z 0-9 . _ -")
@@ -55,9 +67,15 @@ def save(username: Any, server_code: Any) -> Dict[str, Any]:
         raise ValueError("server_code must be 4-16 characters of a-z 0-9")
     code = server_code.strip().lower()
     old = load()
-    if old.get("username") == u and old.get("server_code") == code:
+    key = old.get("town_key", "")
+    if town_key is not None:
+        k = str(town_key or "").strip()
+        if k and not _TOWN_KEY.match(k):
+            raise ValueError("town_key must be 32-128 hex characters")
+        key = k
+    if old.get("username") == u and old.get("server_code") == code and old.get("town_key", "") == key:
         return old
-    data = {"username": u, "server_code": code, "seen": time.time()}
+    data = {"username": u, "server_code": code, "seen": time.time(), "town_key": key}
     path = _path()
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:

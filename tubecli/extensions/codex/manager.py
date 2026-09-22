@@ -1220,6 +1220,21 @@ class CodexManager:
 
         label_now = str(existing.get("label") or name)
         terminal = status in (STEP_SUCCESS, STEP_ERROR, STEP_SKIPPED, STEP_CANCELLED)
+
+        # Agent Town: báo lên cloud để trang chủ vẽ. CHỈ khi bước đổi trạng thái —
+        # cập nhật tiến độ (12/69 → 13/69) không đổi status nên không tạo chuyến gửi.
+        # Hàm này không bao giờ chặn và không bao giờ ném lỗi (core/town_telemetry.py).
+        if is_new:
+            from tubecli.core import town_telemetry
+
+            # Nhà trên bản đồ là EXTENSION, không phải tên bước; người là AGENT có thật.
+            # Không có agent (task hệ thống) thì không có ai để vẽ — bỏ qua.
+            who = str(task.get("assignee_id") or "")
+            if who:
+                town_telemetry.report(
+                    _step_extension(name), status, who,
+                    _elapsed_seconds(existing.get("started_at"), existing.get("ended_at")) or 0,
+                )
         if is_new:
             # Chuyển trạng thái: ghi TÊN bước (không phải tên nội bộ "crawl") + thời lượng khi xong.
             data: Dict[str, Any] = {"step": name, "status": status, "progress": pct, "label": label_now}
@@ -1462,6 +1477,29 @@ class CodexManager:
 
 
 # ── Module helpers ───────────────────────────────────────────────────
+
+# Mỗi bước của dây chuyền video chạy bên trong một extension; trang chủ vẽ EXTENSION chứ
+# không vẽ tên bước, nên quy đổi ở đây. Bước không có trong bảng (task agent thường:
+# resolve / reason / run_skill…) thì quy về chính Codex — đó đúng là nơi nó chạy.
+_STEP_EXT = {
+    "capabilities": "content_video",
+    "gather": "content_queue",
+    "transcripts": "video_downloader",
+    "crawl": "browser",
+    "script": "cloud_api",
+    "studio": "con_st",
+    "images": "content_video",
+    "tts": "capcut_tts",
+    "render": "video_studio",
+    "thumbnail": "thu_st",
+    "publish": "browser",
+    "drive": "file_manager",
+}
+
+
+def _step_extension(step: str) -> str:
+    return _STEP_EXT.get(str(step or "").strip().lower(), "codex")
+
 
 def _backlog_key(task: Dict[str, Any]):
     """Thứ tự trong hàng đợi: ưu tiên cao trước, rồi tạo trước; seq phá hoà khi hai

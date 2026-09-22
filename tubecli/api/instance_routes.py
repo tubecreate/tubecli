@@ -19,6 +19,8 @@ router = APIRouter(tags=["Instance"])
 class CloudIdentityRequest(BaseModel):
     username: str
     server_code: str
+    # Bản cloud cũ không gửi trường này; None = giữ khoá máy đang có.
+    town_key: str | None = None
 
 
 def _require_owner_session(request: Request) -> None:
@@ -38,7 +40,7 @@ async def get_cloud_identity():
 async def put_cloud_identity(req: CloudIdentityRequest, request: Request):
     _require_owner_session(request)
     try:
-        ident = cloud_identity.save(req.username, req.server_code)
+        ident = cloud_identity.save(req.username, req.server_code, req.town_key)
     except ValueError as e:
         raise HTTPException(400, str(e))
     return {"ok": True, "identity": ident, "drive_root": cloud_identity.drive_root_name()}
