@@ -87,6 +87,22 @@ class SettingsUpdate(BaseModel):
     proxy: Optional[str] = None
 
 
+def _why(message: str, reasons: list) -> str:
+    """Gắn lý do thật vào lời báo lỗi.
+
+    Không đoán "cookie hết hạn" nữa: nếu Douyin chặn chữ ký hay tác phẩm đã bị
+    gỡ thì nói đúng điều đó, người dùng mới biết phải làm gì.
+    """
+    seen = []
+    for r in reasons or []:
+        r = str(r).strip()
+        if r and r not in seen:
+            seen.append(r)
+    if not seen:
+        return f"{message} Thử lại sau hoặc cập nhật cookie Douyin trong tab Cài đặt."
+    return f"{message} Lý do: " + " | ".join(seen[:3])
+
+
 # === Routes ===
 
 @router.post("/parse")
@@ -109,11 +125,13 @@ async def parse_link(req: ParseRequest):
             raise HTTPException(status_code=400, detail="Không thể phân tích link. Hãy nhập link đầy đủ (https://www.douyin.com/video/xxx) hoặc video ID.")
 
         # Get video info
+        reasons = []
         if platform == 'douyin_user':
             cookie = settings.get("cookie_douyin", "")
-            user_info = await APIClient.get_user_info(detail_id, cookie, proxy)
+            user_info = await APIClient.get_user_info(detail_id, cookie, proxy, reasons)
             if not user_info:
-                raise HTTPException(status_code=404, detail="Không thể lấy thông tin trang cá nhân. Cookie có thể đã hết hạn.")
+                raise HTTPException(status_code=404, detail=_why(
+                    "Không thể lấy thông tin trang cá nhân.", reasons))
             return {
                 "success": True,
                 "data": {"type": "user", **user_info},
@@ -123,11 +141,13 @@ async def parse_link(req: ParseRequest):
         if platform in ("douyin_live", "douyin_user_live"):
             cookie_key = "douyin"
         cookie = settings.get(f"cookie_{cookie_key}", "")
-        info = await APIClient.get_video_info(platform, detail_id, cookie, proxy)
+        info = await APIClient.get_video_info(platform, detail_id, cookie, proxy, reasons)
         if not info:
             if platform in ("douyin_live", "douyin_user_live"):
-                raise HTTPException(status_code=404, detail="Không thể lấy thông tin live. Phòng live có thể đã kết thúc hoặc không tồn tại.")
-            raise HTTPException(status_code=404, detail="Không thể lấy thông tin video. Cookie có thể đã hết hạn.")
+                raise HTTPException(status_code=404, detail=_why(
+                    "Không thể lấy thông tin live. Phòng live có thể đã kết thúc hoặc không tồn tại.", reasons))
+            raise HTTPException(status_code=404, detail=_why(
+                "Không thể lấy thông tin video.", reasons))
 
         return {
             "success": True,
@@ -149,7 +169,7 @@ async def parse_batch(req: ParseRequest):
     settings = _get_settings()
     proxy = req.proxy or settings.get("proxy") or None
 
-    parsed = await LinkParser.parse_batch(req.url, proxy)
+    parsed = await LinkParser.parse_batch(req.url, proxy, settings.get("cookie_douyin", ""))
     results = []
     for item in parsed:
         cookie_key = item["platform"]
@@ -188,32 +208,55 @@ async def parse_user(req: ParseRequest):
         raise HTTPException(status_code=400, detail="Không tìm thấy sec_user_id. Hãy nhập link user Douyin (https://www.douyin.com/user/xxx).")
 
     try:
+        reasons = []
         # Get user info
-        user_info = await APIClient.get_user_info(sec_user_id, cookie, proxy)
+        user_info = await APIClient.get_user_info(sec_user_id, cookie, proxy, reasons)
 
         # Get max_pages from request proxy field (hacky, but works)
         max_pages = 10  # default: 10 pages * 18 = ~180 videos
 
         # Get all user posts
-        videos = await APIClient.get_user_posts(sec_user_id, cookie, proxy, max_pages=max_pages)
+        videos = await APIClient.get_user_posts(sec_user_id, cookie, proxy,
+                                                max_pages=max_pages, reasons=reasons)
+
+        if not user_info and not videos:
+            raise HTTPException(status_code=404, detail=_why(
+                "Không thể lấy dữ liệu trang cá nhân.", reasons))
 
         return {
             "success": True,
             "user": user_info,
             "videos": [v.to_dict() for v in videos],
             "total": len(videos),
+            # Danh sách tác phẩm đi qua API ký, hay bị Douyin chặn — nói rõ khi rỗng.
+            "notice": _why("Chưa lấy được danh sách tác phẩm.", reasons) if not videos else "",
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"parse-user error: {e}")
-        raise HTTPException(status_code=500, detail=f"Lỗi khi phân tích user: {str(e)}. Kiểm tra thư viện gmssl đã cài chưa (pip install gmssl).")
+        raise HTTPException(status_code=500, detail=f"Lỗi khi phân tích user: {str(e)}")
 
+
+
+def _media_headers(request_url: str, download_url: str) -> dict:
+    """Referer cho CDN của Douyin/TikTok, thiếu là bị 403/404."""
+    headers = {}
+    dl_lower = (download_url or "").lower()
+    req_lower = (request_url or "").lower()
+    if "douyin.com" in req_lower or "iesdouyin.com" in req_lower or any(d in dl_lower for d in ["zjcdn.com", "bytecdn.cn", "douyinvod.com", "douyincdn.com", "amemv.com", "huoshan.com", "snssdk.com", "douyinpic.com", "byteimg.com"]):
+        headers["Referer"] = "https://www.douyin.com/"
+    elif "tiktok.com" in req_lower or any(d in dl_lower for d in ["tiktokcdn.com", "tiktokv.com"]):
+        headers["Referer"] = "https://www.tiktok.com/"
+    return headers
 
 
 @router.post("/download")
 async def start_download(req: DownloadRequest):
-    """Start downloading a video."""
+    """Start downloading a video — hoặc cả chùm ảnh nếu link là bài ảnh."""
     from tubecli.extensions.douyin_downloader.link_parser import LinkParser
     from tubecli.extensions.douyin_downloader.api_client import APIClient
+    from tubecli.extensions.douyin_downloader.file_downloader import sanitize_filename
 
     settings = _get_settings()
     proxy = req.proxy or settings.get("proxy") or None
@@ -222,39 +265,64 @@ async def start_download(req: DownloadRequest):
     # If URL is a direct download URL (starts with http and has video/media in it)
     download_url = req.url
     filename = req.filename or "video.mp4"
+    info = None
 
     # If it's a TikTok/Douyin link, parse it first
     if "douyin.com" in req.url or "tiktok.com" in req.url or "iesdouyin.com" in req.url:
-        platform, detail_id = await LinkParser.parse(req.url, proxy)
+        reasons = []
+        # Cookie giúp gỡ link rút gọn; thiếu nó link v.douyin.com hay tắc.
+        platform, detail_id = await LinkParser.parse(req.url, proxy, settings.get("cookie_douyin", ""))
         if platform and detail_id:
             cookie_key = platform
             if platform in ("douyin_live", "douyin_user_live"):
                 cookie_key = "douyin"
             cookie = settings.get(f"cookie_{cookie_key}", "")
-            info = await APIClient.get_video_info(platform, detail_id, cookie, proxy)
+            info = await APIClient.get_video_info(platform, detail_id, cookie, proxy, reasons)
             if info and info.download_url:
                 download_url = info.download_url
-                from tubecli.extensions.douyin_downloader.file_downloader import sanitize_filename
                 filename = sanitize_filename(f"{info.author}_{info.title}") + ".mp4"
+        if download_url == req.url:
+            # Không moi được link media: tải tiếp chỉ lưu về trang HTML đặt tên .mp4.
+            raise HTTPException(status_code=404, detail=_why(
+                "Không lấy được link tải từ trang này.", reasons))
+
+    # Bài ảnh (slides/note): tải hết từng tấm, mỗi tấm một việc riêng.
+    if info and info.type == "image" and info.download_urls:
+        base = sanitize_filename(f"{info.author}_{info.title}") or "douyin"
+        tasks = []
+        for idx, img_url in enumerate(info.download_urls, 1):
+            tid = str(uuid.uuid4())[:8]
+            # Không đặt đuôi: bộ tải tự gán .jpg/.png/.webp theo content-type.
+            name = f"{base}_{idx:02d}"
+            tasks.append(await dl.download(
+                img_url, name, tid, proxy, headers=_media_headers(req.url, img_url),
+            ))
+        return {
+            "success": True,
+            "media_type": "image",
+            "count": len(tasks),
+            # task_id/filename đơn giữ nguyên cho nơi gọi cũ chỉ biết một việc.
+            "task_id": tasks[0].task_id,
+            "filename": tasks[0].filename,
+            "save_path": tasks[0].save_path,
+            "task_ids": [t.task_id for t in tasks],
+            "filenames": [t.filename for t in tasks],
+            "original_url": req.url,
+        }
 
     task_id = str(uuid.uuid4())[:8]
-    
-    # Add Referer header for Douyin/TikTok CDNs to avoid 404/403 errors
-    headers = {}
-    dl_lower = download_url.lower()
-    req_lower = req.url.lower()
-    if "douyin.com" in req_lower or "iesdouyin.com" in req_lower or any(d in dl_lower for d in ["zjcdn.com", "bytecdn.cn", "douyinvod.com", "douyincdn.com", "amemv.com", "huoshan.com"]):
-        headers["Referer"] = "https://www.douyin.com/"
-    elif "tiktok.com" in req_lower or any(d in dl_lower for d in ["tiktokcdn.com", "tiktokv.com"]):
-        headers["Referer"] = "https://www.tiktok.com/"
-
-    task = await dl.download(download_url, filename, task_id, proxy, headers=headers)
+    task = await dl.download(download_url, filename, task_id, proxy,
+                             headers=_media_headers(req.url, download_url))
 
     return {
         "success": True,
+        "media_type": "video",
+        "count": 1,
         "task_id": task_id,
         "filename": task.filename,
         "save_path": task.save_path,
+        "task_ids": [task_id],
+        "filenames": [task.filename],
         "original_url": req.url,
     }
 

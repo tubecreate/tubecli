@@ -634,7 +634,8 @@ async function downloadVideo(uid, url) {
         });
         const data = await res.json();
         if (data.success) {
-            pollProgress(uid, data.task_id);
+            // Bài ảnh trả về nhiều việc tải — theo dõi hết, không chỉ tấm đầu.
+            pollProgress(uid, taskIdsOf(data));
         } else {
             toast(T('dl.error', {msg: data.detail || 'unknown'}), 'error');
             btn.disabled = false;
@@ -647,37 +648,74 @@ async function downloadVideo(uid, url) {
     }
 }
 
-async function pollProgress(uid, taskId) {
+// Một link có thể sinh nhiều việc tải (bài ảnh); bản cũ chỉ trả task_id đơn.
+function taskIdsOf(data) {
+    if (Array.isArray(data.task_ids) && data.task_ids.length) return data.task_ids;
+    return data.task_id ? [data.task_id] : [];
+}
+
+// Gộp trạng thái của tất cả việc tải thuộc một thẻ.
+async function readTasks(taskIds) {
+    const tasks = await Promise.all(taskIds.map(async (id) => {
+        const res = await fetch(`${API}/status/${id}`);
+        return (await res.json()).data;
+    }));
+    const total = tasks.reduce((s, t) => s + (t.total_size || 0), 0);
+    const downloaded = tasks.reduce((s, t) => s + (t.downloaded || 0), 0);
+    return {
+        tasks,
+        total,
+        downloaded,
+        speed: tasks.reduce((s, t) => s + (t.speed || 0), 0),
+        // Chưa biết tổng dung lượng thì lấy trung bình phần trăm từng việc.
+        progress: total > 0 ? Math.floor(downloaded / total * 100)
+                            : Math.floor(tasks.reduce((s, t) => s + (t.progress || 0), 0) / tasks.length),
+        doneCount: tasks.filter(t => t.status === 'done').length,
+        settled: tasks.every(t => t.status === 'done' || t.status === 'error'),
+    };
+}
+
+function progressText(agg) {
+    const many = agg.tasks.length > 1 ? ` — ${agg.doneCount}/${agg.tasks.length}` : '';
+    return `${agg.progress}%${many} — ${formatSize(agg.downloaded)} / ${formatSize(agg.total)} — ${formatSpeed(agg.speed)}`;
+}
+
+async function pollProgress(uid, taskIds) {
+    if (!Array.isArray(taskIds)) taskIds = [taskIds];
     const fill = document.getElementById('fill-' + uid);
     const stat = document.getElementById('stat-' + uid);
     const btn = document.querySelector(`#${uid} .btn-download`);
 
     const poll = setInterval(async () => {
         try {
-            const res = await fetch(`${API}/status/${taskId}`);
-            const data = await res.json();
-            const t = data.data;
-            fill.style.width = t.progress + '%';
-            stat.textContent = `${t.progress}% — ${formatSize(t.downloaded)} / ${formatSize(t.total_size)} — ${formatSpeed(t.speed)}`;
+            const agg = await readTasks(taskIds);
+            fill.style.width = agg.progress + '%';
+            stat.textContent = progressText(agg);
+            if (!agg.settled) return;
 
-            if (t.status === 'done') {
-                clearInterval(poll);
+            clearInterval(poll);
+            const okTasks = agg.tasks.filter(t => t.status === 'done');
+            const failed = agg.tasks.find(t => t.status === 'error');
+            if (okTasks.length) {
                 fill.style.width = '100%';
-                fill.style.background = 'var(--green)';
-                stat.innerHTML = T('dl.complete', {size: formatSize(t.total_size)});
+                fill.style.background = okTasks.length === agg.tasks.length ? 'var(--green)' : 'var(--red)';
+                stat.innerHTML = T('dl.complete', {size: formatSize(agg.downloaded)})
+                    + (agg.tasks.length > 1 ? ` (${okTasks.length}/${agg.tasks.length})` : '');
                 btn.textContent = T('dl.done');
                 btn.style.background = 'var(--green)';
                 const actions = document.querySelector(`#${uid} .video-actions`);
                 if (actions) {
-                    const fname = encodeURIComponent(t.filename || '');
-                    actions.innerHTML += ` <button class="btn btn-sm btn-ghost" onclick="copyFileLink('${fname}')" title="${T('dl.copied')}">📋</button>`;
-                    actions.innerHTML += ` <a href="${API}/file/${fname}" download class="btn btn-sm btn-ghost" title="${T('dl.download_file')}">💾</a>`;
+                    // Mỗi tệp một cặp nút chép link / lưu về.
+                    for (const t of okTasks) {
+                        const fname = encodeURIComponent(t.filename || '');
+                        actions.innerHTML += ` <button class="btn btn-sm btn-ghost" onclick="copyFileLink('${fname}')" title="${T('dl.copied')}">📋</button>`;
+                        actions.innerHTML += ` <a href="${API}/file/${fname}" download class="btn btn-sm btn-ghost" title="${T('dl.download_file')}">💾</a>`;
+                    }
                 }
-                toast(T('dl.download_success', {filename: t.filename}));
-            } else if (t.status === 'error') {
-                clearInterval(poll);
+                toast(T('dl.download_success', {filename: okTasks[0].filename}));
+            } else {
                 fill.style.background = 'var(--red)';
-                stat.textContent = `❌ ${t.error}`;
+                stat.textContent = `❌ ${failed ? failed.error : ''}`;
                 btn.disabled = false;
                 btn.textContent = T('dl.retry');
                 btn.style.background = '';
@@ -811,7 +849,7 @@ async function downloadSelected() {
             if (data.success) {
                 document.getElementById('prog-' + uid).style.display = 'block';
                 if (dlBtn) { dlBtn.disabled = true; dlBtn.textContent = T('dl.downloading'); }
-                await waitForDownload(uid, data.task_id);
+                await waitForDownload(uid, taskIdsOf(data));
             }
         } catch (e) {
             toast(T('dl.error', {msg: e.message}), 'error');
@@ -825,32 +863,33 @@ async function downloadSelected() {
     toast(T('dl.batch_done', {n: done}));
 }
 
-function waitForDownload(uid, taskId) {
+function waitForDownload(uid, taskIds) {
+    if (!Array.isArray(taskIds)) taskIds = [taskIds];
     return new Promise((resolve) => {
         const fill = document.getElementById('fill-' + uid);
         const stat = document.getElementById('stat-' + uid);
         const btn = document.querySelector(`#${uid} .btn-download`);
         const poll = setInterval(async () => {
             try {
-                const res = await fetch(`${API}/status/${taskId}`);
-                const data = await res.json();
-                const t = data.data;
-                fill.style.width = t.progress + '%';
-                stat.textContent = `${t.progress}% — ${formatSize(t.downloaded)} / ${formatSize(t.total_size)} — ${formatSpeed(t.speed)}`;
-                if (t.status === 'done') {
-                    clearInterval(poll);
+                const agg = await readTasks(taskIds);
+                fill.style.width = agg.progress + '%';
+                stat.textContent = progressText(agg);
+                if (!agg.settled) return;
+
+                clearInterval(poll);
+                const failed = agg.tasks.find(t => t.status === 'error');
+                if (agg.doneCount) {
                     fill.style.width = '100%';
-                    fill.style.background = 'var(--green)';
-                    stat.textContent = T('dl.complete', {size: formatSize(t.total_size)});
+                    fill.style.background = agg.doneCount === agg.tasks.length ? 'var(--green)' : 'var(--red)';
+                    stat.textContent = T('dl.complete', {size: formatSize(agg.downloaded)})
+                        + (agg.tasks.length > 1 ? ` (${agg.doneCount}/${agg.tasks.length})` : '');
                     if (btn) { btn.textContent = T('dl.done'); btn.style.background = 'var(--green)'; }
-                    resolve();
-                } else if (t.status === 'error') {
-                    clearInterval(poll);
+                } else {
                     fill.style.background = 'var(--red)';
-                    stat.textContent = `❌ ${t.error}`;
+                    stat.textContent = `❌ ${failed ? failed.error : ''}`;
                     if (btn) { btn.disabled = false; btn.textContent = T('dl.retry'); }
-                    resolve();
                 }
+                resolve();
             } catch (e) { /* ignore */ }
         }, 500);
     });

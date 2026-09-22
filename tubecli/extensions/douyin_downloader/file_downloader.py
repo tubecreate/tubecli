@@ -29,8 +29,17 @@ def sanitize_filename(name: str, max_len: int = 60) -> str:
     # Collapse multiple spaces/dots
     name = re.sub(r'[\s]+', ' ', name)
     name = name.strip('. ')
-    # Truncate to max_len
-    return name[:max_len] if name else "video"
+    if not name:
+        return "video"
+    if len(name) <= max_len:
+        return name
+    # Cắt bớt nhưng GIỮ hậu tố đánh số và phần mở rộng ở cuối. Hàm này bị gọi
+    # hai lần (nơi đặt tên rồi tới bộ tải), nên cắt thẳng sẽ chém mất "_01".."_04"
+    # của một bài nhiều ảnh — cả chùm ra cùng một tên rồi đè lên nhau.
+    tail = re.search(r'(_\d{1,3})?(\.[A-Za-z0-9]{1,5})?$', name).group(0)
+    if tail and len(tail) < max_len:
+        return name[:max_len - len(tail)] + tail
+    return name[:max_len]
 
 
 class DownloadTask:
@@ -53,6 +62,9 @@ class DownloadTask:
         return {
             "task_id": self.task_id,
             "filename": self.filename,
+            # Đuôi tệp chỉ biết được lúc tải (đoán theo content-type), nên nơi
+            # gọi phải đọc đường dẫn ở đây chứ không ghép tên đoán trước.
+            "save_path": self.save_path,
             "status": self.status,
             "progress": self.progress,
             "total_size": self.total_size,

@@ -258,12 +258,12 @@ class LinkParser:
         return None, None
 
     @staticmethod
-    async def parse_batch(text: str, proxy: str = None) -> list:
+    async def parse_batch(text: str, proxy: str = None, cookie: str = None) -> list:
         """Parse multiple URLs from text (one per line or space-separated)."""
         import asyncio
         urls = re.findall(r"https?://\S+", text)
         results = await asyncio.gather(
-            *[LinkParser.parse(u, proxy) for u in urls],
+            *[LinkParser.parse(u, proxy, cookie) for u in urls],
             return_exceptions=True,
         )
         parsed = []
