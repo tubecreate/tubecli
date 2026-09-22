@@ -283,6 +283,14 @@ sys.modules["tubecli.extensions.douyin_downloader.api_client"] = fake_api
 sys.modules["tubecli.extensions.douyin_downloader.link_parser"] = fake_lp
 
 
+async def _fake_direct(url, proxy):
+    return "https://v26.douyinvod.com/sig/exp/video/" + url.rsplit("=", 1)[-1] if "/aweme/v1/play" in url else ""
+
+
+_real_direct = dps._direct_video
+dps._direct_video = _fake_direct
+
+
 def resolve(text):
     try:
         return "ok", asyncio.run(dps.resolve(text))
@@ -295,12 +303,35 @@ check("video: trả kết quả", st == "ok" and out["kind"] == "video", (st, ou
 check("CHỈ gửi cookie ttwid — cookie đăng nhập của chủ không bao giờ đi theo",
       seen["parse"][1] == "ttwid=1%7Cabc" and seen["info"][2] == "ttwid=1%7Cabc", seen)
 check("video: tối đa 3 đường CDN, không trùng", len(out["media"]) == 3 and len({m["url"] for m in out["media"]}) == 3, out["media"])
+check("video: link play/ kèm link douyinvod trực tiếp để trình duyệt tự tải",
+      out["media"][0].get("direct") == "https://v26.douyinvod.com/sig/exp/video/v1", out["media"][0])
 check("tiêu đề bị cắt 300 ký tự", len(out["title"]) == 300)
 check("có link nguồn chuẩn để người xem đối chiếu", out["source"] == "https://www.douyin.com/video/7628804136596187301")
 FakeClient.kind = "image"
 st, out = resolve("https://v.douyin.com/abc/")
 check("bài ảnh: ảnh là image, ảnh động mp4 là video",
       st == "ok" and out["kind"] == "images" and [m["type"] for m in out["media"]] == ["image", "image", "video"], out)
+# _direct_video thật: chỉ chấp nhận Location trỏ về douyinvod.com (không theo 302 tới chỗ lạ)
+import types as _t
+class _R:
+    def __init__(self, code, loc): self.status_code, self.headers = code, {"location": loc}
+class _C:
+    def __init__(self, loc): self.loc = loc
+    async def __aenter__(self): return self
+    async def __aexit__(self, *a): return False
+    async def head(self, url): return _R(302, self.loc)
+    async def get(self, url, headers=None): return _R(302, self.loc)
+import httpx as _httpx
+_orig_client = _httpx.AsyncClient
+for loc, want in [("https://v11-o.douyinvod.com/a/b/video.mp4", "https://v11-o.douyinvod.com/a/b/video.mp4"),
+                  ("https://evil.com/x.mp4", ""), ("http://v11-o.douyinvod.com/x", ""), ("https://douyinvod.com.evil.com/x", "")]:
+    _httpx.AsyncClient = lambda *a, _l=loc, **k: _C(_l)
+    got = asyncio.run(_real_direct("https://aweme.snssdk.com/aweme/v1/play/?video_id=v1", None))
+    check(f"_direct_video: Location {loc} → {'nhận' if want else 'bỏ'}", got == want, got)
+_httpx.AsyncClient = _orig_client
+check("_direct_video: link không phải play/ và không phải douyinvod → bỏ, không gọi mạng",
+      asyncio.run(_real_direct("https://p3.douyinpic.com/x.jpg", None)) == "")
+
 st, _ = resolve("https://www.douyin.com/user/abc")
 check("trang cá nhân → unsupported_link (không kéo cả trăm video)", st == "unsupported_link", st)
 st, _ = resolve("không có link nào")

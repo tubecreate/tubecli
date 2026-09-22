@@ -48,6 +48,35 @@ def _is_video_url(u: str) -> bool:
     return "douyinvod.com" in u or "/aweme/v1/play" in u or ".mp4" in u.split("?")[0]
 
 
+_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+       "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+
+
+async def _direct_video(url: str, proxy) -> str:
+    """Link play/ của Douyin (aweme.snssdk.com) → link file thật trên douyinvod.com.
+
+    Trình duyệt người xem tải/nén ZIP thẳng từ CDN Douyin (không qua server nào của
+    mình — user chốt 22/9/2026), mà muốn đọc file thì CDN phải trả CORS. douyinvod.com
+    trả `Access-Control-Allow-Origin: *`, còn cú 302 của aweme.snssdk.com thì KHÔNG — nên
+    trình duyệt không tự đi qua được. Máy đi hộ đúng MỘT bước: chỉ đọc header Location,
+    không tải thân file. Hỏng thì trả '' và trang rơi về mở link play/ ở tab mới."""
+    if "/aweme/v1/play" not in url:
+        return url if "douyinvod.com" in url else ""
+    try:
+        import httpx
+
+        async with httpx.AsyncClient(timeout=8, proxy=proxy, follow_redirects=False,
+                                     headers={"User-Agent": _UA}) as client:
+            r = await client.head(url)
+            if not (300 <= r.status_code < 400):
+                r = await client.get(url, headers={"Range": "bytes=0-0"})
+            loc = r.headers.get("location") or ""
+    except Exception:
+        return ""
+    host = loc.split("/")[2] if loc.startswith("https://") and loc.count("/") >= 3 else ""
+    return loc if host.endswith(".douyinvod.com") or host == "douyinvod.com" else ""
+
+
 async def resolve(text: str) -> Dict[str, Any]:
     link = pick_link(text)
     if not link:
@@ -87,7 +116,14 @@ async def resolve(text: str) -> Dict[str, Any]:
         kind = "images"
     else:
         # Cùng một video, nhiều đường CDN: đường đầu là chính, giữ thêm hai đường dự phòng.
-        media = [{"type": "video", "url": u} for u in urls[:3]]
+        # `direct` = link douyinvod.com để trình duyệt tải thẳng (xem _direct_video).
+        media = []
+        for u in urls[:3]:
+            m = {"type": "video", "url": u}
+            direct = await _direct_video(u, proxy)
+            if direct:
+                m["direct"] = direct
+            media.append(m)
         kind = "video"
     if not media:
         raise PublicSkillError("not_found", status=404)
