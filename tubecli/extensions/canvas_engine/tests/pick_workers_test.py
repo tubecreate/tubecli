@@ -81,5 +81,27 @@ finally:
     if C is not None and real_settings is not None:
         C.load_settings = real_settings
 
+print("── worker chết → thử lại với ít worker hơn, không rơi xuống PNG ──")
+# VPS 8 GB (21–22/9/2026): worker bị giết vì hết RAM → mã cũ chuyển sang «frames + CPU» (ghi từng khung PNG: đĩa +10–15 GB
+# mỗi 15 phút, chậm gấp nhiều lần, rồi lại chết) → 12 giờ được 48 %, đĩa 75 GB đầy trong nửa giờ.
+ok(VE._after_parallel_failure(3, [0, -9, None]) == ("retry", 1), "3 worker, một bị SIGKILL → thử lại với 1 (3 // 2)")
+ok(VE._after_parallel_failure(8, [1, 0, 0, 0, 0, 0, 0, 0]) == ("retry", 4), "8 worker, một lỗi thường → vẫn thử lại với 4 trước")
+ok(VE._after_parallel_failure(2, [137, 0]) == ("retry", 1), "2 worker, exit 137 (OOM) → thử lại với 1")
+ok(VE._after_parallel_failure(1, [-9]) == ("raise", None), "1 worker vẫn bị GIẾT → báo lỗi thẳng (thiếu RAM), KHÔNG ghi từng khung")
+ok(VE._after_parallel_failure(1, [137]) == ("raise", None), "exit 137 = bị giết")
+ok(VE._after_parallel_failure(1, [1]) == ("frames", None), "1 worker lỗi thường (không phải tín hiệu) → đường khung hình cũ")
+ok(VE._after_parallel_failure(1, [None]) == ("frames", None), "không biết mã thoát → đường cũ")
+
+print("── đĩa: trần bitrate chunk CPU + kiểm trước khi dựng ──────")
+src_enc = open(os.path.join(R, "engines", "video_encoder.py"), encoding="utf-8").read()
+ok('"-maxrate", f"{CPU_CHUNK_MAXRATE_MBPS}M"' in src_enc and '"veryfast"' in src_enc and 'chunk_preset = "libx264", "ultrafast"' not in src_enc,
+   "chunk CPU: veryfast + trần 12 Mbit/s (trước ultrafast crf 22 không trần → 60–90 Mbit/s cho tranh có vân giấy)")
+need_45min = VE._disk_need_mb(45 * 60 * 30)
+ok(10_000 <= need_45min <= 16_000, "video 45 phút cần ~12 GB đĩa (3 bản sao × 12 Mbit/s + 20 %)", need_45min)
+ok(VE._free_disk_mb(os.getcwd()) > 0 and VE._free_disk_mb(os.path.join(os.getcwd(), "khong", "co", "thu", "muc")) > 0,
+   "đo đĩa trống theo thư mục cha gần nhất có thật")
+ok("Not enough disk space" in src_enc and "_free_disk_mb(output_dir)" in src_enc, "kiểm đĩa TRƯỚC khi dựng, câu lỗi nói cần bao nhiêu")
+ok("workers_override=fewer" in src_enc and "retrying with {fewer}" in src_enc, "thử lại đi đúng đường pipe với số worker ép")
+
 print(f"\n{PASS}/{PASS + FAIL} PASS" if not FAIL else f"\n{PASS}/{PASS + FAIL} PASS — {FAIL} HỎNG")
 sys.exit(1 if FAIL else 0)

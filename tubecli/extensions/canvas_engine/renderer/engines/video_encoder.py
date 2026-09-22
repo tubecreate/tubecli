@@ -153,6 +153,45 @@ def _pick_workers(aspect_ratio: str = "9:16") -> int:
                     f"mỗi worker ~{need} MB) thay vì {by_cpu} theo số lõi.")
     return n
 
+# ── Worker chết giữa chừng: thử lại với ÍT worker hơn, KHÔNG rơi xuống chế độ ghi từng khung ────────────────
+# VPS 4 vCPU / 8 GB (21–22/9/2026): 3 worker → RAM 98 % → một worker bị giết (SIGKILL) → mã cũ dọn chunk rồi
+# «falling back to frames + CPU»: ghi TỪNG KHUNG PNG ra đĩa (10–15 GB mỗi 15 phút, đĩa 75 GB đầy trong nửa giờ), chậm
+# gấp nhiều lần, và trên cùng cái máy vừa hết RAM thì lại chết tiếp → vòng lặp 12 giờ tới 48 %, máy không trả lời.
+# Nay: còn > 1 worker thì thử lại đường pipe với một nửa số worker; 1 worker mà vẫn bị GIẾT (tín hiệu) thì báo lỗi
+# thẳng — chế độ khung hình chỉ còn cho lỗi KHÔNG phải tài nguyên ở 1 worker (đường cũ, hiếm).
+def _after_parallel_failure(num_workers: int, returncodes: List[Optional[int]]):
+    """('retry', k) | ('frames', None) | ('raise', None)."""
+    killed = any(rc is not None and (rc < 0 or rc in (137, 134, 139)) for rc in returncodes)
+    if num_workers > 1:
+        return ("retry", max(1, num_workers // 2))
+    if killed:
+        return ("raise", None)
+    return ("frames", None)
+
+
+# Chunk CPU nay bị chặn ≤ 12 Mbit/s (VBV) như chunk GPU (8M/12M): trước «ultrafast crf 22» cho tranh phủ khung có vân
+# giấy ra 60–90 Mbit/s → 45 phút video = ~30 GB chunk + bản ghép + bản mux = ~90 GB — đĩa VPS 75 GB không bao giờ đủ.
+CPU_CHUNK_MAXRATE_MBPS = 12
+_CHUNK_COPIES = 3               # chunk + raw_video (concat) + final (mux) cùng nằm trên đĩa một lúc
+
+
+def _disk_need_mb(total_frames: int, fps: int = 30) -> int:
+    """Đĩa cần cho một lượt dựng pipe (MB): thời lượng × trần bitrate × số bản sao, thêm 20 % dư."""
+    seconds = max(1.0, total_frames / max(1, fps))
+    return int(seconds * CPU_CHUNK_MAXRATE_MBPS / 8 * _CHUNK_COPIES * 1.2)
+
+
+def _free_disk_mb(path: str) -> int:
+    """Đĩa trống tại <path> (MB); 0 = không đo được → không chặn."""
+    try:
+        probe = path
+        while probe and not os.path.isdir(probe):
+            probe = os.path.dirname(probe)
+        return int(shutil.disk_usage(probe or os.getcwd()).free / 1048576)
+    except Exception:       # noqa: BLE001
+        return 0
+
+
 # Encoder presets for ffmpeg
 ENCODER_MAP = {
     "cpu":   {"codec": "libx264",    "preset": "fast",     "extra": ["-crf", "22", "-threads", "0"]},
@@ -601,8 +640,10 @@ async def _run_node_renderer(node_exe, ext_dir, cmd, env, progress_callback, pct
 
 async def _render_pipe(node_exe, ext_dir, script_path, timing_path, output_dir,
                        theme, bg_color, aspect_ratio, art_style, audio_path, final_video, env, progress_callback, gpu_encoder="nvenc",
-                       sub_args=None, proc_registry=None):
-    """PIPE MODE: render + encode in single step (fast). Uses multi-process chunk rendering."""
+                       sub_args=None, proc_registry=None, workers_override: int = 0):
+    """PIPE MODE: render + encode in single step (fast). Uses multi-process chunk rendering.
+
+    workers_override > 0: số worker ép cứng cho lượt THỬ LẠI sau khi một worker chết (xem _after_parallel_failure)."""
     import math
     sub_args = list(sub_args or [])      # ['--subtitle', '<json>'] hoặc []
     enc = ENCODER_MAP.get(gpu_encoder, ENCODER_MAP["nvenc"])
@@ -620,7 +661,14 @@ async def _render_pipe(node_exe, ext_dir, script_path, timing_path, output_dir,
     total_frames = math.ceil(total_duration * 30)
 
     # 2. Số worker theo SỨC MÁY THẬT (không chỉ số lõi)
-    num_workers = _pick_workers(aspect_ratio)
+    num_workers = workers_override if workers_override > 0 else _pick_workers(aspect_ratio)
+
+    need_mb, free_mb = _disk_need_mb(total_frames), _free_disk_mb(output_dir)
+    if free_mb and free_mb < need_mb:
+        raise RuntimeError(
+            f"Not enough disk space to assemble this video: about {need_mb // 1024 + 1} GB is needed for the temporary "
+            f"chunks and the final file, but only {free_mb // 1024} GB is free on the drive of {output_dir}. "
+            f"Free some space (old exports, canvas_jobs) and Retry.")
 
     # Fallback to single worker if total duration is extremely short (under 5 seconds)
     if total_frames < 150:
@@ -716,8 +764,9 @@ async def _render_pipe(node_exe, ext_dir, script_path, timing_path, output_dir,
                 # giật 1 khung ở đúng chỗ nối 2 chunk (hiếm nhưng có thật).
                 chunk_extra = list(enc.get("extra") or []) + ["-profile:v", "high"]
             else:
-                chunk_codec, chunk_preset = "libx264", "ultrafast"
-                chunk_extra = ["-crf", "22", "-threads", "2", "-profile:v", "high"]
+                chunk_codec, chunk_preset = "libx264", "veryfast"
+                chunk_extra = ["-crf", "23", "-maxrate", f"{CPU_CHUNK_MAXRATE_MBPS}M",
+                               "-bufsize", f"{CPU_CHUNK_MAXRATE_MBPS * 2}M", "-threads", "2", "-profile:v", "high"]
             cmd_w = [
                 node_exe, str(CANVAS_RENDERER_JS),
                 "--script", script_path,
@@ -805,12 +854,33 @@ async def _render_pipe(node_exe, ext_dir, script_path, timing_path, output_dir,
                     p.terminate()
                 except Exception:
                     pass
+            for p in procs:
+                try:
+                    await asyncio.wait_for(p.wait(), timeout=15)
+                except Exception:       # noqa: BLE001
+                    pass
             # Cleanup temp directory on error
             try:
                 shutil.rmtree(temp_dir, ignore_errors=True)
             except Exception:
                 pass
-            # Fallback to frames CPU mode
+            action, fewer = _after_parallel_failure(num_workers, [p.returncode for p in procs])
+            if action == "retry":
+                logger.warning(f"[Pipe] a render worker died with {num_workers} workers — retrying with {fewer} "
+                               f"(exit codes {[p.returncode for p in procs]}): {str(e)[:200]}")
+                if progress_callback:
+                    progress_callback(8, f"⚠️ A render worker died (out of memory?) — retrying with {fewer} worker(s)")
+                return await _render_pipe(
+                    node_exe, ext_dir, script_path, timing_path, output_dir,
+                    theme, bg_color, aspect_ratio, art_style, audio_path, final_video, env, progress_callback, gpu_encoder,
+                    sub_args=sub_args, proc_registry=proc_registry, workers_override=fewer,
+                )
+            if action == "raise":
+                raise RuntimeError(
+                    f"The render worker was killed by the system even with a single worker (exit codes "
+                    f"{[p.returncode for p in procs]}) — this machine does not have enough free memory for this video. "
+                    f"Close other programs or use a machine with more RAM, then Retry. Detail: {str(e)[:300]}") from e
+            # Fallback to frames CPU mode — chỉ cho lỗi KHÔNG phải tài nguyên ở 1 worker
             logger.warning("[Pipe] Parallel render failed, falling back to frames + CPU...")
             if progress_callback:
                 progress_callback(10, "⚠️ Parallel render failed, switching to CPU frames mode...")
