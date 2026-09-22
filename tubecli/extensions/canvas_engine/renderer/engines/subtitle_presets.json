@@ -1,0 +1,464 @@
+{
+  "version": 1,
+  "presets": [
+    {
+      "id": "capcut_bold",
+      "name": "CapCut Bold",
+      "desc": "Chữ trắng đậm, viền đen dày, từ đang đọc vàng — kiểu TikTok/CapCut kinh điển. Hợp mọi nền.",
+      "font": {
+        "family": "\"Be Vietnam Pro\", Montserrat, \"Segoe UI\", sans-serif",
+        "size": 58,
+        "weight": 800,
+        "uppercase": false,
+        "letterSpacing": 0,
+        "lineHeight": 1.15,
+        "maxLines": 2,
+        "maxCharsPerLine": 26
+      },
+      "color": {
+        "fill": "#ffffff",
+        "active": "#facc15",
+        "stroke": "#000000",
+        "strokeWidth": 6,
+        "shadow": {"color": "rgba(0,0,0,0.55)", "blur": 12, "dx": 0, "dy": 3},
+        "box": {"enabled": false, "fill": "rgba(0,0,0,0.45)", "radius": 16, "padX": 26, "padY": 14}
+      },
+      "layout": {"anchor": "bottom", "yPct": 0.82, "safePct": 0.06, "align": "center"},
+      "in": {"kind": "pop", "durMs": 180},
+      "out": {"kind": "fade", "durMs": 140},
+      "word": {"kind": "highlight", "amount": 0.12, "leadMs": 40}
+    },
+    {
+      "id": "karaoke_yellow",
+      "name": "Karaoke Vàng",
+      "desc": "Màu vàng quét đầy từng từ theo giọng đọc. Giữ mắt người xem cực tốt.",
+      "font": {
+        "family": "\"Be Vietnam Pro\", Montserrat, \"Segoe UI\", sans-serif",
+        "size": 56,
+        "weight": 800,
+        "uppercase": false,
+        "letterSpacing": 0,
+        "lineHeight": 1.18,
+        "maxLines": 2,
+        "maxCharsPerLine": 24
+      },
+      "color": {
+        "fill": "#ffffff",
+        "active": "#ffd400",
+        "stroke": "#101010",
+        "strokeWidth": 5,
+        "shadow": {"color": "rgba(0,0,0,0.5)", "blur": 10, "dx": 0, "dy": 2},
+        "box": {"enabled": false, "fill": "rgba(0,0,0,0.45)", "radius": 16, "padX": 26, "padY": 14}
+      },
+      "layout": {"anchor": "bottom", "yPct": 0.82, "safePct": 0.06, "align": "center"},
+      "in": {"kind": "fade", "durMs": 160},
+      "out": {"kind": "fade", "durMs": 140},
+      "word": {"kind": "box_wipe", "amount": 0.1, "leadMs": 60}
+    },
+    {
+      "id": "neon_glow",
+      "name": "Neon Glow",
+      "desc": "Chữ phát sáng neon, từ đang đọc loé xanh cyan. Hợp nền tối: neonsketch, cyberpunk.",
+      "font": {
+        "family": "\"Be Vietnam Pro\", Montserrat, \"Segoe UI\", sans-serif",
+        "size": 54,
+        "weight": 800,
+        "uppercase": false,
+        "letterSpacing": 1,
+        "lineHeight": 1.2,
+        "maxLines": 2,
+        "maxCharsPerLine": 24
+      },
+      "color": {
+        "fill": "#ffffff",
+        "active": "#22d3ee",
+        "stroke": "#06121a",
+        "strokeWidth": 3,
+        "shadow": {"color": "rgba(34,211,238,0.75)", "blur": 28, "dx": 0, "dy": 0},
+        "box": {"enabled": false, "fill": "rgba(3,16,24,0.45)", "radius": 12, "padX": 24, "padY": 12}
+      },
+      "layout": {"anchor": "bottom", "yPct": 0.82, "safePct": 0.06, "align": "center"},
+      "in": {"kind": "blur_in", "durMs": 220},
+      "out": {"kind": "fade", "durMs": 180},
+      "word": {"kind": "glow", "amount": 0.2, "leadMs": 50}
+    },
+    {
+      "id": "minimal_mono",
+      "name": "Minimal Mono",
+      "desc": "Tối giản: chữ trắng mảnh, không hộp, chuyển động rất nhẹ. Hợp Math Noir (bảng đen).",
+      "font": {
+        "family": "\"Be Vietnam Pro\", \"Segoe UI\", sans-serif",
+        "size": 46,
+        "weight": 500,
+        "uppercase": false,
+        "letterSpacing": 0.6,
+        "lineHeight": 1.3,
+        "maxLines": 2,
+        "maxCharsPerLine": 28
+      },
+      "color": {
+        "fill": "#e8e8ea",
+        "active": "#facc15",
+        "stroke": "#000000",
+        "strokeWidth": 0,
+        "shadow": {"color": "rgba(0,0,0,0.6)", "blur": 10, "dx": 0, "dy": 2},
+        "box": {"enabled": false, "fill": "rgba(0,0,0,0.4)", "radius": 10, "padX": 22, "padY": 12}
+      },
+      "layout": {"anchor": "bottom", "yPct": 0.82, "safePct": 0.06, "align": "center"},
+      "in": {"kind": "fade", "durMs": 240},
+      "out": {"kind": "fade", "durMs": 200},
+      "word": {"kind": "highlight", "amount": 0.06, "leadMs": 30}
+    },
+    {
+      "id": "paper_ink",
+      "name": "Paper Ink",
+      "desc": "Mực đậm trên giấy ấm, quầng trắng mỏng, gạch chân cam ở từ đang đọc. Hợp nền SÁNG.",
+      "font": {
+        "family": "\"Be Vietnam Pro\", \"Segoe UI\", sans-serif",
+        "size": 52,
+        "weight": 700,
+        "uppercase": false,
+        "letterSpacing": 0,
+        "lineHeight": 1.22,
+        "maxLines": 2,
+        "maxCharsPerLine": 26
+      },
+      "color": {
+        "fill": "#211a12",
+        "active": "#e8590c",
+        "stroke": "#fdf8f0",
+        "strokeWidth": 4,
+        "shadow": {"color": "rgba(33,26,18,0.22)", "blur": 8, "dx": 0, "dy": 2},
+        "box": {"enabled": false, "fill": "rgba(253,248,240,0.78)", "radius": 14, "padX": 26, "padY": 14}
+      },
+      "layout": {"anchor": "bottom", "yPct": 0.82, "safePct": 0.06, "align": "center"},
+      "in": {"kind": "fade", "durMs": 200},
+      "out": {"kind": "fade", "durMs": 160},
+      "word": {"kind": "underline", "amount": 0.1, "leadMs": 40}
+    },
+    {
+      "id": "tech_chip",
+      "name": "Tech Chip",
+      "desc": "Hộp than chì bo góc + từ đang đọc xanh cyan. Hợp Tech Dark, đọc rõ trên nền lưới.",
+      "font": {
+        "family": "\"Be Vietnam Pro\", \"Segoe UI\", sans-serif",
+        "size": 48,
+        "weight": 600,
+        "uppercase": false,
+        "letterSpacing": 0.4,
+        "lineHeight": 1.2,
+        "maxLines": 2,
+        "maxCharsPerLine": 28
+      },
+      "color": {
+        "fill": "#e7ebef",
+        "active": "#22d3ee",
+        "stroke": "#000000",
+        "strokeWidth": 0,
+        "shadow": {"color": "rgba(0,0,0,0.45)", "blur": 10, "dx": 0, "dy": 3},
+        "box": {"enabled": true, "fill": "rgba(10,13,16,0.78)", "radius": 14, "padX": 26, "padY": 14}
+      },
+      "layout": {"anchor": "bottom", "yPct": 0.82, "safePct": 0.06, "align": "center"},
+      "in": {"kind": "slide_up", "durMs": 200},
+      "out": {"kind": "fade", "durMs": 150},
+      "word": {"kind": "highlight", "amount": 0.1, "leadMs": 40}
+    },
+    {
+      "id": "typewriter",
+      "name": "Typewriter",
+      "desc": "Gõ máy chữ: hiện dần từng ký tự, phông mono. Hợp giải thích kỹ thuật, code.",
+      "font": {
+        "family": "\"JetBrains Mono\", Consolas, \"Be Vietnam Pro\", monospace",
+        "size": 46,
+        "weight": 600,
+        "uppercase": false,
+        "letterSpacing": 1.2,
+        "lineHeight": 1.3,
+        "maxLines": 2,
+        "maxCharsPerLine": 28
+      },
+      "color": {
+        "fill": "#ffffff",
+        "active": "#ffffff",
+        "stroke": "#000000",
+        "strokeWidth": 4,
+        "shadow": {"color": "rgba(0,0,0,0.5)", "blur": 8, "dx": 0, "dy": 2},
+        "box": {"enabled": false, "fill": "rgba(0,0,0,0.45)", "radius": 12, "padX": 24, "padY": 12}
+      },
+      "layout": {"anchor": "bottom", "yPct": 0.82, "safePct": 0.06, "align": "center"},
+      "in": {"kind": "typewriter", "durMs": 420},
+      "out": {"kind": "fade", "durMs": 120},
+      "word": {"kind": "none", "amount": 0, "leadMs": 0}
+    },
+    {
+      "id": "bubble_box",
+      "name": "Bubble Box",
+      "desc": "Bong bóng trắng bo tròn, chữ nảy theo từng từ. Vui mắt, hợp Cartoon / Pastel.",
+      "font": {
+        "family": "\"Be Vietnam Pro\", Fredoka, \"Segoe UI\", sans-serif",
+        "size": 50,
+        "weight": 700,
+        "uppercase": false,
+        "letterSpacing": 0,
+        "lineHeight": 1.2,
+        "maxLines": 2,
+        "maxCharsPerLine": 22
+      },
+      "color": {
+        "fill": "#1a1a2e",
+        "active": "#ff2d78",
+        "stroke": "#ffffff",
+        "strokeWidth": 0,
+        "shadow": {"color": "rgba(0,0,0,0.18)", "blur": 10, "dx": 0, "dy": 4},
+        "box": {"enabled": true, "fill": "rgba(255,255,255,0.94)", "radius": 30, "padX": 30, "padY": 16}
+      },
+      "layout": {"anchor": "bottom", "yPct": 0.82, "safePct": 0.06, "align": "center"},
+      "in": {"kind": "pop", "durMs": 220},
+      "out": {"kind": "fade", "durMs": 150},
+      "word": {"kind": "bounce", "amount": 0.18, "leadMs": 50}
+    },
+    {
+      "id": "slide_up_clean",
+      "name": "Slide Up Clean",
+      "desc": "Trượt lên gọn gàng rồi trượt xuống. Trắng đậm, viền mảnh, không hộp — sạch sẽ.",
+      "font": {
+        "family": "\"Be Vietnam Pro\", \"Segoe UI\", sans-serif",
+        "size": 52,
+        "weight": 700,
+        "uppercase": false,
+        "letterSpacing": 0.2,
+        "lineHeight": 1.2,
+        "maxLines": 2,
+        "maxCharsPerLine": 26
+      },
+      "color": {
+        "fill": "#ffffff",
+        "active": "#93c5fd",
+        "stroke": "#0a0a0a",
+        "strokeWidth": 4,
+        "shadow": {"color": "rgba(0,0,0,0.45)", "blur": 12, "dx": 0, "dy": 3},
+        "box": {"enabled": false, "fill": "rgba(0,0,0,0.45)", "radius": 16, "padX": 26, "padY": 14}
+      },
+      "layout": {"anchor": "bottom", "yPct": 0.82, "safePct": 0.06, "align": "center"},
+      "in": {"kind": "slide_up", "durMs": 220},
+      "out": {"kind": "slide_down", "durMs": 180},
+      "word": {"kind": "scale_bump", "amount": 0.08, "leadMs": 40}
+    },
+    {
+      "id": "big_impact",
+      "name": "Big Impact",
+      "desc": "Cỡ đại, in hoa, 2–3 từ mỗi lần. Đấm mạnh vào mắt — dùng cho hook và câu chốt.",
+      "font": {
+        "family": "\"Be Vietnam Pro\", Montserrat, \"Segoe UI\", sans-serif",
+        "size": 68,
+        "weight": 800,
+        "uppercase": true,
+        "letterSpacing": 0.5,
+        "lineHeight": 1.05,
+        "maxLines": 1,
+        "maxCharsPerLine": 18
+      },
+      "color": {
+        "fill": "#ffffff",
+        "active": "#ff2d55",
+        "stroke": "#000000",
+        "strokeWidth": 8,
+        "shadow": {"color": "rgba(0,0,0,0.6)", "blur": 14, "dx": 0, "dy": 4},
+        "box": {"enabled": false, "fill": "rgba(0,0,0,0.45)", "radius": 16, "padX": 26, "padY": 14}
+      },
+      "layout": {"anchor": "bottom", "yPct": 0.76, "safePct": 0.06, "align": "center"},
+      "in": {"kind": "pop", "durMs": 160},
+      "out": {"kind": "fade", "durMs": 120},
+      "word": {"kind": "scale_bump", "amount": 0.16, "leadMs": 30}
+    },
+    {
+      "id": "gradient_sweep",
+      "name": "Gradient Sweep",
+      "desc": "Dải sáng hồng quét ngang qua từng từ. Sang, hợp nền tối và nhạc nền mạnh.",
+      "font": {
+        "family": "\"Be Vietnam Pro\", Montserrat, \"Segoe UI\", sans-serif",
+        "size": 56,
+        "weight": 800,
+        "uppercase": false,
+        "letterSpacing": 0.3,
+        "lineHeight": 1.18,
+        "maxLines": 2,
+        "maxCharsPerLine": 24
+      },
+      "color": {
+        "fill": "#ffffff",
+        "active": "#f472b6",
+        "stroke": "#14061a",
+        "strokeWidth": 4,
+        "shadow": {"color": "rgba(244,114,182,0.45)", "blur": 20, "dx": 0, "dy": 2},
+        "box": {"enabled": false, "fill": "rgba(20,6,26,0.45)", "radius": 16, "padX": 26, "padY": 14}
+      },
+      "layout": {"anchor": "bottom", "yPct": 0.82, "safePct": 0.06, "align": "center"},
+      "in": {"kind": "fade", "durMs": 200},
+      "out": {"kind": "fade", "durMs": 160},
+      "word": {"kind": "box_wipe", "amount": 0.22, "leadMs": 70}
+    },
+    {
+      "id": "underline_pop",
+      "name": "Underline Pop",
+      "desc": "Gạch chân bật lên dưới từ đang đọc. Sạch sẽ, kiểu giảng bài, không loè loẹt.",
+      "font": {
+        "family": "\"Be Vietnam Pro\", \"Segoe UI\", sans-serif",
+        "size": 52,
+        "weight": 700,
+        "uppercase": false,
+        "letterSpacing": 0,
+        "lineHeight": 1.22,
+        "maxLines": 2,
+        "maxCharsPerLine": 26
+      },
+      "color": {
+        "fill": "#ffffff",
+        "active": "#34d399",
+        "stroke": "#000000",
+        "strokeWidth": 5,
+        "shadow": {"color": "rgba(0,0,0,0.5)", "blur": 10, "dx": 0, "dy": 3},
+        "box": {"enabled": false, "fill": "rgba(0,0,0,0.45)", "radius": 16, "padX": 26, "padY": 14}
+      },
+      "layout": {"anchor": "bottom", "yPct": 0.82, "safePct": 0.06, "align": "center"},
+      "in": {"kind": "pop", "durMs": 180},
+      "out": {"kind": "fade", "durMs": 140},
+      "word": {"kind": "underline", "amount": 0.14, "leadMs": 40}
+    },
+    {
+      "id": "bounce_word",
+      "name": "Bounce Word",
+      "desc": "Từ đang đọc nảy lên theo nhịp. Năng lượng cao, hợp video ngắn giữ chân.",
+      "font": {
+        "family": "\"Be Vietnam Pro\", Montserrat, \"Segoe UI\", sans-serif",
+        "size": 54,
+        "weight": 800,
+        "uppercase": false,
+        "letterSpacing": 0,
+        "lineHeight": 1.2,
+        "maxLines": 2,
+        "maxCharsPerLine": 24
+      },
+      "color": {
+        "fill": "#ffffff",
+        "active": "#fbbf24",
+        "stroke": "#000000",
+        "strokeWidth": 6,
+        "shadow": {"color": "rgba(0,0,0,0.55)", "blur": 12, "dx": 0, "dy": 3},
+        "box": {"enabled": false, "fill": "rgba(0,0,0,0.45)", "radius": 16, "padX": 26, "padY": 14}
+      },
+      "layout": {"anchor": "bottom", "yPct": 0.82, "safePct": 0.06, "align": "center"},
+      "in": {"kind": "pop", "durMs": 200},
+      "out": {"kind": "fade", "durMs": 140},
+      "word": {"kind": "bounce", "amount": 0.22, "leadMs": 60}
+    },
+    {
+      "id": "shadow_soft",
+      "name": "Shadow Soft",
+      "desc": "Không viền, chỉ bóng mềm. Chữ dịu mắt, hợp nền ảnh và nền chuyển động nhiều.",
+      "font": {
+        "family": "\"Be Vietnam Pro\", \"Segoe UI\", sans-serif",
+        "size": 50,
+        "weight": 600,
+        "uppercase": false,
+        "letterSpacing": 0.2,
+        "lineHeight": 1.25,
+        "maxLines": 2,
+        "maxCharsPerLine": 28
+      },
+      "color": {
+        "fill": "#ffffff",
+        "active": "#ffe066",
+        "stroke": "#000000",
+        "strokeWidth": 0,
+        "shadow": {"color": "rgba(0,0,0,0.75)", "blur": 22, "dx": 0, "dy": 4},
+        "box": {"enabled": false, "fill": "rgba(0,0,0,0.45)", "radius": 16, "padX": 26, "padY": 14}
+      },
+      "layout": {"anchor": "bottom", "yPct": 0.82, "safePct": 0.06, "align": "center"},
+      "in": {"kind": "fade", "durMs": 260},
+      "out": {"kind": "fade", "durMs": 220},
+      "word": {"kind": "highlight", "amount": 0.08, "leadMs": 40}
+    },
+    {
+      "id": "boxed_dark",
+      "name": "Boxed Dark",
+      "desc": "Hộp đen đặc kiểu phụ đề phim. An toàn nhất: đọc rõ trên bất kỳ nền nào.",
+      "font": {
+        "family": "\"Be Vietnam Pro\", \"Segoe UI\", sans-serif",
+        "size": 46,
+        "weight": 600,
+        "uppercase": false,
+        "letterSpacing": 0.2,
+        "lineHeight": 1.28,
+        "maxLines": 2,
+        "maxCharsPerLine": 28
+      },
+      "color": {
+        "fill": "#f5f7f9",
+        "active": "#fbbf24",
+        "stroke": "#000000",
+        "strokeWidth": 0,
+        "shadow": {"color": "rgba(0,0,0,0.35)", "blur": 6, "dx": 0, "dy": 2},
+        "box": {"enabled": true, "fill": "rgba(0,0,0,0.72)", "radius": 8, "padX": 24, "padY": 14}
+      },
+      "layout": {"anchor": "bottom", "yPct": 0.84, "safePct": 0.06, "align": "center"},
+      "in": {"kind": "fade", "durMs": 180},
+      "out": {"kind": "fade", "durMs": 140},
+      "word": {"kind": "highlight", "amount": 0.08, "leadMs": 40}
+    },
+    {
+      "id": "outline_only",
+      "name": "Outline Only",
+      "desc": "Chữ rỗng viền trắng, từ đang đọc được tô đầy vàng. Độc, rất CapCut.",
+      "font": {
+        "family": "\"Be Vietnam Pro\", Montserrat, \"Segoe UI\", sans-serif",
+        "size": 58,
+        "weight": 800,
+        "uppercase": false,
+        "letterSpacing": 0.4,
+        "lineHeight": 1.18,
+        "maxLines": 2,
+        "maxCharsPerLine": 24
+      },
+      "color": {
+        "fill": "rgba(0,0,0,0.28)",
+        "active": "#facc15",
+        "stroke": "#ffffff",
+        "strokeWidth": 5,
+        "shadow": {"color": "rgba(0,0,0,0.5)", "blur": 12, "dx": 0, "dy": 3},
+        "box": {"enabled": false, "fill": "rgba(0,0,0,0.45)", "radius": 16, "padX": 26, "padY": 14}
+      },
+      "layout": {"anchor": "bottom", "yPct": 0.82, "safePct": 0.06, "align": "center"},
+      "in": {"kind": "pop", "durMs": 200},
+      "out": {"kind": "fade", "durMs": 150},
+      "word": {"kind": "highlight", "amount": 0.14, "leadMs": 40}
+    },
+    {
+      "id": "jp_telop",
+      "name": "JP Telop",
+      "desc": "Kiểu chữ của video giải thích Nhật: chữ gothic to, mực đen viền sáng, KHÔNG đổi màu theo từ; câu tách đôi quanh hình — dòng đầu ở đỉnh khung, phần còn lại (tối đa 2 dòng) ở đáy. Chọn cỡ chữ «rất lớn» để ra chữ cỡ đại.",
+      "font": {
+        "family": "\"Yu Gothic\", \"YuGothic\", \"Hiragino Kaku Gothic ProN\", \"Noto Sans CJK JP\", Meiryo, \"Be Vietnam Pro\", \"Segoe UI\", sans-serif",
+        "size": 88,
+        "weight": 800,
+        "uppercase": false,
+        "letterSpacing": 1,
+        "lineHeight": 1.2,
+        "maxLines": 3,
+        "maxCharsPerLine": 24
+      },
+      "color": {
+        "fill": "#14110d",
+        "active": "#14110d",
+        "stroke": "#fbf5e6",
+        "strokeWidth": 12,
+        "shadow": {"color": "rgba(0,0,0,0.55)", "blur": 14, "dx": 0, "dy": 4},
+        "box": {"enabled": false, "fill": "rgba(0,0,0,0.45)", "radius": 12, "padX": 24, "padY": 12}
+      },
+      "layout": {"anchor": "bottom", "yPct": 0.9, "safePct": 0.09, "align": "center", "split": true, "splitTopPct": 0.055},
+      "in": {"kind": "fade", "durMs": 120},
+      "out": {"kind": "fade", "durMs": 100},
+      "word": {"kind": "none", "amount": 0, "leadMs": 0}
+    }
+  ]
+}

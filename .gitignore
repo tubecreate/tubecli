@@ -120,3 +120,6 @@ cloud/tubecli-scripts/
 # screenshots/*.png rule above still keeps ad-hoc local captures out.
 !screenshots/dashboard.png
 _tmp_tests/
+
+# Canvas Engine (built-in): font CJK tự tải được chép vào static/ trên Windows — thứ máy tự sinh
+tubecli/extensions/canvas_engine/renderer/static/Noto*

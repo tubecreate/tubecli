@@ -1,0 +1,8 @@
+{
+  "name": "canvas-engine-renderer",
+  "private": true,
+  "description": "node-canvas for TubeCLI Canvas Engine",
+  "dependencies": {
+    "canvas": "^3.2.3"
+  }
+}

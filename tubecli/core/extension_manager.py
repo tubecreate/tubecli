@@ -397,6 +397,10 @@ class ExtensionManager:
         # video_processing.input_file, so "fetch a clip then trim it" — the
         # commonest video request — works without a Marketplace step.
         "tubecli.extensions.video_downloader",
+        # Bộ dựng canvas (node-canvas + ffmpeg) của dây chuyền «Diễn giải» — nằm trong
+        # lõi từ 22/9/2026 để cập nhật cùng hệ thống; trước là gói riêng trên Chợ nên máy
+        # cài Content Studio xong vẫn thiếu bộ dựng. Gói Chợ canvas_eng còn cho lõi cũ.
+        "tubecli.extensions.canvas_engine",
         # NOTE: capcut_tts is now an EXTERNAL extension (its own repo,
         # tubecli-ext-capcut-tts) installed via "Install from Git", not a
         # built-in. It is deliberately not listed here.

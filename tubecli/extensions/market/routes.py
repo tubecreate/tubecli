@@ -504,6 +504,24 @@ def _make_install_id(name: str, public_id: str = "") -> str:
     return name.replace(" ", "_").lower()
 
 
+def _builtin_extension(name: str):
+    """Extension hệ thống (nằm trong lõi) có tên khớp tên trên Chợ, hay None."""
+    try:
+        from tubecli.core.extension_manager import extension_manager
+    except Exception:       # noqa: BLE001
+        return None
+    want = (name or "").replace(" ", "").replace("_", "").replace("-", "").lower()
+    if not want:
+        return None
+    for ext_name, ext in list(getattr(extension_manager, "_extensions", {}).items()):
+        if getattr(ext, "extension_type", "") != "system":
+            continue
+        have = str(ext_name or "").replace(" ", "").replace("_", "").replace("-", "").lower()
+        if have == want:
+            return ext
+    return None
+
+
 def _check_item_installed(public_id: str, name: str, category: str) -> dict:
     """Check if an item is already installed locally.
     For extensions: scans all folders by NAME to prevent duplicates (regardless of public_id).
@@ -571,6 +589,14 @@ def _check_item_installed(public_id: str, name: str, category: str) -> dict:
         wf_path = os.path.join(str(DATA_DIR), "workflows", f"{install_id}.json")
         installed = os.path.isfile(wf_path)
         install_path = wf_path
+
+    if not installed and category == "extension":
+        # Extension NẰM TRONG LÕI (Canvas Engine từ 22/9/2026): Chợ vẫn có gói cùng tên cho lõi cũ. Máy này coi nó
+        # là đã cài — không hiện nút Cài, và install_from_market từ chối cài đè (nó cập nhật cùng lõi).
+        builtin = _builtin_extension(name)
+        if builtin is not None:
+            installed = True
+            install_path = str(getattr(builtin, "extension_dir", "") or "")
 
     if installed and category == "extension" and install_path:
         manifest_file = os.path.join(install_path, "tubecli-extension.json")
@@ -816,6 +842,15 @@ async def install_from_market(public_id: str, req: MarketInstallRequest):
                 "already_installed": True,
                 "path": check["path"],
             },
+        )
+
+    if category == "extension" and _builtin_extension(req.item_name) is not None:
+        raise HTTPException(
+            409,
+            detail={"message": (f"'{req.item_name}' is built into this TubeCLI and updates together with it — "
+                                "nothing to install from the Market."),
+                    "already_installed": True, "builtin": True,
+                    "path": str(getattr(_builtin_extension(req.item_name), "extension_dir", "") or "")},
         )
 
     if category == "extension":
