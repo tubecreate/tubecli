@@ -98,6 +98,13 @@ AI_PROTECTED_DATA_SUBDIRS = ["groups",
                              # even encrypted, so every provider key was one
                              # read away.
                              "cloud_api_keys.json",
+                             # Khoá ký Agent Town + mã chủ. Route HTTP đã thôi phát
+                             # chúng (api/instance_routes.py), đường đọc file phải đóng
+                             # theo — không thì chỉ là đổi cửa.
+                             "cloud_identity.json",
+                             # Cài đặt agent công khai: agent tự sửa được file này là
+                             # agent tự bật mình ra cho người lạ, tự nâng trần lượt.
+                             "public_agents.json",
                              os.path.join("extensions_data", "capcut_tts"),
                              # Reserved for the Database Manager extension:
                              # connection passwords live here.

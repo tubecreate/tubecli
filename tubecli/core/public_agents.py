@@ -164,7 +164,7 @@ def _clean_text(v: Any, limit: int) -> str:
     return _CTRL_RE.sub(" ", str(v or "")).strip()[:limit]
 
 
-def normalise(raw: Dict[str, Any], agent_name: str = "") -> Dict[str, Any]:
+def normalise(raw: Dict[str, Any], agent_name: str = "", old: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Chuẩn hoá thứ chủ gửi lên. Sai dạng → ValueError với mã ổn định để trang dịch."""
     name = _clean_text(raw.get("name"), 32) or _clean_text(agent_name, 32)
     if not _NAME_RE.match(name):
@@ -181,9 +181,17 @@ def normalise(raw: Dict[str, Any], agent_name: str = "") -> Dict[str, Any]:
     enabled = bool(raw.get("enabled"))
     if enabled and not skills:
         raise ValueError("no_skills")
-    vis = str(raw.get("visibility") or DEFAULT_VISIBILITY).strip().lower()
-    if vis not in VISIBILITIES:
-        vis = DEFAULT_VISIBILITY
+    # Không gửi trường → giữ nguyên thứ đang lưu (mặc định cho agent mới là công khai).
+    # Gửi chữ lạ → công khai, KHÔNG đoán là riêng tư: đoán sai kiểu đó làm agent đang
+    # chạy của người ta biến mất khỏi phố.
+    if "visibility" in raw:
+        vis = str(raw.get("visibility") or DEFAULT_VISIBILITY).strip().lower()
+        if vis not in VISIBILITIES:
+            vis = DEFAULT_VISIBILITY
+    else:
+        vis = str((old or {}).get("visibility") or DEFAULT_VISIBILITY).strip().lower()
+        if vis not in VISIBILITIES:
+            vis = DEFAULT_VISIBILITY
     out = {
         "enabled": enabled,
         "visibility": vis,
@@ -244,9 +252,9 @@ def get_settings(agent_id: str) -> Dict[str, Any]:
 
 
 def set_settings(agent_id: str, raw: Dict[str, Any], agent_name: str = "") -> Dict[str, Any]:
-    clean = normalise(raw, agent_name)
     with _lock:
         data = _load_all()
+        clean = normalise(raw, agent_name, data.get(str(agent_id)))
         data[str(agent_id)] = clean
         _save_all(data)
     _pusher.kick()
@@ -291,8 +299,12 @@ def owner_caller() -> str:
 
 
 def _visible_to(st: Dict[str, Any], caller: str) -> bool:
-    """Agent công khai: ai cũng gọi được. Agent riêng tư: chỉ chủ tài khoản cloud."""
-    if str(st.get("visibility") or DEFAULT_VISIBILITY) != "private":
+    """Agent công khai: ai cũng gọi được. Còn lại: chỉ chủ tài khoản cloud.
+
+    Danh sách CHO PHÉP, cố ý: chỉ đúng chữ "public" mới mở. Viết `!= "private"` thì một
+    chữ lạ trong file cài đặt (viết hoa, thừa dấu cách, ai đó sửa tay) lại mở agent ra
+    cho người lạ — khoá mà hỏng thì phải đóng."""
+    if str(st.get("visibility") or DEFAULT_VISIBILITY).strip().lower() == "public":
         return True
     own = owner_caller()
     return bool(own) and hmac.compare_digest(str(caller or ""), own)

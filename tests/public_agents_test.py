@@ -54,6 +54,11 @@ from tubecli.core import town_telemetry  # noqa: E402
 
 tmp = tempfile.mkdtemp(prefix="pa-test-")
 pa._path = lambda: os.path.join(tmp, "public_agents.json")
+# Danh tính cloud cũng phải nằm trong thư mục tạm. Quên dòng này thì bài test GHI ĐÈ
+# data/cloud_identity.json THẬT: máy mất khoá ký Agent Town, và khoá thay thế là một
+# hằng nằm trong repo — ai đọc mã nguồn cũng ký được lượt gọi vào máy đó.
+from tubecli.core import cloud_identity as _ci  # noqa: E402
+_ci._path = lambda: os.path.join(tmp, "cloud_identity.json")
 KEY = "a" * 48
 IDENT = {"server_code": "abc234", "town_key": KEY}
 pa._identity = lambda: {"code": IDENT["server_code"], "key": IDENT["town_key"]}
@@ -458,7 +463,7 @@ async def _instance_identity():
     return await instance_routes.get_cloud_identity()
 
 
-from tubecli.core import cloud_identity  # noqa: E402
+cloud_identity = _ci      # đã chuyển hướng _path sang thư mục tạm ở đầu file
 
 
 def _fails(fn):
@@ -481,6 +486,8 @@ check("không có trường → công khai",
 OWNER = "abcdef012345"
 GUEST = "0123456789ab"
 cloud_identity.save("tuan89tk", "k7m2qx", "a" * 48, OWNER)
+check("bài test KHÔNG đụng vào data/cloud_identity.json thật",
+      cloud_identity._path().startswith(tmp), cloud_identity._path())
 check("máy cất được mã chủ", cloud_identity.load().get("owner") == OWNER)
 check("mã chủ sai dạng → từ chối", _fails(lambda: cloud_identity.save("tuan89tk", "k7m2qx", None, "kh0ng-ph41-hex!")))
 check("truyền None thì GIỮ mã chủ đang có (cloud cũ không gửi trường này)",
@@ -513,8 +520,30 @@ check("máy CHƯA biết mã chủ → agent riêng tư từ chối cả chủ (
       run({"agent": h1, "skill": "douyin.resolve", "input": "x", "caller": OWNER}) == ("agent_not_public", 404))
 cloud_identity.save("tuan89tk", "k7m2qx", None, OWNER)
 
-# Trả agent về công khai cho các mục sau
+# KHÔNG gửi visibility = giữ nguyên. Lượt này agent đang riêng tư, nên nó VẪN riêng tư
+# — đúng luật, và cũng là cái bẫy mà một client cũ sẽ rơi vào nếu luật ngược lại.
 pa.set_settings("ag-1", {"enabled": True, "name": "Douyin Helper", "skills": ["douyin.resolve"], "daily_cap": 50})
+check("PUT thiếu visibility KHÔNG lật agent riêng tư ra công khai",
+      pa.get_settings("ag-1").get("visibility") == "private", pa.get_settings("ag-1"))
+check("và vẫn từ chối người lạ",
+      run({"agent": h1, "skill": "douyin.resolve", "input": "x", "caller": GUEST}) == ("agent_not_public", 404))
+
+# Ca fail-closed THẬT: máy chưa có mã chủ VÀ lượt gọi không kèm mã người gọi.
+# hmac.compare_digest("", "") là True, nên nếu thiếu `bool(own) and` thì chỗ này MỞ.
+cloud_identity.save("tuan89tk", "k7m2qx", None, "")
+check("chưa có mã chủ + không có mã người gọi → vẫn TỪ CHỐI (hai chuỗi rỗng không phải là khớp)",
+      run({"agent": h1, "skill": "douyin.resolve", "input": "x"}) == ("agent_not_public", 404))
+check("chữ lạ ở visibility cũng bị coi là riêng tư (khoá hỏng thì đóng)",
+      pa.set_settings("ag-1", {"enabled": True, "name": "Douyin Helper", "skills": ["douyin.resolve"],
+                               "visibility": "public"}) is not None
+      and pa._visible_to({"visibility": "Private"}, "") is False)
+cloud_identity.save("tuan89tk", "k7m2qx", None, OWNER)
+
+# Giờ mới trả về công khai — phải NÓI RÕ
+pa.set_settings("ag-1", {"enabled": True, "name": "Douyin Helper", "skills": ["douyin.resolve"],
+                         "visibility": "public", "daily_cap": 50})
+check("nói rõ công khai thì mới thành công khai",
+      pa.get_settings("ag-1").get("visibility") == "public")
 reports.clear()
 check("agent CÔNG KHAI vẫn vẽ lên bản đồ như trước",
       run({"agent": h1, "skill": "douyin.resolve", "input": "x", "caller": GUEST})[0] == "ok"

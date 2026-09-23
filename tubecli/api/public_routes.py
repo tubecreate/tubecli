@@ -34,8 +34,10 @@ def _require_owner(request: Request) -> None:
 
 class PublicAgentSettings(BaseModel):
     enabled: bool = False
-    # "public" | "private" — xem VISIBILITIES trong core/public_agents.py
-    visibility: str = "public"
+    # "public" | "private" — xem VISIBILITIES trong core/public_agents.py.
+    # None = KHÔNG gửi = giữ nguyên thứ đang lưu. Mặc định "public" ở đây thì một client
+    # chưa biết tới trường này sẽ âm thầm mở agent riêng tư ra cho người lạ.
+    visibility: Optional[str] = None
     name: str = ""
     bio: str = ""
     skills: List[str] = []
@@ -84,7 +86,9 @@ async def put_public_agent(agent_id: str, req: PublicAgentSettings, request: Req
     if not agent:
         raise HTTPException(404, "agent not found")
     try:
-        saved = public_agents.set_settings(agent_id, req.dict(), agent.name)
+        # exclude_none: trường không gửi thì không có mặt trong dict, để normalise()
+        # biết đường giữ nguyên giá trị cũ.
+        saved = public_agents.set_settings(agent_id, req.dict(exclude_none=True), agent.name)
     except ValueError as e:
         # mã ổn định để trang tự dịch (pa.err.<code>)
         return JSONResponse(status_code=400, content={"error": str(e), "code": str(e)})

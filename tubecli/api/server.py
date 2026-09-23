@@ -157,6 +157,27 @@ def _read_key_authorised(request: Request) -> bool:
     return auth.scraped_read_token_valid(_read_key_from(request))
 
 
+def _is_protected_secret(path: str) -> bool:
+    """Đường dẫn này có trỏ vào một file bí mật trong data/ không.
+
+    Dùng lại đúng danh sách và đúng bộ so đường dẫn của file_manager — chép lại danh
+    sách ở đây là cách hai bên lệch nhau sau vài tháng."""
+    try:
+        from tubecli.extensions.file_manager.file_service import (
+            AI_PROTECTED_DATA_SUBDIRS, FileService,
+        )
+        from tubecli.config import DATA_DIR
+        import os
+
+        target = os.path.abspath(str(path or ""))
+        roots = {os.path.abspath(str(DATA_DIR)), os.path.abspath(os.environ.get("TUBECLI_DATA_DIR", "data"))}
+        return any(FileService._under(target, os.path.join(root, sub))
+                   for root in roots for sub in AI_PROTECTED_DATA_SUBDIRS)
+    except Exception:      # noqa: BLE001
+        # Không dựng được danh sách thì ĐÓNG: đây là đường của người ngoài.
+        return True
+
+
 async def _guest_allowed(request: Request, scope: dict) -> bool:
     """Guest (workspace được chia sẻ có phạm vi) có được chạm path này không?
 
@@ -236,6 +257,12 @@ async def _guest_allowed(request: Request, scope: dict) -> bool:
         from tubecli.core import auth
         vals = request.query_params.getlist("path")
         if not vals:
+            return False
+        # Bí mật trong data/ thì KHÔNG, dù nằm trong thư mục đã chia sẻ: cùng danh sách
+        # đã chặn agent AI (file_manager/file_service.AI_PROTECTED_DATA_SUBDIRS), vì cùng
+        # một lý do — `data/` là thư mục làm việc bình thường, còn vài file trong đó là
+        # chìa khoá của máy.
+        if any(_is_protected_secret(v) for v in vals):
             return False
         if p == "/api/v1/file-manager/list":
             return bool(folders) and all(auth.path_in_folders(v, folders) for v in vals)
