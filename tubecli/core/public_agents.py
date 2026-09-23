@@ -61,6 +61,14 @@ THRESHOLDS = {
     "ram_tired": (90, 50, 100),
 }
 
+# Ai NHÌN THẤY agent trên Agent Town (user chốt 23/9/2026):
+#   public  — ai mở trang chủ cũng thấy và chat được (cần đăng nhập để chat)
+#   private — CHỈ tài khoản cloud sở hữu máy này thấy trong danh sách và chat được
+# «Tắt» vẫn là enabled=False: không đẩy lên cloud tí nào.
+# Cài đặt cũ (chưa có trường này) rơi về 'public' — đó đúng là thứ chủ đã chọn khi bật.
+VISIBILITIES = ("public", "private")
+DEFAULT_VISIBILITY = "public"
+
 _NAME_RE = re.compile(r"^[\w .\-]{2,32}$", re.UNICODE)
 _HASH_RE = re.compile(r"^[a-f0-9]{16}$")
 _NONCE_RE = re.compile(r"^[a-f0-9]{16,64}$")
@@ -173,8 +181,12 @@ def normalise(raw: Dict[str, Any], agent_name: str = "") -> Dict[str, Any]:
     enabled = bool(raw.get("enabled"))
     if enabled and not skills:
         raise ValueError("no_skills")
+    vis = str(raw.get("visibility") or DEFAULT_VISIBILITY).strip().lower()
+    if vis not in VISIBILITIES:
+        vis = DEFAULT_VISIBILITY
     out = {
         "enabled": enabled,
+        "visibility": vis,
         "name": name,
         "bio": _clean_text(raw.get("bio"), 160),
         "skills": skills,
@@ -268,13 +280,35 @@ def public_entries() -> List[Dict[str, Any]]:
     return out
 
 
+def owner_caller() -> str:
+    """Mã người gọi của chủ tài khoản cloud (cloud ghi qua /api/v1/instance/cloud-identity)."""
+    try:
+        from tubecli.core import cloud_identity
+
+        return str(cloud_identity.load().get("owner") or "")
+    except Exception:      # noqa: BLE001
+        return ""
+
+
+def _visible_to(st: Dict[str, Any], caller: str) -> bool:
+    """Agent công khai: ai cũng gọi được. Agent riêng tư: chỉ chủ tài khoản cloud."""
+    if str(st.get("visibility") or DEFAULT_VISIBILITY) != "private":
+        return True
+    own = owner_caller()
+    return bool(own) and hmac.compare_digest(str(caller or ""), own)
+
+
 def _profile_row(entry: Dict[str, Any], load: Optional[Dict[str, float]] = None) -> Dict[str, Any]:
     """Hồ sơ đẩy lên cloud. Chỉ ngưỡng và cờ «mệt» — KHÔNG số CPU/RAM thô của máy."""
     st = entry["settings"]
+    vis = str(st.get("visibility") or DEFAULT_VISIBILITY)
     return {"a": entry["hash"], "name": st.get("name", ""), "bio": st.get("bio", ""),
             "skills": st["skills"], "cap": int(st.get("daily_cap") or DEFAULT_DAILY_CAP),
             "warn": threshold(st, "warn_pct"), "par": threshold(st, "max_parallel"),
-            "tired": is_tired(st, load)}
+            "tired": is_tired(st, load),
+            # Cloud mới mới hiểu trường này; cloud cũ bỏ qua và vẫn coi là công khai —
+            # nên KHÔNG được bật «riêng tư» ở máy rồi tin là cloud đã giấu.
+            "vis": vis if vis in VISIBILITIES else DEFAULT_VISIBILITY}
 
 
 # ── Chữ ký ───────────────────────────────────────────────────────────────────
@@ -409,6 +443,12 @@ async def invoke(payload: Dict[str, Any]) -> Dict[str, Any]:
     entry = next((e for e in public_entries() if e["hash"] == h), None)
     if not entry:
         raise PublicSkillError("agent_not_public", status=404)
+    # Agent «riêng tư»: cloud đã lọc danh sách, nhưng máy KHÔNG tin cloud. Mã người gọi
+    # phải khớp mã chủ tài khoản mà cloud đã ghi vào cloud_identity. Chưa biết mã chủ thì
+    # TỪ CHỐI (đóng khi hỏng) — và trả đúng mã lỗi của «không có agent này», để dò mã băm
+    # cũng không phân biệt được agent riêng tư với agent không tồn tại.
+    if not _visible_to(entry["settings"], caller):
+        raise PublicSkillError("agent_not_public", status=404)
     skill = PUBLIC_SKILLS.get(skill_id)
     if not skill or skill_id not in entry["settings"]["skills"]:
         raise PublicSkillError("skill_not_allowed", status=403)
@@ -430,7 +470,18 @@ async def invoke(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     # Người trên bản đồ đi tới đúng nhà của skill trong lúc chạy — người xem thấy agent
     # mình vừa nhờ đang làm việc.
-    town_telemetry.report(skill.extension, "running", agent_id)
+    #
+    # Agent RIÊNG TƯ thì KHÔNG báo gì: bản đồ trang chủ là công khai, và một người đi bộ
+    # kèm mốc giờ + nhà đang đứng là bằng chứng «có ai đó vừa nhờ một agent giấu mặt».
+    # Giấu agent khỏi danh sách mà vẫn vẽ nó làm việc thì giấu chưa xong. Đổi lại: lượt
+    # chat riêng tư không vào số đếm của nhà; số lượt của chủ vẫn đếm đủ trong tab Công khai.
+    quiet = str(st.get("visibility") or DEFAULT_VISIBILITY) == "private"
+
+    def report(status: str, secs: float = 0.0) -> None:
+        if not quiet:
+            town_telemetry.report(skill.extension, status, agent_id, secs)
+
+    report("running")
     started = time.time()
     ok = False
     try:
@@ -446,7 +497,7 @@ async def invoke(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise PublicSkillError("skill_failed", status=502)
     finally:
         _gate.leave(agent_id)
-        town_telemetry.report(skill.extension, "success" if ok else "error", agent_id, time.time() - started)
+        report("success" if ok else "error", time.time() - started)
 
 
 # ── Đẩy hồ sơ lên cloud ──────────────────────────────────────────────────────

@@ -25,6 +25,10 @@ _USERNAME = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 _CODE = re.compile(r"^[a-z0-9]{4,16}$")
 # Khoá ký telemetry Agent Town: hex, cloud cấp 48 ký tự (chừa rộng cho sau này).
 _TOWN_KEY = re.compile(r"^[a-f0-9]{32,128}$")
+# Mã NGƯỜI GỌI của chủ tài khoản cloud: sha256("town-caller:<secret>:<user id>")[:12]
+# (lib/publicAgents.js). Máy dùng nó để tự kiểm ai đang gọi agent «riêng tư» — nó là
+# một cái băm, không phải danh tính: không suy ngược ra email hay id được.
+_OWNER = re.compile(r"^[a-f0-9]{8,32}$")
 
 
 def _path() -> str:
@@ -46,15 +50,17 @@ def load() -> Dict[str, Any]:
     if not (isinstance(u, str) and _USERNAME.match(u) and isinstance(code, str) and _CODE.match(code)):
         return {}
     key = data.get("town_key")
+    owner = data.get("owner")
     return {
         "username": u,
         "server_code": code,
         "seen": data.get("seen"),
         "town_key": key if isinstance(key, str) and _TOWN_KEY.match(key) else "",
+        "owner": owner if isinstance(owner, str) and _OWNER.match(owner) else "",
     }
 
 
-def save(username: Any, server_code: Any, town_key: Any = None) -> Dict[str, Any]:
+def save(username: Any, server_code: Any, town_key: Any = None, owner: Any = None) -> Dict[str, Any]:
     """Ghi danh tính cloud báo; sai dạng → ValueError. Không đổi gì thì không ghi lại file.
 
     town_key là khoá ký telemetry Agent Town (cloud suy ra từ server_code, lib/town.js).
@@ -73,9 +79,16 @@ def save(username: Any, server_code: Any, town_key: Any = None) -> Dict[str, Any
         if k and not _TOWN_KEY.match(k):
             raise ValueError("town_key must be 32-128 hex characters")
         key = k
-    if old.get("username") == u and old.get("server_code") == code and old.get("town_key", "") == key:
+    own = old.get("owner", "")
+    if owner is not None:
+        o = str(owner or "").strip().lower()
+        if o and not _OWNER.match(o):
+            raise ValueError("owner must be 8-32 hex characters")
+        own = o
+    if (old.get("username") == u and old.get("server_code") == code
+            and old.get("town_key", "") == key and old.get("owner", "") == own):
         return old
-    data = {"username": u, "server_code": code, "seen": time.time(), "town_key": key}
+    data = {"username": u, "server_code": code, "seen": time.time(), "town_key": key, "owner": own}
     path = _path()
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:

@@ -115,9 +115,11 @@ pa.set_settings("ag-2", {"enabled": False, "name": "Second", "skills": ["douyin.
 entries = pa.public_entries()
 check("chỉ agent ĐANG bật vào hồ sơ", [e["agent_id"] for e in entries] == ["ag-1"], entries)
 row = pa._profile_row(entries[0])
-check("hồ sơ chỉ gồm a/name/bio/skills/cap/warn/par/tired — không id thật, không tên agent gốc",
-      set(row) == {"a", "name", "bio", "skills", "cap", "warn", "par", "tired"} and "ag-1" not in json.dumps(row)
+check("hồ sơ chỉ gồm a/name/bio/skills/cap/warn/par/tired/vis — không id thật, không tên agent gốc",
+      set(row) == {"a", "name", "bio", "skills", "cap", "warn", "par", "tired", "vis"}
+      and "ag-1" not in json.dumps(row)
       and "Nhà làm phim" not in json.dumps(row, ensure_ascii=False), row)
+check("không đặt gì thì hồ sơ là CÔNG KHAI (cài đặt cũ giữ nguyên nghĩa)", row["vis"] == "public", row["vis"])
 check("mã agent trong hồ sơ = băm của telemetry Town", row["a"] == town_telemetry.agent_hash("ag-1"))
 hot = pa._profile_row(entries[0], {"cpu": 97.5, "ram": 40.0})
 check("hồ sơ chỉ mang CỜ mệt, không mang số CPU/RAM thô của máy",
@@ -448,6 +450,76 @@ check("lượt của chủ (có cookie) và lượt của khách (không cookie)
       (owner["title"], guest["title"]))
 check("khách gọi lại thì dùng lại bộ nhớ đệm của khách",
       ytt.fetch_transcript(VID, use_cookies=False)["title"] == "video công khai")
+
+# ── 5c. Riêng tư: chỉ CHỦ tài khoản cloud gọi được ───────────────────────────
+async def _instance_identity():
+    from tubecli.api import instance_routes
+
+    return await instance_routes.get_cloud_identity()
+
+
+from tubecli.core import cloud_identity  # noqa: E402
+
+
+def _fails(fn):
+    try:
+        fn()
+        return False
+    except ValueError:
+        return True
+
+
+check("chữ lạ ở visibility rơi về công khai, không đoán là riêng tư",
+      pa.normalise({"enabled": True, "name": "Ai do", "skills": ["douyin.resolve"],
+                    "visibility": "PRIVATE-ish"})["visibility"] == "public")
+check("đặt riêng tư thì giữ riêng tư",
+      pa.normalise({"enabled": True, "name": "Ai do", "skills": ["douyin.resolve"],
+                    "visibility": "private"})["visibility"] == "private")
+check("không có trường → công khai",
+      pa.normalise({"enabled": True, "name": "Ai do", "skills": ["douyin.resolve"]})["visibility"] == "public")
+
+OWNER = "abcdef012345"
+GUEST = "0123456789ab"
+cloud_identity.save("tuan89tk", "k7m2qx", "a" * 48, OWNER)
+check("máy cất được mã chủ", cloud_identity.load().get("owner") == OWNER)
+check("mã chủ sai dạng → từ chối", _fails(lambda: cloud_identity.save("tuan89tk", "k7m2qx", None, "kh0ng-ph41-hex!")))
+check("truyền None thì GIỮ mã chủ đang có (cloud cũ không gửi trường này)",
+      (cloud_identity.save("tuan89tk", "k7m2qx", None, None) or {}).get("owner") == OWNER)
+check("GET danh tính KHÔNG được trả khoá ký / mã chủ ra ngoài",
+      set(asyncio.run(_instance_identity())["identity"]) == {"username", "server_code", "seen"},
+      asyncio.run(_instance_identity())["identity"])
+
+pa.set_settings("ag-1", {"enabled": True, "name": "Rieng Tu", "skills": ["douyin.resolve"],
+                         "visibility": "private", "daily_cap": 50})
+check("chủ bật riêng tư xong đọc lại vẫn riêng tư", pa.get_settings("ag-1").get("visibility") == "private")
+check("hồ sơ đẩy lên cloud mang cờ riêng tư",
+      pa._profile_row(pa.public_entries()[0])["vis"] == "private")
+
+h1 = town_telemetry.agent_hash("ag-1")
+check("người lạ gọi agent riêng tư → agent_not_public 404 (y như agent không tồn tại)",
+      run({"agent": h1, "skill": "douyin.resolve", "input": "x", "caller": GUEST}) == ("agent_not_public", 404))
+check("không kèm mã người gọi cũng bị từ chối",
+      run({"agent": h1, "skill": "douyin.resolve", "input": "x"}) == ("agent_not_public", 404))
+check("mã băm không tồn tại trả ĐÚNG mã lỗi đó — dò không phân biệt được",
+      run({"agent": "f" * 16, "skill": "douyin.resolve", "input": "x", "caller": GUEST}) == ("agent_not_public", 404))
+
+reports.clear()
+check("CHỦ gọi agent riêng tư thì chạy",
+      run({"agent": h1, "skill": "douyin.resolve", "input": "x", "caller": OWNER})[0] == "ok")
+check("lượt riêng tư KHÔNG để lại dấu nào trên bản đồ công khai", reports == [], reports)
+
+cloud_identity.save("tuan89tk", "k7m2qx", None, "")
+check("máy CHƯA biết mã chủ → agent riêng tư từ chối cả chủ (đóng khi hỏng)",
+      run({"agent": h1, "skill": "douyin.resolve", "input": "x", "caller": OWNER}) == ("agent_not_public", 404))
+cloud_identity.save("tuan89tk", "k7m2qx", None, OWNER)
+
+# Trả agent về công khai cho các mục sau
+pa.set_settings("ag-1", {"enabled": True, "name": "Douyin Helper", "skills": ["douyin.resolve"], "daily_cap": 50})
+reports.clear()
+check("agent CÔNG KHAI vẫn vẽ lên bản đồ như trước",
+      run({"agent": h1, "skill": "douyin.resolve", "input": "x", "caller": GUEST})[0] == "ok"
+      and [r[:2] for r in reports] == [("douyin_downloader", "running"), ("douyin_downloader", "success")],
+      reports)
 
 # ── 6. Route: chỉ phiên của chủ đổi cài đặt; invoke chỉ nhận chữ ký ───────────
 from fastapi import FastAPI  # noqa: E402

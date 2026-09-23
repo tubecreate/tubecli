@@ -34,6 +34,8 @@ def _require_owner(request: Request) -> None:
 
 class PublicAgentSettings(BaseModel):
     enabled: bool = False
+    # "public" | "private" — xem VISIBILITIES trong core/public_agents.py
+    visibility: str = "public"
     name: str = ""
     bio: str = ""
     skills: List[str] = []
@@ -61,6 +63,9 @@ async def list_public_agents(request: Request):
         })
     return {
         "cloud_ready": public_agents.cloud_ready(),
+        # Máy đã biết mã chủ tài khoản cloud chưa. Chưa biết thì agent «riêng tư» sẽ từ
+        # chối mọi lượt gọi (đóng khi hỏng), nên tab Công khai phải nói ra điều đó.
+        "owner_known": bool(public_agents.owner_caller()),
         "skills": public_agents.available_skills(),
         "agents": agents,
         # Số CPU/RAM thô chỉ ở đây (chủ xem); lên cloud chỉ có cờ «mệt».
