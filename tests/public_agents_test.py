@@ -337,6 +337,118 @@ check("trang cá nhân → unsupported_link (không kéo cả trăm video)", st 
 st, _ = resolve("không có link nào")
 check("không có link → need_douyin_link, không gọi Douyin", st == "need_douyin_link")
 
+# ── 5b. Skill phụ đề YouTube cho người lạ ────────────────────────────────────
+from tubecli.extensions.video_downloader import public_skill as yps  # noqa: E402
+from tubecli.core import youtube_transcript as ytt  # noqa: E402
+
+VID = "dQw4w9WgXcQ"
+for good, want in [
+    (f"https://www.youtube.com/watch?v={VID}", VID),
+    (f"https://youtu.be/{VID}?t=30", VID),
+    (f"https://www.youtube.com/shorts/{VID}", VID),
+    (f"xem cái này hay lắm {VID and 'https://m.youtube.com/watch?v=' + VID} nhé", VID),
+    (VID, VID),
+]:
+    check(f"nhận link YouTube: {good[:46]}", yps.pick_link(good) == want, yps.pick_link(good))
+for bad in ["http://127.0.0.1:5295/api/v1/files", "file:///etc/passwd", "https://vimeo.com/123456",
+            "http://169.254.169.254/latest/meta-data/", "chào bạn", "", "https://www.youtube.com/@kenh"]:
+    check(f"không nhận: {bad[:44] or '(rỗng)'}", yps.pick_link(bad) == "", yps.pick_link(bad))
+
+# URL gọi đi do LÕI tự ghép từ mã 11 ký tự, nên link lạ có nhét chữ youtu.be vào cũng chỉ
+# ra được một mã video — không có đường nào trỏ máy sang chỗ khác.
+check("link lạ nhét chữ youtu.be chỉ ra được MÃ, không ra URL",
+      yps.pick_link(f"https://evil.example/?x=youtu.be/{VID}") == VID)
+
+calls = []
+
+
+def fake_fetch(ref, prefer_lang="", timeout=60, use_cache=True, progress=None, use_cookies=True):
+    calls.append({"ref": ref, "use_cookies": use_cookies, "timeout": timeout})
+    return dict(FAKE_RESULT)
+
+
+ytt_fetch_real = ytt.fetch_transcript
+ytt.fetch_transcript = fake_fetch
+
+FAKE_RESULT = {"ok": True, "id": VID, "url": f"https://www.youtube.com/watch?v={VID}",
+               "title": "T" * 400, "channel": "Kênh Thử", "duration": 3725, "language": "vi",
+               "kind": "auto", "text": "chữ " * 30000, "words": 30000, "availability": "public"}
+
+
+def yresolve(text):
+    try:
+        return "ok", asyncio.run(yps.resolve(text))
+    except Exception as e:      # noqa: BLE001
+        return getattr(e, "code", type(e).__name__), None
+
+
+st, out = yresolve(f"https://youtu.be/{VID}")
+check("phụ đề: trả kết quả dạng CHỮ", st == "ok" and out["kind"] == "text", (st, out and out.get("kind")))
+check("KHÔNG BAO GIỜ dùng cookie/tài khoản Google của chủ cho người lạ",
+      calls and calls[-1]["use_cookies"] is False, calls[-1] if calls else None)
+check("tiêu đề cắt 300 ký tự", out and len(out["title"]) == 300)
+check("thời lượng đọc được cho người", out and out["duration"] == "1:02:05", out and out["duration"])
+check("phụ đề máy nghe được đánh dấu là tự động", out and out["auto"] is True)
+check("văn bản dài bị cắt và NÓI RÕ là đã cắt",
+      out and len(out["text"]) == yps.MAX_CHARS and out["truncated"] is True,
+      out and (len(out["text"]), out["truncated"]))
+check("link nguồn là link YouTube chuẩn do máy tự ghép",
+      out and out["source"] == f"https://www.youtube.com/watch?v={VID}", out and out["source"])
+check("không kèm link nào khác ngoài nguồn",
+      out and not any(isinstance(v, str) and "http" in v for k, v in out.items() if k != "source"))
+
+FAKE_RESULT = dict(FAKE_RESULT, text="ngắn thôi", words=2, truncated=False)
+st, out = yresolve(VID)
+check("văn bản ngắn thì không bị đánh dấu cắt", st == "ok" and out["truncated"] is False)
+
+FAKE_RESULT = dict(FAKE_RESULT, availability="private")
+st, _ = yresolve(VID)
+check("video riêng tư → video_unavailable dù yt-dlp lấy được", st == "video_unavailable", st)
+
+FAKE_RESULT = dict(FAKE_RESULT, availability="subscriber_only")
+check("video chỉ hội viên → video_unavailable", yresolve(VID)[0] == "video_unavailable")
+
+for msg, want in [
+    ("This video has no subtitles (neither uploaded nor automatic) — paste its text instead.", "no_subtitles"),
+    ("The subtitles are almost empty — paste the video's text instead.", "no_subtitles"),
+    ("YouTube asked this server to sign in (it treats the server's IP as a bot).", "yt_signin"),
+    ("The video is private.", "video_unavailable"),
+    ("The video is unavailable or was removed.", "video_unavailable"),
+    ("yt-dlp is not installed on this server", "skill_unavailable"),
+    ("Something odd happened", "skill_failed"),
+]:
+    FAKE_RESULT = {"ok": False, "message": msg}
+    got = yresolve(VID)[0]
+    check(f"lỗi «{msg[:34]}…» → {want}", got == want, got)
+
+n = len(calls)
+check("không có link → need_youtube_link, KHÔNG gọi YouTube",
+      yresolve("chào bạn khoẻ không")[0] == "need_youtube_link" and len(calls) == n)
+
+ytt.fetch_transcript = ytt_fetch_real
+
+# Bộ nhớ đệm: kết quả lấy BẰNG tài khoản của chủ không được rơi vào tay người lạ.
+ytt._CACHE.clear()
+ytt._ensure_ytdlp = lambda progress=None, force=False: {"ok": True}
+ytt._http_get = lambda url, timeout: b"WEBVTT\n\n00:00:00.000 --> 00:00:09.000\n" + ("từ " * 60).encode()
+
+
+def fake_extract(url, vid, timeout, progress=None, allow_cookies=True):
+    info = {"title": "VIDEO RIÊNG TƯ CỦA CHỦ" if allow_cookies else "video công khai",
+            "channel": "C", "duration": 10, "language": "vi", "availability": "public",
+            "subtitles": {"vi": [{"url": "https://sub", "ext": "vtt"}]}}
+    return info, "", ("pasted" if allow_cookies else "")
+
+
+ytt._extract_with_cookies = fake_extract
+owner = ytt.fetch_transcript(VID)
+guest = ytt.fetch_transcript(VID, use_cookies=False)
+check("lượt của chủ (có cookie) và lượt của khách (không cookie) nhớ RIÊNG",
+      owner["title"] != guest["title"] and guest["title"] == "video công khai",
+      (owner["title"], guest["title"]))
+check("khách gọi lại thì dùng lại bộ nhớ đệm của khách",
+      ytt.fetch_transcript(VID, use_cookies=False)["title"] == "video công khai")
+
 # ── 6. Route: chỉ phiên của chủ đổi cài đặt; invoke chỉ nhận chữ ký ───────────
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

@@ -92,9 +92,18 @@ async def _douyin_resolve(text: str) -> Dict[str, Any]:
     return await resolve(text)
 
 
+async def _youtube_transcript(text: str) -> Dict[str, Any]:
+    from tubecli.extensions.video_downloader.public_skill import resolve
+
+    return await resolve(text)
+
+
 PUBLIC_SKILLS: Dict[str, PublicSkill] = {
     s.id: s for s in (
         PublicSkill("douyin.resolve", "douyin_downloader", _douyin_resolve),
+        # Chỉ NHẬN MÃ VIDEO, trả về CHỮ, không cookie của chủ — xem đầu file
+        # extensions/video_downloader/public_skill.py. 300 ký tự là thừa cho một link.
+        PublicSkill("youtube.transcript", "video_downloader", _youtube_transcript, max_input=300),
     )
 }
 

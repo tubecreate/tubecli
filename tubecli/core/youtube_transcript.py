@@ -269,7 +269,7 @@ def _challenge_hint(log: List[str]) -> str:
 
 
 def _extract_with_cookies(url: str, vid: str, timeout: int,
-                          progress=None) -> Tuple[Optional[Dict[str, Any]], str, str]:
+                          progress=None, allow_cookies: bool = True) -> Tuple[Optional[Dict[str, Any]], str, str]:
     """(info, lỗi, nguồn cookie). KHÔNG cookie trước; chỉ khi YouTube đòi đăng nhập mới thử cookie, lần lượt:
     cookie dán tay ở Video Downloader → hồ sơ browser TubeCLI ĐANG MỞ (CDP) → cookie ĐÃ LƯU của hồ sơ đang tắt
     (1–2 s, không mở browser) → mở ẨN hồ sơ đó cho Google làm mới cookie → trình duyệt cài trên máy.
@@ -298,6 +298,12 @@ def _extract_with_cookies(url: str, vid: str, timeout: int,
                 first = str(e)
                 logger.warning("youtube extract after updating yt-dlp %s: %s", vid, _short(first))
     if not yc.is_blocked(first):
+        return None, _explain(first), ""
+    # Đường CÔNG KHAI (người lạ trên Agent Town) dừng ở đây: cả cái thang bên dưới đều
+    # mượn tài khoản Google của CHỦ máy — cookie dán tay, hồ sơ browser đang mở, thậm chí
+    # mở ẩn một hồ sơ để Google làm mới cookie. Người lạ không được kéo theo tài khoản
+    # của chủ vào request của mình (cùng luật với Douyin: chỉ ttwid, không cookie đăng nhập).
+    if not allow_cookies:
         return None, _explain(first), ""
     say(f"YouTube refused the request without cookies: {_short(first)}")
     st = yc.settings()
@@ -372,7 +378,7 @@ def _extract_with_cookies(url: str, vid: str, timeout: int,
 
 
 def fetch_transcript(ref: str, prefer_lang: str = "", timeout: int = 60, use_cache: bool = True,
-                     progress=None) -> Dict[str, Any]:
+                     progress=None, use_cookies: bool = True) -> Dict[str, Any]:
     """Phụ đề của MỘT video: {"ok", "id", "url", "title", "channel", "duration", "language", "kind",
     "text", "words", "minutes", "message"}. Không bao giờ ném — ok=False kèm câu người đọc được."""
     ref = str(ref or "").strip()
@@ -382,9 +388,12 @@ def fetch_transcript(ref: str, prefer_lang: str = "", timeout: int = 60, use_cac
     vid = ids[0]
     url = f"https://www.youtube.com/watch?v={vid}"
     now = time.time()
+    # Lượt CÓ cookie và lượt KHÔNG cookie nhớ riêng: chủ vừa lấy phụ đề một video riêng tư
+    # bằng tài khoản của mình thì kết quả đó KHÔNG được rơi vào tay người lạ qua bộ nhớ đệm.
+    ckey = vid if use_cookies else vid + "|nc"
     if use_cache:
         with _LOCK:
-            hit = _CACHE.get(vid)
+            hit = _CACHE.get(ckey)
         if hit and now - hit[0] < _CACHE_TTL:
             return dict(hit[1])
 
@@ -395,7 +404,8 @@ def fetch_transcript(ref: str, prefer_lang: str = "", timeout: int = 60, use_cac
     if not ens.get("ok"):
         return fail(str(ens.get("message") or "yt-dlp is not installed on this server"))
     try:
-        info, err, cookie_source = _extract_with_cookies(url, vid, timeout, progress)
+        info, err, cookie_source = _extract_with_cookies(url, vid, timeout, progress,
+                                                        allow_cookies=use_cookies)
     except ImportError:
         return fail("yt-dlp is not installed on this server — update TubeCLI (it installs yt-dlp) "
                     "or run: pip install yt-dlp")
@@ -418,10 +428,11 @@ def fetch_transcript(ref: str, prefer_lang: str = "", timeout: int = 60, use_cac
     result = {"ok": True, "id": vid, "url": url, "title": str(info.get("title") or ""),
               "channel": str(info.get("channel") or info.get("uploader") or ""),
               "duration": int(info.get("duration") or 0), "language": lang, "kind": kind,
+              "availability": str(info.get("availability") or ""),
               "text": text, "words": words, "minutes": round(words / WORDS_PER_MINUTE, 1), "message": "",
               "cookie_source": cookie_source}
     with _LOCK:
-        _CACHE[vid] = (now, result)
+        _CACHE[ckey] = (now, result)
     return dict(result)
 
 
