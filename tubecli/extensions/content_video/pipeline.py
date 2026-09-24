@@ -3055,6 +3055,30 @@ def _preset_voice(state: Dict, options: Dict) -> Tuple[str, str, str]:
     return engine, voice, email
 
 
+def _everai_key() -> bool:
+    """Máy có khoá EverAI (Cloud API Keys, provider «everai») chưa."""
+    try:
+        from tubecli.extensions.cloud_api.extension import key_manager
+        return bool(key_manager.get_active_key("everai"))
+    except Exception:       # noqa: BLE001
+        return False
+
+
+def _omnivoice_up() -> bool:
+    """OmniVoice Studio (app desktop, cổng 3900) đang mở và không báo lỗi model.
+
+    KHÔNG đòi `loaded`: app tự NHẢ model khi rảnh ~15 phút («status: idle, loaded: false, detail: Model ready») rồi nạp
+    lại ở lượt đọc đầu (chậm thêm ~10 s). Bản cũ đòi loaded ⇒ task #110 (24/9/2026) báo «OmniVoice Studio không chạy»
+    trong khi app vẫn mở."""
+    try:
+        import requests
+        r = requests.get("http://127.0.0.1:3900/model/status", timeout=5)
+        st = (r.json() or {}) if r.status_code == 200 else {}
+        return r.status_code == 200 and not st.get("error") and str(st.get("status") or "").lower() != "error"
+    except Exception:       # noqa: BLE001
+        return False
+
+
 def _tts_engine(state: Dict, options: Dict) -> str:
     """Which voice engine this run uses: "edge" (tts_vibevoice, through the
     Studio's batch-tts) or "capcut" (capcut_tts, per shot). "auto" prefers
@@ -3073,9 +3097,19 @@ def _tts_engine(state: Dict, options: Dict) -> str:
         if voice:
             state["capcut_speaker"] = voice
         return "capcut"
-    if want in ("edge", "vibevoice"):
+    if want in ("edge", "vibevoice", "omnivoice", "everai"):
         if not edge_ok:
             raise RuntimeError("tts_engine=edge but the TTS VibeVoice extension is not installed/enabled.")
+        if want == "everai" and not _everai_key():
+            # EverAI (everai.vn) là dịch vụ trả phí qua khoá API — thiếu khoá thì 191 nhịp hỏng lần lượt. Báo một lần.
+            raise RuntimeError("The template's voice is an EverAI voice, but there is no EverAI API key in Cloud API "
+                               "Keys on this machine. Add the key (provider «everai»), then press Retry.")
+        if want == "omnivoice" and not _omnivoice_up():
+            # OmniVoice là app DESKTOP (OmniVoice Studio, cổng 3900) — tắt app là 191 nhịp «error» sau 5 phút mỗi nhịp.
+            # Hỏi trước một lần, nói rõ phải làm gì.
+            raise RuntimeError("The template's voice is an OmniVoice profile, but OmniVoice Studio is not running on "
+                               "this machine (127.0.0.1:3900). Open OmniVoice Studio, wait until the model is ready, "
+                               "then press Retry — or pick another voice in the template.")
         state["tts_batch_engine"] = want
         if voice:
             state["tts_voice_pref"] = voice
@@ -3521,7 +3555,9 @@ def _tts_edge(state: Dict, options: Dict) -> None:
         state.setdefault("warnings", []).append(
             f"Voice {explicit} does not match the script language ({language_name(lang)}) — "
             f"leave tts_voice empty to get {_edge_voice(lang)}.")
-    state["tts_voice_used"] = f"{voice} · {language_name(lang)}" + (" · VibeVoice" if engine == "vibevoice" else "")
+    state["tts_voice_used"] = f"{voice} · {language_name(lang)}" + (
+        " · VibeVoice" if engine == "vibevoice" else " · OmniVoice" if engine == "omnivoice"
+        else " · EverAI" if engine == "everai" else "")
 
     def run_batch() -> Tuple[int, int]:
         res = _post(f"/api/v1/studio/episodes/{ep_id}/batch-tts", {
@@ -5619,6 +5655,9 @@ def _step_publish(state: Dict, options: Dict) -> None:
 # ── Lưu lên Google Drive (bước "drive") ──────────────────────────────
 # User 15/9/2026: "lưu nội dung đã tạo vào drive: nội dung lưu vào sheet, file audio, image và video upload lên
 # drive trong 1 project, folder đặt tên theo tiêu đề; chọn auth trong tạo task như đã chọn trong auth của agent".
+# Số file tải lên Drive CÙNG LÚC. 4 luồng ≈ nhanh gấp 3–4 với ~380 file nhỏ của một video, vẫn xa giới hạn tần suất
+# của Drive API (mỗi tài khoản ~10 yêu cầu/giây).
+DRIVE_LANES = 4
 DRIVE_WIDTHS = {"Overview": {0: 170, 1: 560},
                 "Scenes": {1: 320, 2: 460, 3: 420, 5: 220, 6: 220, 7: 220},
                 "Script": {0: 760}}
@@ -6379,28 +6418,65 @@ def _drive_save(state: Dict, options: Dict) -> None:
         else:
             todo.append((u, size, old))
     total = float(sum(s for _, s, _ in todo)) or 1.0
-    sent_before = 0
-    for n, (u, size, old) in enumerate(todo, 1):
+    # SONG SONG (user 24/9/2026: «upload drive có đa luồng sao up từng cái»): một video 191 nhịp là ~380 file nhỏ,
+    # mỗi file 2–3 s bắt tay với Google ⇒ tuần tự mất 17 phút cho 199 MB. Mỗi luồng một service RIÊNG: googleapiclient
+    # (httplib2) không an toàn khi dùng chung giữa các luồng. Tiến độ cộng dồn dưới khoá; Huỷ được kiểm trước mỗi file.
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    lock = threading.Lock()
+    local = threading.local()
+    tally = {"bytes": 0, "files": 0}
+
+    def _svc():
+        if getattr(local, "drive", None) is None:
+            local.drive = DX.services(token_id)[0]
+        return local.drive
+
+    def _one(u: Dict, size: int, old: Optional[Dict]) -> None:
         if cancelled():
             raise _cancel_exc()
+        last = [0]
 
-        def progress(sent: int, _base: int = sent_before, _u: Dict = u, _n: int = n, _size: int = size) -> None:
-            done = _base + min(int(sent or 0), _size)
-            say("drive", "running",
-                f"uploading {_u['label']} {_n}/{len(todo)} · {_drive_mb(done)} of {_drive_mb(total)}",
-                round(100.0 * done / total, 1))
+        def progress(sent: int) -> None:
+            with lock:
+                now = min(int(sent or 0), size)
+                tally["bytes"] += now - last[0]
+                last[0] = now
+                say("drive", "running",
+                    f"uploading {u['label']} · {tally['files']}/{len(todo)} files · {_drive_mb(tally['bytes'])} of "
+                    f"{_drive_mb(total)}", round(100.0 * tally["bytes"] / total, 1))
 
-        f = DX.upload_file(drive, u["path"], u["name"], parents[u["sub"]], progress, cancelled, _cancel_exc)
-        links[u["key"]] = str((f or {}).get("webViewLink") or "")
-        if (f or {}).get("id"):
-            links[u["key"] + "#dl"] = DX.download_url(str(f["id"]))
-        sent_before += size
+        f = DX.upload_file(_svc(), u["path"], u["name"], parents[u["sub"]], progress, cancelled, _cancel_exc)
+        with lock:
+            links[u["key"]] = str((f or {}).get("webViewLink") or "")
+            if (f or {}).get("id"):
+                links[u["key"] + "#dl"] = DX.download_url(str(f["id"]))
+            tally["bytes"] += size - last[0]
+            tally["files"] += 1
         if old and old.get("id"):
             # Bản cũ khác cỡ (video dựng lại) → thùng rác, kẻo thư mục có hai file cùng tên.
             try:
-                DX.trash_file(drive, old["id"])
+                DX.trash_file(_svc(), old["id"])
             except Exception as e:      # noqa: BLE001
                 logger.info(f"[ContentVideo] could not trash the old {u['name']} on Drive: {e}")
+
+    lanes = max(1, min(DRIVE_LANES, len(todo)))
+    if lanes == 1:
+        for u, size, old in todo:
+            _one(u, size, old)
+    else:
+        with ThreadPoolExecutor(lanes) as ex:
+            futs = [ex.submit(_one, u, size, old) for u, size, old in todo]
+            err = None
+            for fu in futs:
+                try:
+                    fu.result()
+                except BaseException as e:      # noqa: BLE001 — lỗi đầu tiên (hay Huỷ) đi ra ngoài như bản tuần tự
+                    err = err or e
+                    for other in futs:
+                        other.cancel()          # file chưa bắt đầu thì thôi
+            if err is not None:
+                raise err
     rec.update({"files": len(ups), "uploaded": len(todo)})
     say("drive", "running", "adding the file links to the content sheet")
     DX.write_sheet(sheets, rec["sheet_id"], _drive_tabs(state, shots, links, rec), DRIVE_WIDTHS)

@@ -429,8 +429,12 @@ ok(field(ov, "Video (download)") == f"https://drive.google.com/uc?export=downloa
 prog = [a for a in said if len(a) > 3 and a[1] == "running" and a[3] is not None]
 pcts = [a[3] for a in prog]
 ok(prog and all(0 < p <= 100 for p in pcts) and pcts == sorted(pcts) and pcts[-1] == 100, "tiến độ theo byte, tăng dần, kết thúc 100", pcts)
-ok(any("uploading image 4/7" in a[2] for a in prog) and "saved 7 file(s)" in prog[-1][2], "câu tiến độ nói loại file + thứ tự",
-   [a[2] for a in prog][:3])
+# Tải SONG SONG (24/9/2026) ⇒ «file thứ mấy» không còn nghĩa; câu nói loại file + đã xong bao nhiêu / tổng.
+ok(any(a[2].startswith("uploading image ·") and "/7 files" in a[2] for a in prog) and "saved 7 file(s)" in prog[-1][2],
+   "câu tiến độ nói loại file + số file đã xong / tổng", [a[2] for a in prog][:3])
+ok(P.DRIVE_LANES >= 2 and "ThreadPoolExecutor(lanes)" in open(P.__file__, encoding="utf-8").read()
+   and "local.drive = DX.services(token_id)[0]" in open(P.__file__, encoding="utf-8").read(),
+   "tải song song nhiều luồng, mỗi luồng một service Drive riêng (googleapiclient không an toàn luồng)")
 out = P._render_result(st, {}, [], [], 12)
 ok(f"- **Google Drive**: {folder['webViewLink']} ({ROOT_NAME}/Mây trắng: bay/xa) · content sheet https://drive.google.com/" in out
    and "7 file(s) · a@x.com" in out
