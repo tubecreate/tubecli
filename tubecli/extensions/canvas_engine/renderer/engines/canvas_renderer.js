@@ -7425,7 +7425,13 @@ function renderUnifiedElements(unifiedEls, startY) {
 
         // Fast fade in — riêng mathnoir + custom_js thì BỎ fade (alpha 1):
         // cảnh mn tự lo entrance, fade engine chồng lên chỉ gây chớp đúp.
-        const alpha = (artStyle === 'mathnoir' && el.type === 'custom_js')
+        // 24/9/2026: bộ cảnh của Content Studio (template `cs_*` — thuỷ mặc, Edo, người que, bảng phấn) cũng
+        // tự lo entrance bằng win(); fade engine làm 25% đầu MỖI nhịp lộ gradient nền dự án dưới mặt bảng
+        // (đo pixel tập 535: bảng + chữ + hình cùng tăng sáng 15 khung đầu; user: «cái frame nó lạc quẻ»,
+        // và chính khung 0 ấy là ảnh xem trước trên YouTube).
+        const _ownEntrance = el.type === 'custom_js'
+            && (artStyle === 'mathnoir' || String(el.template || '').startsWith('cs_'));
+        const alpha = _ownEntrance
             ? 1.0
             : easeOut(Math.min(u.rawP * 4.0, 1.0));
 

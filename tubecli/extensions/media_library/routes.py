@@ -48,6 +48,9 @@ def get_collection(cid: str):
         raise HTTPException(404, f"no collection '{cid}'")
     c["files"] = library.list_files(cid)
     c["cursor"] = library.peek_cycle(cid)
+    # Thẻ đi kèm ngay đây chứ không thêm một lượt gọi nữa: bảng thông tin mở lên là phải có chữ, mà thẻ
+    # thì nằm ở extension khác (xem library.register_labels) nên hỏi một lượt cho cả kho là rẻ nhất.
+    c["labels"] = library.labels_for(cid, [f["name"] for f in c["files"]])
     return c
 
 

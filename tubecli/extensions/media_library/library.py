@@ -25,7 +25,7 @@ import shutil
 import threading
 import time
 import unicodedata
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 logger = logging.getLogger("MediaLibrary")
 
@@ -435,10 +435,45 @@ def stats() -> dict:
             "dir": data_dir()}
 
 
+# ── Thẻ của từng file, do extension KHÁC cung cấp ────────────────────────
+# Kho nguyên liệu chỉ giữ FILE; nó không biết bức tranh vẽ gì. Cái biết là extension đã vẽ ra bức tranh ấy
+# — Content Studio giữ loại/thẻ/lượt dùng của từng tranh phấn trong `sprite_meta.json` và AI viết cảnh chọn
+# hình bằng chính mấy cái thẻ đó. Chép chúng sang đây sẽ thành HAI bản sự thật: sửa thẻ một bên thì bảng
+# thông tin bên kia nói dối mà không ai biết. Nên ở đây chỉ HỎI, ngay lúc mở kho, và bên nào im thì thôi.
+_LABELS: Dict[str, Callable] = {}
+
+
+def register_labels(source: str, fn) -> None:
+    """Đăng ký một nguồn thẻ. `fn(cid, names) -> {tên file: {"tags", "kind", "desc", "used"}}`."""
+    if str(source or "").strip() and callable(fn):
+        _LABELS[str(source)] = fn
+
+
+def labels_for(cid: str, names: List[str]) -> Dict[str, dict]:
+    """Thẻ của những file đang hỏi. Nguồn nào lỗi thì BỎ QUA nguồn đó — mở kho không được chết vì một
+    extension khác đang hỏng."""
+    want, out = {str(n) for n in names or []}, {}
+    for source, fn in list(_LABELS.items()):
+        try:
+            got = fn(str(cid or ""), sorted(want))
+        except Exception as e:      # noqa: BLE001
+            logger.warning("nguồn thẻ %s lỗi: %s", source, str(e)[:160])
+            continue
+        if not isinstance(got, dict):
+            continue
+        for name, row in got.items():
+            if str(name) in want and isinstance(row, dict):
+                keep = {k: row[k] for k in ("tags", "kind", "desc", "used") if row.get(k) not in (None, "")}
+                if keep:
+                    out.setdefault(str(name), {}).update(dict(keep, source=source))
+    return out
+
+
 __all__ = ["create", "rename", "delete", "get", "list_all", "list_files",
            "add_file", "import_path", "delete_file", "file_path", "pick",
            "peek_cycle", "collection_dir", "data_dir", "safe_id", "kind_of",
            "stats", "ALL_EXT", "IMAGE_EXT", "VIDEO_EXT", "GIF_EXT", "AUDIO_EXT",
            "KIND_IMAGE", "KIND_GIF", "KIND_VIDEO", "KIND_AUDIO",
            "DEFAULT_COLLECTION_IDS", "ensure_defaults", "default_collection_for",
+           "register_labels", "labels_for",
            "KIND_IMAGE", "KIND_GIF", "KIND_VIDEO"]

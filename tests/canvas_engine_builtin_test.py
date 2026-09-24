@@ -98,5 +98,17 @@ if os.path.isfile(pub):
 else:
     print("  (không có tubecli-cloud cạnh repo — bỏ qua)")
 
+print("\n4. renderer không mờ dần phần tử của bộ cảnh Studio (24/9/2026)")
+# Renderer từng mờ dần MỌI phần tử trong 25% đầu mỗi nhịp (alpha = easeOut(rawP*4)), chỉ tắt cho mathnoir.
+# Bộ cảnh Studio (template `cs_*`) tự lo entrance bằng win(), nên fade ấy làm 25% đầu MỖI nhịp lộ gradient
+# nền dự án dưới mặt bảng — và chính khung 0 là ảnh xem trước trên YouTube (user: «cái frame nó lạc quẻ»).
+_rj = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tubecli", "extensions",
+                   "canvas_engine", "renderer", "engines", "canvas_renderer.js")
+with open(_rj, encoding="utf-8", errors="replace") as _f:
+    _rsrc = _f.read()
+ok("String(el.template || '').startsWith('cs_')" in _rsrc and "const alpha = _ownEntrance" in _rsrc,
+   "custom_js có template cs_* đi qua với alpha 1 — không fade engine chồng lên entrance của bộ cảnh")
+ok("artStyle === 'mathnoir' ||" in _rsrc, "mathnoir vẫn được miễn fade như trước")
+
 print(f"\n{PASS}/{PASS + FAIL} PASS" if not FAIL else f"\n{PASS}/{PASS + FAIL} PASS — {FAIL} HỎNG")
 sys.exit(1 if FAIL else 0)

@@ -1162,6 +1162,32 @@ function pathBox(text, label) {
   return box;
 }
 
+/* Thẻ của một tấm — do extension đã vẽ ra nó cung cấp, không phải của kho
+   (xem library.register_labels). Kho chỉ giữ file nên nó không biết tranh vẽ
+   gì; còn Content Studio thì biết, và AI viết cảnh CHỌN hình bằng đúng mấy cái
+   thẻ này. Không có thẻ thì không có ô — ô trống chỉ tổ khó hiểu. */
+function tagSection(name) {
+  const row = ((state.col || {}).labels || {})[name];
+  if (!row) return null;
+  const tags = String(row.tags || '').split(',')
+    .map(function (t) { return t.trim(); }).filter(Boolean);
+  if (!tags.length && !row.kind && !row.desc) return null;
+
+  const used = Number(row.used || 0);
+  const s = inspSection(T('media.insp.tags'),
+                        used ? T('media.insp.used_n', { n: used }) : '');
+  if (row.desc) s.appendChild(el('div', 'desc-note', row.desc));
+  const box = el('div', 'tagbox');
+  if (row.kind) {
+    const k = el('span', 'tag tag-kind', row.kind);
+    k.title = T('media.insp.tag_kind');
+    box.appendChild(k);
+  }
+  tags.forEach(function (t) { box.appendChild(el('span', 'tag', t)); });
+  s.appendChild(box);
+  return s;
+}
+
 /* Chỗ dành cho «Đang dùng ở». Backend không có chỉ mục nào cho biết mẫu nào
    đang trỏ tới kho, nên giữ đúng khoảng trống và nói thật. */
 function usageSection(cid) {
@@ -1415,6 +1441,9 @@ function filePanel(insp, f) {
   ]));
   head.appendChild(pathBox('media/' + c.id + '/' + f.name, T('media.label.path')));
   insp.appendChild(head);
+
+  const tags = tagSection(f.name);
+  if (tags) insp.appendChild(tags);
 
   insp.appendChild(pickRuleSection(f));
   insp.appendChild(usageSection(c.id));

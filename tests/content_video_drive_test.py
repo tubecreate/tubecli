@@ -775,6 +775,27 @@ ok(P.build_srt({"language": "es"}, [{"id": 3, "narration_text": "", "composed_im
    "không shot nào có lời → không có .srt")
 P._studio_subtitles = lambda: FakeSubs()
 
+# Dự án CANVAS (bộ bảng phấn): shot KHÔNG ảnh vẫn được dựng — có giọng thì dài bằng giọng, không giọng 5 s.
+# 24/9/2026: .srt của #101/#102 chỉ còn lời của 6/272 shot (bỏ shot không ảnh như trình chiếu) + «lệch +1632 s».
+CSC = '{"scene": {"type": "board", "head": "x"}}'
+CSHOTS = [
+    {"id": 1, "narration_text": LONG, "tts_audio_url": KA1, "metadata": CSC},
+    {"id": 2, "narration_text": "", "metadata": CSC},
+    {"id": 3, "narration_text": "Tu pareja.", "tts_audio_url": KA5, "metadata": {"scene": {"type": "title"}}},
+]
+DUR[KMP4] = 16.0                                    # 9 + 5 (không giọng) + 2
+body7, rep7 = P.build_srt({"language": "es"}, CSHOTS, KMP4)
+st7 = [secs(g, 0) for g in _re.findall(r"(\d\d):(\d\d):(\d\d),(\d{3}) -->", body7)]
+ok(rep7["shots"] == 2 and rep7.get("scale") == 1.0 and "drift" not in rep7 and "Tu pareja." in body7
+   and abs(st7[-1] - (9.0 + 5.0 + 0.06)) < 0.02,
+   "canvas: shot không ảnh VẪN chiếm giây (giọng / 5 s) — khớp video, không báo drift", (rep7, st7[-1:]))
+_bare = [{k: v for k, v in x.items() if k != "metadata"} for x in CSHOTS]
+ok(P.build_srt({"language": "es"}, _bare, KMP4)[0] == "",
+   "không phải canvas + không ảnh → vẫn bỏ như trình chiếu")
+body9, rep9 = P.build_srt({"language": "es", "_drama_meta": {"scene_kit": "chalk_text"}}, _bare, KMP4)
+ok(rep9["shots"] == 2 and rep9.get("scale") == 1.0, "nhận canvas qua metadata drama đã nhớ trong state", rep9)
+DUR[KMP4] = 19.0
+
 # Tích hợp: bước drive đưa <tiêu đề>.srt vào CÙNG thư mục với video, bản trên máy nằm cạnh mp4
 CK.clear()
 FD.calls.clear()

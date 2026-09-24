@@ -297,6 +297,45 @@ check(_ext.name == "media_library", "ten may khong doi")
 check(getattr(_ext, "display_name", "") == "Media Library",
       f"display_name la tieng Anh: {getattr(_ext, 'display_name', '')!r}")
 
+# ── H. thẻ của file, do extension khác cung cấp ────────────────────────
+# User 24/9/2026: «tôi chưa thấy tag trong phần thông tin ảnh». Thẻ của tranh phấn
+# nằm ở Content Studio chứ không ở kho (chép sang đây là hai bản sự thật), nên kho
+# chỉ HỎI — và một nguồn hỏng thì mở kho vẫn phải chạy.
+group("H. the file")
+
+library.create("kho_the", cid="kho_the")
+library.add_file("kho_the", "doctor_warning.png", png())
+
+library.register_labels("thu", lambda cid, names: {
+    "doctor_warning.png": {"kind": "person", "tags": "doctor, warning, stop", "used": 3},
+    "khong_co_file_nay.png": {"tags": "ma"},
+})
+got = library.labels_for("kho_the", ["doctor_warning.png"])
+check(got.get("doctor_warning.png", {}).get("tags") == "doctor, warning, stop",
+      "the tu extension khac sang duoc bang thong tin")
+check(got.get("doctor_warning.png", {}).get("source") == "thu", "co ghi nguon the")
+check("khong_co_file_nay.png" not in got,
+      "nguon tra ve ten KHONG duoc hoi thi bo — khong bia ra file trong kho")
+
+
+def _nguon_hong(cid, names):
+    raise RuntimeError("nguon nay dang hong")
+
+
+library.register_labels("hong", _nguon_hong)
+check(library.labels_for("kho_the", ["doctor_warning.png"]).get("doctor_warning.png"),
+      "mot nguon the hong khong duoc lam chet ca lan doc")
+library._LABELS.pop("hong", None)
+library._LABELS.pop("thu", None)
+check(library.labels_for("kho_the", ["doctor_warning.png"]) == {},
+      "khong co nguon nao thi khong co the, khong phai loi")
+
+_routes = open(os.path.join(EXT_DIR, "routes.py"), encoding="utf-8").read()
+check('c["labels"] = library.labels_for(' in _routes,
+      "route mo kho tra the kem, khong bat trang goi them mot luot")
+check("tagSection(f.name)" in _appjs and "media.insp.tags" in _appjs,
+      "bang thong tin file co o the")
+
 shutil.rmtree(_TMP, ignore_errors=True)
 print(f"\n{COUNT[0] - len(FAILS)}/{COUNT[0]} passed")
 if FAILS:

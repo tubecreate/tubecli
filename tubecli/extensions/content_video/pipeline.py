@@ -651,10 +651,48 @@ def _base_url() -> str:
     return f"http://127.0.0.1:{get_api_port()}"
 
 
+_SESSION = None
+
+
+def _session():
+    """Phiên HTTP dùng chung, có THỬ LẠI ở tầng KẾT NỐI.
+
+    Vì sao (23/9/2026): dây chuyền này chạy BÊN TRONG tiến trình máy chủ rồi gọi ngược vào cổng HTTP của
+    chính nó. Hôm nay máy chủ nghẽn 9 phút (15:19–15:28) — vẫn LISTEN nhưng không kịp accept — và một lệnh
+    `_get` đọc lại storyboard bị từ chối đã giết trọn một job 30 phút ĐÃ ghi xong 320 nhịp vào máy. Tiền AI,
+    tiền vẽ ảnh, tiền giọng đọc mất sạch vì một cú bắt tay TCP.
+
+    CHỈ thử lại ở `connect`, KHÔNG ở `read`/`status`. Đây là chỗ then chốt về an toàn: kết nối bị từ chối
+    nghĩa là CHƯA một byte nào của yêu cầu tới được máy chủ, nên gửi lại không thể tạo trùng tập, không thể
+    gọi CapCut hai lần, không thể tính tiền vẽ ảnh hai lần. Ngược lại, lỗi xảy ra SAU khi đã gửi thì
+    `read=0` làm nó hỏng ngay, không phát lại.
+
+    `connect=7, backoff_factor=2` ⇒ chờ 0-4-8-16-32-64-120 = 244 giây. Đủ cho cửa sổ nghẽn đã đo, mà không
+    quá dài: `state["_cancelled"]` chỉ được hỏi GIỮA các bước, nên chờ càng lâu thì nút Huỷ càng ì.
+    """
+    global _SESSION
+    if _SESSION is not None:
+        return _SESSION
+    import requests
+    from requests.adapters import HTTPAdapter
+    try:
+        from urllib3.util.retry import Retry
+    except Exception:       # noqa: BLE001 — urllib3 quá cũ: thà không thử lại còn hơn sập lúc nạp
+        _SESSION = requests.Session()
+        return _SESSION
+    ses = requests.Session()
+    ses.mount("http://127.0.0.1:", HTTPAdapter(
+        pool_maxsize=8,
+        max_retries=Retry(total=None, connect=7, read=0, status=0, other=0,
+                          allowed_methods=None, backoff_factor=2)))
+    _SESSION = ses
+    return _SESSION
+
+
 def _post(path: str, payload: Dict, timeout: int = 300) -> Dict:
     import requests
 
-    r = requests.post(_base_url() + path, json=payload, timeout=timeout)
+    r = _session().post(_base_url() + path, json=payload, timeout=timeout)
     if r.status_code >= 400:
         raise RuntimeError(f"{path} → HTTP {r.status_code}: {r.text[:300]}")
     try:
@@ -666,7 +704,7 @@ def _post(path: str, payload: Dict, timeout: int = 300) -> Dict:
 def _put(path: str, payload: Dict, timeout: int = 60) -> Dict:
     import requests
 
-    r = requests.put(_base_url() + path, json=payload, timeout=timeout)
+    r = _session().put(_base_url() + path, json=payload, timeout=timeout)
     if r.status_code >= 400:
         raise RuntimeError(f"{path} → HTTP {r.status_code}: {r.text[:300]}")
     try:
@@ -678,7 +716,7 @@ def _put(path: str, payload: Dict, timeout: int = 60) -> Dict:
 def _delete(path: str, timeout: int = 60) -> Dict:
     import requests
 
-    r = requests.delete(_base_url() + path, timeout=timeout)
+    r = _session().delete(_base_url() + path, timeout=timeout)
     if r.status_code >= 400:
         raise RuntimeError(f"{path} → HTTP {r.status_code}: {r.text[:300]}")
     try:
@@ -691,7 +729,7 @@ def _post_bytes(path: str, payload: Dict, timeout: int = 180) -> bytes:
     """POST expecting a binary body (CapCut returns the mp3 itself)."""
     import requests
 
-    r = requests.post(_base_url() + path, json=payload, timeout=timeout)
+    r = _session().post(_base_url() + path, json=payload, timeout=timeout)
     if r.status_code >= 400:
         raise RuntimeError(f"{path} → HTTP {r.status_code}: {r.text[:300]}")
     return r.content
@@ -711,7 +749,7 @@ def _post_audio_marks(path: str, payload: Dict, timeout: int = 180) -> Tuple[byt
     import base64
     import requests
 
-    r = requests.post(_base_url() + path, json=payload, timeout=timeout)
+    r = _session().post(_base_url() + path, json=payload, timeout=timeout)
     if r.status_code >= 400:
         raise RuntimeError(f"{path} → HTTP {r.status_code}: {r.text[:300]}")
     if "json" in (r.headers.get("content-type") or "").lower():
@@ -725,7 +763,7 @@ def _post_audio_marks(path: str, payload: Dict, timeout: int = 180) -> Tuple[byt
 def _get(path: str, timeout: int = 60) -> Any:
     import requests
 
-    r = requests.get(_base_url() + path, timeout=timeout)
+    r = _session().get(_base_url() + path, timeout=timeout)
     if r.status_code >= 400:
         raise RuntimeError(f"{path} → HTTP {r.status_code}: {r.text[:300]}")
     try:
@@ -2158,6 +2196,14 @@ def _step_studio(state: Dict, options: Dict) -> None:
     state["drama_id"], state["episode_id"], state["title"] = drama_id, ep_id, title
 
     shots = _storyboards(ep_id)
+    if shots and _duplicate_ratio(shots) >= 0.3:
+        # Storyboard ĐÚP (tập 537, 24/9/2026: 595 nhịp, 289 câu trùng sau một lượt Chạy lại) — vẽ và đọc
+        # gấp đôi, video dài gấp đôi. Xoá sạch rồi cắt lại còn hơn giữ một nửa nào đó.
+        state["_say"]("studio", "running",
+                      f"storyboard had {int(_duplicate_ratio(shots) * 100)}% duplicated lines — "
+                      "clearing it and breaking the script again")
+        _delete(f"/api/v1/studio/episodes/{ep_id}/storyboards")
+        shots = []
     if not shots:                                   # first run; a retry keeps the saved shots
         _stream_storyboard(ep_id, state)
         shots = _storyboards(ep_id)
@@ -2602,7 +2648,8 @@ def fill_empty_shots(shots: List[Dict], script: str, style: str = "") -> List[Tu
             payload = {"narration_text": narr, "tts_audio_url": ""}
             if _is_empty_shot(ordered[pos]):
                 # Vỏ trần: dựng luôn prompt ảnh + tiêu đề từ dòng [SHOW].
-                payload.update({"image_prompt": lead + (show or narr[:300]),
+                # `narr` là lời đọc — có thể là tiếng Nhật/Việt. Lọc trước khi cho vào prompt vẽ.
+                payload.update({"image_prompt": lead + (_for_image(show) or _for_image(narr)),
                                 "title": (show or narr)[:60]})
             out.append((ordered[pos].get("id"), payload))
         i = j
@@ -2616,6 +2663,26 @@ def coverage_error(shots: List[Dict], script: str, cov: float) -> str:
             f"({len(shots or [])} shots for {scenes} scenes, ~{words} words) even after restoring "
             "the script's narration into the shots. The Studio's own AI model is dropping text — "
             "change the model in Content Studio → Settings, or ask for a shorter video.")
+
+
+def _for_image(text: str, limit: int = 300) -> str:
+    """Chữ đưa vào PROMPT VẼ ẢNH — bỏ hẳn nếu không phải tiếng Anh.
+
+    Đo 23/9/2026 trên hai video tiếng Nhật: 600/600 prompt vẽ ảnh bị nối lời đọc tiếng Nhật vào đuôi. Hai
+    hậu quả, cả hai đều thật:
+      1. Model vẽ chỉ đọc tiếng Anh. Đoạn ấy là nhiễu thuần tuý, và với schnell (chỉ đọc ~256 token đầu)
+         nó còn đẩy phần có ích ra ngoài tầm đọc.
+      2. Bộ lọc nội dung của Cloudflare KHÔNG hiểu tiếng Nhật nên đoán bừa: câu «テレビを消すこと。歯を磨くこと。»
+         (tắt tivi, đánh răng) bị trả về `Input prompt contains NSFW content`, và nhịp ấy MẤT HẲN ảnh.
+
+    Quá 1/4 số chữ cái nằm ngoài ASCII ⇒ coi như không phải tiếng Anh. Thà để prompt chỉ còn phong cách —
+    ra một hình chung chung — còn hơn mất trắng cả nhịp vì bị từ chối.
+    """
+    t = " ".join(str(text or "").split())
+    letters = [c for c in t if c.isalpha()]
+    if letters and sum(1 for c in letters if ord(c) > 127) > len(letters) * 0.25:
+        return ""
+    return t[:limit]
 
 
 def _template_style(state: Dict) -> str:
@@ -2639,6 +2706,47 @@ def _template_style(state: Dict) -> str:
         return ""
 
 
+def _canvas_kit_meta(state: Dict) -> Dict:
+    """metadata của drama khi dự án dựng bằng CANVAS (bộ cảnh chữ/phấn: `scene_kit` + `render_engine=canvas`),
+    {} với mọi dự án khác. Nhớ trong state để không hỏi Studio hai lần.
+
+    Vì sao phải biết (24/9/2026): với bộ bảng phấn, HÌNH của mỗi nhịp do bước VIẾT CẢNH chọn — phần lớn lấy
+    trong kho (210 tranh), chỉ vài nhịp phải vẽ. Trước đây bước vẽ chạy TRƯỚC bước viết cảnh (viết cảnh chỉ chạy
+    lúc dựng), nên vẽ đủ mọi nhịp theo prompt chung của storyboard: ba tập ~300 tấm flux mỗi tập vẽ rồi thừa
+    (cạn hạn mức Cloudflare), rồi task #100 vẽ 595 tấm gpt-image-2 — user: «chẳng lẽ nó tạo luôn 500 ảnh bằng
+    chatgpt?».
+    """
+    if isinstance(state.get("_drama_meta"), dict):
+        return state["_drama_meta"]
+    meta: Dict = {}
+    try:
+        d = _get(f"/api/v1/studio/dramas/{state.get('drama_id')}", timeout=30) or {}
+        if isinstance(d.get("drama"), dict):
+            d = d["drama"]
+        m = d.get("metadata") or {}
+        meta = json.loads(m) if isinstance(m, str) else (m if isinstance(m, dict) else {})
+    except Exception as e:      # noqa: BLE001 — không đọc được thì coi như dự án thường
+        logger.info(f"[ContentVideo] drama metadata unavailable: {e}")
+    is_canvas = str(meta.get("render_engine") or "") == "canvas" or bool(meta.get("scene_kit"))
+    state["_drama_meta"] = meta if is_canvas else {}
+    return state["_drama_meta"]
+
+
+def _duplicate_ratio(shots: List[Dict]) -> float:
+    """Tỉ lệ nhịp có LỜI TRÙNG với một nhịp khác. Storyboard đúp (tập 537, 24/9/2026: 595 nhịp, 289 câu trùng
+    sau một lượt Chạy lại) thì gần 0,5; storyboard lành thì ~0 (đôi câu lặp cố ý là chuyện thường)."""
+    seen: Dict[str, int] = {}
+    dup = 0
+    for sh in shots:
+        key = " ".join(str(sh.get("narration_text") or sh.get("dialogue") or "").split())
+        if not key:
+            continue
+        seen[key] = seen.get(key, 0) + 1
+        if seen[key] > 1:
+            dup += 1
+    return dup / max(1, len(shots))
+
+
 def _fill_missing_prompts(state: Dict) -> int:
     """Dựng image_prompt cho shot CHƯA có ảnh mà cũng CHƯA có prompt. Trả số shot đã lấp.
 
@@ -2657,7 +2765,7 @@ def _fill_missing_prompts(state: Dict) -> int:
                      if str(shot.get(k) or "").strip()), "")
         if not what:
             continue
-        prompt = (style.rstrip(". ") + ". " if style else "") + what[:300]
+        prompt = (style.rstrip(". ") + ". " if style else "") + _for_image(what)
         try:
             _put(f"/api/v1/studio/storyboards/{shot['id']}", {"image_prompt": prompt})
             n += 1
@@ -2740,7 +2848,24 @@ def _short_list(items: List[Any], keep: int = 6) -> str:
 
 def _step_images(state: Dict, options: Dict) -> None:
     ep_id = state["episode_id"]
-    filled = _fill_missing_prompts(state)
+    canvas = _canvas_kit_meta(state)
+    if canvas:
+        # Bộ cảnh chữ/phấn: VIẾT CẢNH TRƯỚC. Cảnh chọn hình trong kho và xoá prompt chung của những nhịp không
+        # cần vẽ, nên sau bước này chỉ nhịp thật sự cần tranh mới còn `image_prompt`. Không «bịa prompt» cho
+        # nhịp trống — nhịp trống ở đây là câu trơn hoặc hình kho, cố ý.
+        state["_say"]("images", "running", "choosing pictures from the library before drawing anything")
+        rep = _post(f"/api/v1/studio/episodes/{ep_id}/scenes/generate", {"overwrite": False},
+                    timeout=TIMEOUTS["storyboard"] * 2) or {}
+        if rep.get("ai_error"):
+            raise RuntimeError(f"scene writer: {str(rep['ai_error'])[:200]}")
+        state["scenes_report"] = {k: rep.get(k) for k in ("shots", "written", "to_draw", "no_draw", "diagrams",
+                                                          "failed_chunks") if k in rep}
+        state["_say"]("images", "running",
+                      f"{rep.get('shots', '?')} beats · {rep.get('to_draw', 0)} to draw · "
+                      f"{rep.get('no_draw', 0)} from the library or text only")
+        filled = 0
+    else:
+        filled = _fill_missing_prompts(state)
     if filled:
         state["_say"]("images", "running", f"built {filled} missing image prompt(s) from the shot text")
     body = {
@@ -2756,7 +2881,9 @@ def _step_images(state: Dict, options: Dict) -> None:
     # "không có prompt", nên dây chuyền Diễn giải bị báo oan: nhịp lấy tranh từ kho (`lib:`) hay mượn
     # tranh nhịp khác (`@N`) vốn không cần prompt — tập 454 (20/9/2026) bị kêu «33 shot sẽ thiếu» trong
     # khi cả 203/203 shot đều có tranh, và thẻ task chuyển thành ⚠️ oan.
-    missing = _shots_without_media(ep_id)
+    # Dự án canvas: nhịp không prompt và không ảnh là CỐ Ý (câu trơn, hình kho nằm trong cảnh) — không cảnh
+    # báo, không chặn; «không có gì để vẽ» là kết quả tốt (cả tập lấy từ kho), không phải lỗi storyboard.
+    missing = [] if canvas else _shots_without_media(ep_id)
     if missing and res.get("with_prompt"):
         state.setdefault("warnings", []).append(
             f"{len(missing)} shot(s) have neither an image prompt nor a picture already made "
@@ -5774,12 +5901,28 @@ def _srt_time(t: float) -> str:
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
 
+def _shot_scene(sh: Dict) -> Dict:
+    """shot.metadata.scene của dự án dựng bằng canvas (kho JSON giữ chuỗi JSON hoặc dict) — {} nếu không có."""
+    meta = sh.get("metadata")
+    if isinstance(meta, str):
+        try:
+            meta = json.loads(meta or "{}")
+        except ValueError:
+            meta = {}
+    scene = meta.get("scene") if isinstance(meta, dict) else None
+    return scene if isinstance(scene, dict) else {}
+
+
 def build_srt(state: Dict, shots: List[Dict], video_path: str) -> Tuple[str, Dict[str, Any]]:
     """(nội dung .srt, báo cáo {cues, shots, tts, estimated, scale|drift}) cho video đã dựng."""
     mod = _studio_subtitles()
     language = str(state.get("language") or "")
     rep: Dict[str, Any] = {"cues": 0, "shots": 0}
     tall: List[bool] = []
+    # Bộ dựng CANVAS (bảng phấn…) dựng MỌI shot — chữ viết lên bảng + tranh trong kho, phần lớn KHÔNG có ảnh riêng.
+    # Bỏ shot không ảnh như đường trình chiếu thì .srt của #101/#102 (24/9/2026) chỉ còn lời của 6/272 shot, kèm
+    # cảnh báo «lệch +1632 s so với dòng thời gian».
+    canvas = bool(state.get("_drama_meta")) or any(_shot_scene(sh) for sh in shots)
 
     cues: List[List[Any]] = []
     offset = 0.0
@@ -5787,8 +5930,8 @@ def build_srt(state: Dict, shots: List[Dict], video_path: str) -> Tuple[str, Dic
         video = next((p for p in (sh.get("video_url"),) if p and os.path.isfile(str(p))), "")
         media = video or next((p for p in (sh.get("composed_image"), sh.get("image_url"))
                                if p and not str(p).startswith(("http://", "https://")) and os.path.isfile(str(p))), "")
-        if not media:
-            continue                        # bộ dựng bỏ shot không có hình — không chiếm giây nào
+        if not media and not canvas:
+            continue                        # trình chiếu bỏ shot không có hình — không chiếm giây nào
         audio = _srt_audio(sh.get("tts_audio_url"))
         adur = _srt_seconds(audio, mod) if audio else 0.0
         text = _srt_shot_text(sh)

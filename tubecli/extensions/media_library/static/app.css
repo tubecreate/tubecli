@@ -1164,6 +1164,28 @@ code.mono {
 .kv .k { font-size: 10.5px; color: var(--text-muted); margin-bottom: 1px; }
 .kv .v { font-size: 12px; font-weight: 550; overflow: hidden; text-overflow: ellipsis; }
 
+/* Thẻ của một tấm. Chữ thường, viền nhạt: đây là DỮ LIỆU để máy chọn hình,
+   không phải nút bấm — tô đậm lên sẽ đọc như thứ bấm được mà không bấm được. */
+.tagbox { display: flex; flex-wrap: wrap; gap: 5px; }
+
+.tag {
+  font-size: 10.5px;
+  line-height: 1.5;
+  padding: 2px 7px;
+  border-radius: 99px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  color: var(--text2);
+}
+
+.tag-kind {
+  font-weight: 650;
+  letter-spacing: .03em;
+  color: var(--primary);
+  border-color: color-mix(in srgb, var(--primary) 38%, transparent);
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+}
+
 .path {
   display: flex;
   align-items: center;
