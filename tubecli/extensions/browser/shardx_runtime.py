@@ -481,7 +481,7 @@ def _manifest_cache_file() -> Path:
     return launcher_root() / "runtime" / "manifest-cache.json"
 
 
-def fetch_manifest(timeout: float = 8.0, force: bool = False) -> dict:
+def fetch_manifest(timeout: float = 8.0, force: bool = False, offline: bool = False) -> dict:
     """Manifest ShardX (chromium_version, etag từng gói, grease...).
 
     Cache 30 phút trong RAM + một bản trên đĩa. Danh sách engine được gọi mỗi lần mở
@@ -494,6 +494,16 @@ def fetch_manifest(timeout: float = 8.0, force: bool = False) -> dict:
     now = time.time()
     if not force and _manifest_cache["data"] and now - _manifest_cache["at"] < _MANIFEST_TTL:
         return _manifest_cache["data"]
+    # offline: người gọi đang trả lời một trang (danh sách hồ sơ Flow hỏi mỗi vài
+    # giây) — thà dùng bản đã thấy lần cuối còn hơn bắt trang chờ GitHub tới 8 giây.
+    if offline:
+        if _manifest_cache["data"]:
+            return _manifest_cache["data"]
+        try:
+            cached = json.loads(_manifest_cache_file().read_text(encoding="utf-8"))
+            return cached if isinstance(cached, dict) else {}
+        except Exception:
+            return {}
 
     data = {}
     try:
@@ -626,6 +636,121 @@ def rebuild_available(version: str, manifest: Optional[dict] = None) -> bool:
     spec = host_spec()
     return (differs(st.get("engine_build"), man.get("engine_build"))
             or differs(st.get("browser_etag"), (man.get("archives") or {}).get(spec.archive)))
+
+
+def shardx_engine_policy() -> str:
+    """'latest' (mặc định) | 'pinned' — cùng luật với shardxEnginePolicy() bên JS."""
+    try:
+        import json as _json
+        from tubecli.config import DATA_DIR
+        path = Path(str(DATA_DIR)) / "global_settings.json"
+        if path.exists():
+            gs = _json.loads(path.read_text(encoding="utf-8")) or {}
+            if str(gs.get("shardx_engine_policy") or "").lower() == "pinned":
+                return "pinned"
+    except Exception:
+        pass
+    return "latest"
+
+
+def parse_engine_pin(pin) -> tuple:
+    """(họ, số) của chuỗi browser_version — bản sao parseEnginePin() bên JS."""
+    raw = "" if pin is None else str(pin).strip()
+    low = raw.lower()
+    if not raw or low in ("default", "latest"):
+        return None, None
+    if "shardx" in low:
+        ver = re.sub(r"shardx", "", raw, count=1, flags=re.I)
+        ver = re.sub(r"^\s*[-_]\s*", "", ver).strip()
+        return "shardx", (ver or None)
+    return "bas", raw
+
+
+def engine_context() -> dict:
+    """Những gì mọi hồ sơ trên máy dùng chung — tính MỘT lần cho cả danh sách.
+
+    Không chạm mạng (manifest đọc từ cache): danh sách hồ sơ được Flow hỏi liên
+    tục, không được chờ GitHub.
+    """
+    man = fetch_manifest(offline=True)
+    forced = (os.environ.get(ENV_VERSION_OVERRIDE) or "").strip()
+    latest = forced or man.get("chromium_version") or ""
+    shardx = installed_versions()
+    try:
+        bas = [e for e in _bas_entries() if e.get("usable")]
+    except Exception:
+        bas = []
+    return {
+        "policy": shardx_engine_policy(),
+        "latest": latest,
+        "shardx": shardx,
+        "bas_usable": [e["engine_version"] for e in bas],
+        "rebuild": bool(latest and shardx and shardx[0] == latest and rebuild_available(latest, man)),
+        "stamp_build": {v: install_stamp(v).get("engine_build") for v in shardx},
+    }
+
+
+def profile_engine_info(pin, ctx: Optional[dict] = None) -> dict:
+    """Nhân mà hồ sơ SẼ chạy ở lần mở tới, và nó khai Chrome số mấy.
+
+    Đi đúng đường quyết định của browser_manager.js launch(): ghim ShardX → nhân
+    ShardX mới nhất đã cài (hoặc đúng bản ghim nếu chính sách 'pinned'); ghim BAS
+    mà BAS không dùng được trên máy → mượn ShardX. Với ShardX, Chrome khai ra =
+    số của nhân, vì applyEngineVersion() kéo UA/Client Hints theo nhân lúc mở.
+    """
+    ctx = ctx if ctx is not None else engine_context()
+    family, ver = parse_engine_pin(pin)
+    shardx = ctx.get("shardx") or []
+    info = {
+        "engine_pin": None if pin is None else str(pin),
+        "engine_family": family or "shardx",
+        "engine_version": None,
+        "engine_build": None,
+        "chrome_version": None,
+        "engine_installed": False,
+        "engine_substituted": False,
+        "engine_update_to": None,
+    }
+
+    def use_shardx(v, substituted=False):
+        info.update(engine_family="shardx", engine_version=v, chrome_version=v,
+                    engine_installed=True, engine_substituted=substituted,
+                    engine_build=(ctx.get("stamp_build") or {}).get(v))
+        latest = ctx.get("latest")
+        if latest and _version_key(latest) > _version_key(v):
+            info["engine_update_to"] = latest
+        elif latest and v == latest and ctx.get("rebuild"):
+            info["engine_update_to"] = latest
+
+    if family == "shardx":
+        if not shardx:
+            info.update(engine_version=ver, chrome_version=ver)
+            if ctx.get("latest"):
+                info["engine_update_to"] = ctx["latest"]
+            return info
+        if ctx.get("policy") == "pinned" and ver in shardx:
+            use_shardx(ver)
+        else:
+            use_shardx(shardx[0])
+        return info
+
+    # Ghim BAS (hoặc chưa ghim): dùng BAS nếu có bản dùng được, không thì mượn ShardX.
+    bas_usable = ctx.get("bas_usable") or []
+    if bas_usable:
+        want = None
+        if ver:
+            want = ver if ver in BAS_TO_CHROMIUM else next(
+                (b for b in sorted(BAS_TO_CHROMIUM, key=_version_key, reverse=True)
+                 if BAS_TO_CHROMIUM[b] == ver and b in bas_usable), None)
+        bas_ver = want if want in bas_usable else bas_usable[0]
+        info.update(engine_family="bas", engine_version=bas_ver,
+                    chrome_version=bas_chromium_for(bas_ver), engine_installed=True)
+        return info
+    if shardx:
+        use_shardx(shardx[0], substituted=bool(family))
+        return info
+    info.update(engine_family=family or "shardx", engine_version=ver, chrome_version=ver)
+    return info
 
 
 def check_update() -> dict:

@@ -117,6 +117,17 @@ async def api_list_profiles(request: Request):
             "proxy": bool(p.get("proxy")),
         } for p in profiles
             if isinstance(p, dict) and p.get("name") in allowed]
+    else:
+        # Nhân mỗi hồ sơ SẼ chạy + Chrome nó khai — card hồ sơ trên Flow in ra, và
+        # báo khi có nhân mới. Tính chung một ngữ cảnh (không chạm mạng) cho cả
+        # danh sách. Hỏng thì bỏ qua: danh sách hồ sơ không được chết vì phần phụ.
+        try:
+            ctx = await asyncio.to_thread(sx.engine_context)
+            for p in profiles:
+                if isinstance(p, dict):
+                    p.update(sx.profile_engine_info(p.get("browser_version"), ctx))
+        except Exception as e:
+            print(f"[browser] engine info for profile list failed: {e}")
     # The page needs to know the host to decide what to show. A BAS key is
     # meaningless where BAS cannot run, and launching a window on the machine only
     # makes sense where there is a display — on a headless server or in a container
@@ -196,7 +207,15 @@ async def api_update_profile(name: str, req: ProfileUpdateRequest):
 @router.delete("/profiles/{name}")
 async def api_delete_profile(name: str):
     from .profile_manager import delete_profile
-    success = await asyncio.to_thread(delete_profile, name)
+    # Xoá là rmtree cả thư mục hồ sơ (cookie, lịch sử, vân tay) — xoá lúc trình
+    # duyệt còn mở thì Chromium ghi tiếp vào một thư mục đã mất (Linux) hoặc xoá
+    # dở dang vì file bị khoá (Windows). Bắt dừng phiên trước.
+    if await asyncio.to_thread(is_profile_running, name):
+        raise HTTPException(409, f"Profile '{name}' is open. Stop its browser first, then delete it.")
+    try:
+        success = await asyncio.to_thread(delete_profile, name)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     if not success:
         raise HTTPException(404, f"Profile '{name}' not found")
     return {"status": "deleted"}

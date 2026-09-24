@@ -354,8 +354,13 @@ def create_profile(name: str, proxy: str = "", browser_version: str = "latest", 
 
 def delete_profile(name: str) -> bool:
     """Delete a profile and its data."""
-    profile_path = os.path.join(PROFILES_DIR, name)
-    if not os.path.exists(profile_path):
+    # Tên đi thẳng từ URL vào rmtree: "..", "a/../..", đường dẫn tuyệt đối đều
+    # phải bị chặn, nếu không một lệnh xoá hồ sơ xoá được cả thư mục cha.
+    root = os.path.realpath(PROFILES_DIR)
+    profile_path = os.path.realpath(os.path.join(PROFILES_DIR, str(name)))
+    if (not name or str(name) in (".", "..") or os.path.dirname(profile_path) != root):
+        raise ValueError(f"Invalid profile name: {name!r}")
+    if not os.path.isdir(profile_path):
         return False
     shutil.rmtree(profile_path)
     return True
