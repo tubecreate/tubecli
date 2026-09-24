@@ -42,7 +42,7 @@ MANIFEST_URL = "https://raw.githubusercontent.com/ProxyShard/ShardBrowser/main/r
 # Phiên bản dùng khi KHÔNG đọc được manifest (mất mạng, GitHub chặn). Đây chỉ là
 # lưới an toàn — phiên bản thật luôn lấy từ manifest qua current_version(), nên khi
 # ShardX phát hành nhân mới (150, 151...) extension tự nhận mà không phải sửa code.
-FALLBACK_VERSION = "149.0.7827.103"
+FALLBACK_VERSION = "152.0.7977.65"
 PINNED_VERSION = FALLBACK_VERSION          # tên cũ, giữ cho code ngoài còn import
 
 # Ép một phiên bản cụ thể (thử nhân mới trước khi manifest kịp cập nhật):
@@ -206,37 +206,90 @@ def fingerprints_installed() -> bool:
     return d.is_dir() and any(d.glob("*.json"))
 
 
-def install_fingerprints(on_progress=None) -> bool:
-    """Fetch the ShardX fingerprint library.
+_FP_STAMP = ".tubecli-etag"
+
+
+def fingerprints_etag() -> str:
+    """Etag của gói thư viện fingerprint ĐANG nằm trên đĩa (rỗng = không biết)."""
+    try:
+        return (fingerprints_dir() / _FP_STAMP).read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def fingerprints_outdated(manifest: Optional[dict] = None) -> bool:
+    """Thư viện trên đĩa khác gói ShardX đang phát hành.
+
+    ShardX thay thư viện CÙNG lúc lên nhân: bản cho 152 khai UA Chrome/152, TLS 11
+    thuật toán ký, thêm webgl.parameters / webgpu.features. Trước đây thư viện chỉ
+    tải MỘT lần rồi không bao giờ hỏi lại, nên hồ sơ mới trên nhân 152 vẫn bốc
+    fingerprint thời 149.
+
+    Thư viện cài trước khi có dấu etag cũng tính là cũ — không cách nào biết nó
+    thuộc đợt nào, và tải lại chỉ tốn ~700 KB.
+    """
+    man = manifest if manifest is not None else fetch_manifest()
+    want = str(((man or {}).get("archives") or {}).get(FINGERPRINTS_ARCHIVE) or "")
+    if not want:
+        return False              # không đọc được manifest: không kết luận gì
+    if not fingerprints_installed():
+        return True
+    return fingerprints_etag() != want
+
+
+def install_fingerprints(on_progress=None, force: bool = False) -> bool:
+    """Fetch the ShardX fingerprint library (hoặc làm mới khi ShardX thay gói).
 
     Without it a profile launches with no --fingerprint-profile at all, which
     silently defeats the entire point of a browser profile. The engine download
     never fetched it, and on Windows it was only ever present because the ShardX
     Launcher had been installed separately.
+
+    Giải nén vào thư mục tạm rồi mới đổi chỗ: tải hỏng giữa chừng thì thư viện cũ
+    vẫn nguyên, không bao giờ còn lại một thư mục rỗng khiến hồ sơ mở TRẦN.
+    Fingerprint đã cấp cho từng hồ sơ nằm trong thư mục hồ sơ, không ở đây, nên
+    làm mới thư viện KHÔNG đổi danh tính hồ sơ cũ nào.
     """
     dest = fingerprints_dir()
-    if fingerprints_installed():
+    if not force and fingerprints_installed() and not fingerprints_outdated():
         return True
+    man = fetch_manifest()
+    etag = str(((man or {}).get("archives") or {}).get(FINGERPRINTS_ARCHIVE) or "")
     tmp = dest.parent / f".{FINGERPRINTS_ARCHIVE}.tmp"
+    staging = dest.parent / ".fingerprints.new"
     try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
         download(f"{PUB_BASE}/{FINGERPRINTS_ARCHIVE}", tmp, on_progress=on_progress)
-        extract(tmp, dest)
+        shutil.rmtree(staging, ignore_errors=True)
+        extract(tmp, staging)
         # The archive carries its own top-level folder; flatten so the engine's
         # lookup finds *.json directly in the fingerprints directory.
-        if not any(dest.glob("*.json")):
-            for sub in dest.iterdir():
+        if not any(staging.glob("*.json")):
+            for sub in staging.iterdir():
                 if sub.is_dir() and any(sub.glob("*.json")):
                     for f in sub.glob("*.json"):
-                        f.replace(dest / f.name)
+                        f.replace(staging / f.name)
+                    shutil.rmtree(sub, ignore_errors=True)
                     break
+        if not any(staging.glob("*.json")):
+            return fingerprints_installed()
+        if etag:
+            (staging / _FP_STAMP).write_text(etag, encoding="utf-8")
+        old = dest.parent / ".fingerprints.old"
+        shutil.rmtree(old, ignore_errors=True)
+        if dest.exists():
+            dest.rename(old)
+        staging.rename(dest)
+        shutil.rmtree(old, ignore_errors=True)
         return fingerprints_installed()
     except Exception:
-        return False
+        return fingerprints_installed()
     finally:
         try:
             tmp.unlink(missing_ok=True)
         except OSError:
             pass
+        shutil.rmtree(staging, ignore_errors=True)
 
 
 def missing_linux_libraries() -> list:
@@ -494,13 +547,85 @@ def _version_key(v: str) -> tuple:
     return tuple(parts[:4])
 
 
+_ENGINE_DIR_RE = re.compile(r"^\d+(\.\d+){3}$")
+
+
 def installed_versions() -> list:
     """Các phiên bản engine đã cài trên máy (mới nhất trước)."""
     root = launcher_root() / "runtime" / "engines"
     if not root.is_dir():
         return []
-    out = [d.name for d in root.iterdir() if d.is_dir() and is_installed(d.name)]
+    # Chỉ nhận tên là số phiên bản: "152.0.7977.65.new"/".old" là thư mục tạm của
+    # lượt cài lại (routes.api_download_engine), sót lại khi máy tắt giữa chừng.
+    out = [d.name for d in root.iterdir()
+           if d.is_dir() and _ENGINE_DIR_RE.match(d.name) and is_installed(d.name)]
     return sorted(out, key=_version_key, reverse=True)
+
+
+INSTALL_STAMP = "tubecli-install.json"
+
+
+def install_stamp(version: str) -> dict:
+    """Dấu ghi lúc cài một nhân: engine_build, etag gói, grease và TLS của ĐÚNG đợt đó.
+
+    browser_manager.js đọc file này lúc mở để kéo UA / Client Hints / TLS của hồ sơ
+    về khớp nhân đang chạy (bản port apply_engine_version của SDK ShardX 2.x).
+    Grease và TLS KHÔNG suy ra được từ số phiên bản, nên phải lưu cùng nhân:
+    manifest trên mạng chỉ mô tả bản MỚI NHẤT, áp nó lên một nhân cũ là sai.
+    """
+    import json
+    try:
+        data = json.loads((engine_dir(version) / INSTALL_STAMP).read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def write_install_stamp(version: str, manifest: Optional[dict] = None) -> dict:
+    """Ghi dấu sau khi giải nén xong. Chỉ chép phần của manifest khi manifest nói
+    ĐÚNG phiên bản này — tải bản cũ qua worker thì chỉ biết số phiên bản."""
+    import json
+    import time
+    man = manifest if manifest is not None else fetch_manifest()
+    stamp = {"chromium_version": version, "installed_at": int(time.time())}
+    if man and man.get("chromium_version") == version:
+        spec = host_spec()
+        stamp.update({
+            "engine_build": man.get("engine_build"),
+            "browser_etag": (man.get("archives") or {}).get(spec.archive),
+            "manifest_revision": man.get("revision"),
+            "grease_brand": man.get("grease_brand"),
+            "grease_version": man.get("grease_version"),
+            "tls": man.get("tls") if isinstance(man.get("tls"), dict) else None,
+        })
+    try:
+        f = engine_dir(version) / INSTALL_STAMP
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(json.dumps(stamp, indent=2), encoding="utf-8")
+    except OSError:
+        pass
+    return stamp
+
+
+def rebuild_available(version: str, manifest: Optional[dict] = None) -> bool:
+    """Cùng số Chromium nhưng ShardX đã phát hành BẢN DỰNG KHÁC.
+
+    Chuyện có thật: 152.0.7977.65 ra ngày 9/9/2026 (engine_build 2) rồi dựng lại
+    ngày 13/9 (engine_build 4) mà không đổi số. So số như trước thì máy cài hôm 9/9
+    thấy "đã mới nhất" mãi. Giống SDK: giá trị KHÔNG BIẾT không tính là lệch —
+    nhân cài trước khi có dấu không bị ép tải lại vô cớ.
+    """
+    man = manifest if manifest is not None else fetch_manifest()
+    if not man or man.get("chromium_version") != version or not is_installed(version):
+        return False
+    st = install_stamp(version)
+
+    def differs(have, want) -> bool:
+        return bool(have) and bool(want) and str(have) != str(want)
+
+    spec = host_spec()
+    return (differs(st.get("engine_build"), man.get("engine_build"))
+            or differs(st.get("browser_etag"), (man.get("archives") or {}).get(spec.archive)))
 
 
 def check_update() -> dict:
@@ -513,12 +638,19 @@ def check_update() -> dict:
     latest = current_version()
     installed = installed_versions()
     newest = installed[0] if installed else None
+    newer = bool(newest and _version_key(latest) > _version_key(newest))
+    rebuild = bool(newest and newest == latest and rebuild_available(latest, man))
     return {
         "latest": latest,
         "installed": installed,
         "newest_installed": newest,
-        "update_available": bool(newest and _version_key(latest) > _version_key(newest)),
-        "up_to_date": bool(newest and _version_key(latest) <= _version_key(newest)),
+        "update_available": newer or rebuild,
+        # Cùng số, khác bản dựng — UI nói "cài lại" thay vì "lên bản mới".
+        "rebuild_available": rebuild,
+        "up_to_date": bool(newest and not newer and not rebuild),
+        "engine_build": man.get("engine_build"),
+        "installed_engine_build": install_stamp(newest).get("engine_build") if newest else None,
+        "fingerprints_update_available": bool(man) and fingerprints_outdated(man),
         "manifest_ok": bool(man),
         "manifest_revision": man.get("revision"),
         "grease_brand": man.get("grease_brand"),
@@ -728,6 +860,16 @@ def preflight() -> Optional[str]:
 # browser_manager.js mới tìm đúng thư mục engine. Bảng này trước nằm inline trong
 # profile_manager.py; dời về đây để chỉ còn một bản.
 BAS_TO_CHROMIUM = {
+    # 30.3 → 30.8: số đọc thẳng từ mục lục zip trên bablosoft (24/9/2026) — mỗi
+    # gói mang 2–3 bản Chromium, số ở đây là bản MỚI NHẤT trong gói, tức bản
+    # plugin.useBrowserVersion('default') chọn. 30.3 chưa lên nhân mới (vẫn 149),
+    # 30.4 và 30.5 cùng 150.
+    "30.8.0": "153.0.8010.37",
+    "30.7.0": "152.0.7977.83",
+    "30.6.0": "151.0.7922.72",
+    "30.5.0": "150.0.7871.47",
+    "30.4.0": "150.0.7871.47",
+    "30.3.0": "149.0.7827.54",
     "30.2.0": "149.0.7827.54",
     "30.1.0": "148.0.7778.97",
     "30.0.0": "147.0.7727.56",

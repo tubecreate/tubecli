@@ -537,6 +537,8 @@
   "browser.badge_latest": "НОВЕЙШАЯ",
   "browser.badge_latest_hint": "Новейшее ядро от ShardX",
   "browser.engine_update_available": "Доступно новое ядро браузера",
+  "browser.engine_rebuild_available": "ShardX перевыпустил это ядро с исправлениями — переустановите его",
+  "browser.btn_reinstall": "Переустановить",
   "browser.engine_up_to_date": "Ядро браузера актуально",
   "browser.engine_installed_now": "установлено",
   "browser.engine_none_installed": "ядро ещё не установлено",

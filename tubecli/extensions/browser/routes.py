@@ -1242,6 +1242,14 @@ async def api_get_engine_versions():
 
             # 2. Add local fallback versions if they are not in the list
             fallback_versions = [
+                {"bas_version": "30.8.0", "browser_version": "153.0.8010.37",
+                 "download_url": "http://downloads.bablosoft.com/distr/FastExecuteScript64/30.8.0/FastExecuteScript.x64.zip"},
+                {"bas_version": "30.7.0", "browser_version": "152.0.7977.83",
+                 "download_url": "http://downloads.bablosoft.com/distr/FastExecuteScript64/30.7.0/FastExecuteScript.x64.zip"},
+                {"bas_version": "30.6.0", "browser_version": "151.0.7922.72",
+                 "download_url": "http://downloads.bablosoft.com/distr/FastExecuteScript64/30.6.0/FastExecuteScript.x64.zip"},
+                {"bas_version": "30.5.0", "browser_version": "150.0.7871.47",
+                 "download_url": "http://downloads.bablosoft.com/distr/FastExecuteScript64/30.5.0/FastExecuteScript.x64.zip"},
                 {"bas_version": "30.2.0", "browser_version": "149.0.7827.54",
                  "download_url": "http://downloads.bablosoft.com/distr/FastExecuteScript64/30.2.0/FastExecuteScript.x64.zip"},
                 {"bas_version": "30.1.0", "browser_version": "148.0.7778.97",
@@ -1326,6 +1334,9 @@ async def api_get_engine_versions():
                     # Bản ShardX đang phát hành: UI cần phân biệt "mới nhất" với
                     # "bản cũ còn giữ lại", nếu không người dùng không biết nên cài cái nào.
                     v["is_current"] = (version_num == _sx_latest)
+                    # Cùng số mà ShardX đã dựng lại → dòng đã cài vẫn cần nút Cài lại.
+                    v["rebuild_available"] = bool(installed and v["is_current"]
+                                                  and sx.rebuild_available(version_num))
                     v["chromium_version"] = version_num
                     # KHÔNG gắn chữ "mới nhất" vào name: name đi thẳng ra UI, mà UI có
                     # 9 ngôn ngữ — chữ cứng tiếng Việt sẽ chen vào giao diện tiếng Anh.
@@ -1407,7 +1418,10 @@ async def api_engine_check_update(force: bool = True):
             sx.fetch_manifest(force=True)
         info = sx.check_update()
         info["success"] = True
-        if info["update_available"]:
+        if info.get("rebuild_available"):
+            info["message"] = (f"ShardX đã dựng lại nhân {info['latest']} "
+                               f"(bản dựng {info.get('engine_build')}) — cài lại để nhận bản vá.")
+        elif info["update_available"]:
             info["message"] = (f"Có nhân mới {info['latest']} "
                                f"(đang cài {info['newest_installed']}).")
         elif not info["installed"]:
@@ -1551,6 +1565,7 @@ async def api_download_engine(version: str, request: Request):
 
         def download_and_extract_shardx():
             import requests
+            import shutil
 
             # Manifest và bucket không đổi cùng lúc, nên thử lần lượt: bản mới nhất
             # nằm ở CDN dưới tên không số, bản cũ nằm sau worker theo số phiên bản.
@@ -1619,11 +1634,31 @@ async def api_download_engine(version: str, request: Request):
                     raise last_err
 
                 write_progress("extracting", 90, "Extracting ShardX engine...")
+                # Cùng số mà đã cài = ShardX DỰNG LẠI bản đó (152.0.7977.65 ra 9/9
+                # rồi dựng lại 13/9). Giải đè lên thư mục cũ sẽ để lẫn file hai
+                # bản dựng, và trên Windows chết giữa chừng nếu chrome.exe đang
+                # chạy. Nên giải vào thư mục bên cạnh rồi mới đổi chỗ.
+                reinstall = sx.is_installed(version_num)
+                extract_to = Path(str(target_dir) + ".new") if reinstall else Path(target_dir)
                 try:
+                    if reinstall:
+                        shutil.rmtree(extract_to, ignore_errors=True)
                     # Goes through shardx_runtime: on POSIX it uses the system
                     # unzip and then restores exec bits, because zipfile drops
                     # symlinks and permissions and the engine will not launch.
-                    sx.extract(Path(tmp_zip), Path(target_dir))
+                    sx.extract(Path(tmp_zip), extract_to)
+                    if reinstall:
+                        old_dir = Path(str(target_dir) + ".old")
+                        shutil.rmtree(old_dir, ignore_errors=True)
+                        try:
+                            os.replace(target_dir, old_dir)
+                        except OSError:
+                            shutil.rmtree(extract_to, ignore_errors=True)
+                            raise RuntimeError(
+                                f"ShardX {version_num} is still in use by an open browser. "
+                                f"Close every browser profile, then install again.")
+                        os.replace(extract_to, target_dir)
+                        shutil.rmtree(old_dir, ignore_errors=True)
                 except Exception as e:
                     try:
                         os.remove(tmp_zip)
@@ -1653,7 +1688,12 @@ async def api_download_engine(version: str, request: Request):
                 # skips --fingerprint-profile entirely, and the profile runs with
                 # the engine's real fingerprint — the one thing a profile exists to
                 # prevent.
-                if not sx.fingerprints_installed():
+                # Dấu cài đặt: engine_build + grease + TLS của ĐÚNG đợt này.
+                # browser_manager.js đọc nó để kéo UA/Client Hints/TLS của hồ sơ
+                # về khớp nhân; thiếu nó hồ sơ cũ khai Chrome 149 trên nhân 152.
+                sx.write_install_stamp(version_num)
+
+                if not sx.fingerprints_installed() or sx.fingerprints_outdated():
                     write_progress("extracting", 93, "Installing ShardX fingerprint library...")
                     if not sx.install_fingerprints():
                         write_progress("extracting", 94,

@@ -537,6 +537,8 @@
   "browser.badge_latest": "最新",
   "browser.badge_latest_hint": "ShardX 发布的最新内核",
   "browser.engine_update_available": "有新的浏览器内核",
+  "browser.engine_rebuild_available": "ShardX 已重新发布此内核（含修复）— 请重新安装",
+  "browser.btn_reinstall": "重新安装",
   "browser.engine_up_to_date": "浏览器内核已是最新",
   "browser.engine_installed_now": "已安装",
   "browser.engine_none_installed": "尚未安装内核",

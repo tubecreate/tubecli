@@ -537,6 +537,8 @@
   "browser.badge_latest": "최신",
   "browser.badge_latest_hint": "ShardX가 배포하는 최신 엔진",
   "browser.engine_update_available": "새 브라우저 엔진이 있습니다",
+  "browser.engine_rebuild_available": "ShardX가 수정 사항과 함께 이 엔진을 다시 배포했습니다 — 다시 설치하세요",
+  "browser.btn_reinstall": "다시 설치",
   "browser.engine_up_to_date": "브라우저 엔진이 최신입니다",
   "browser.engine_installed_now": "설치됨",
   "browser.engine_none_installed": "설치된 엔진 없음",

@@ -280,7 +280,7 @@ def list_profiles() -> List[Dict[str, Any]]:
 
 # Bản dự phòng khi CHÍNH câu import shardx_runtime nổ. Phải khớp
 # shardx_runtime.FALLBACK_VERSION; chỉ dùng ở nhánh "không đọc nổi module nào".
-_SHARDX_FALLBACK_VERSION = "149.0.7827.103"
+_SHARDX_FALLBACK_VERSION = "152.0.7977.65"
 
 
 def resolve_default_browser_version() -> str:

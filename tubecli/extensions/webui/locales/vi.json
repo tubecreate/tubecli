@@ -703,6 +703,8 @@
   "browser.badge_latest": "MỚI NHẤT",
   "browser.badge_latest_hint": "Nhân mới nhất ShardX đang phát hành",
   "browser.engine_update_available": "Có nhân trình duyệt mới",
+  "browser.engine_rebuild_available": "ShardX đã dựng lại nhân này kèm bản vá — hãy cài lại",
+  "browser.btn_reinstall": "Cài lại",
   "browser.engine_up_to_date": "Nhân trình duyệt đang là mới nhất",
   "browser.engine_installed_now": "đang cài",
   "browser.engine_none_installed": "chưa cài nhân nào",

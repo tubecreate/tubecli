@@ -5329,7 +5329,7 @@ async function showBrowserEnginesModal() {
                     <td style="color:${installed ? 'var(--green)' : 'var(--red)'}">${installed ? T('browser.installed', '✅ Installed') : T('browser.missing', '❌ Missing')}</td>
                     <td style="font-size:0.75rem;color:var(--text-muted);word-break:break-all">${esc(path)}</td>
                     <td style="text-align:right">
-                        ${installed ? '' : `<button class="btn-install" style="padding:2px 10px;font-size:0.8rem" onclick="installEngineVersionProgress('${esc(v.bas_version || name)}', '${esc(downloadUrl)}')">${T('browser.btn_install', 'Install')}</button>`}
+                        ${installed && !v.rebuild_available ? '' : `<button class="btn-install" style="padding:2px 10px;font-size:0.8rem" onclick="installEngineVersionProgress('${esc(v.bas_version || name)}', '${esc(downloadUrl)}')">${installed ? T('browser.btn_reinstall', 'Reinstall') : T('browser.btn_install', 'Install')}</button>`}
                     </td>
                 </tr>`;
             }).join('');
@@ -5342,7 +5342,9 @@ async function showBrowserEnginesModal() {
             const euBox = (() => {
                 if (!eu.latest) return '';
                 const tone = eu.update_available ? 'var(--orange)' : 'var(--green)';
-                const head = eu.update_available
+                const head = eu.rebuild_available
+                    ? `⬆️ ${esc(T('browser.engine_rebuild_available', 'ShardX re-released this core with fixes — reinstall it'))}: <b>${esc(eu.latest)}</b>`
+                    : eu.update_available
                     ? `⬆️ ${esc(T('browser.engine_update_available', 'A newer browser core is available'))}: <b>${esc(eu.latest)}</b>`
                     : `✅ ${esc(T('browser.engine_up_to_date', 'Browser core is up to date'))}: <b>${esc(eu.latest)}</b>`;
                 const cur = eu.newest_installed

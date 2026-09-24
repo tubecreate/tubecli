@@ -537,6 +537,8 @@
   "browser.badge_latest": "EN YENİ",
   "browser.badge_latest_hint": "ShardX'in yayınladığı en yeni motor",
   "browser.engine_update_available": "Daha yeni bir tarayıcı çekirdeği var",
+  "browser.engine_rebuild_available": "ShardX bu çekirdeği düzeltmelerle yeniden yayımladı — yeniden kurun",
+  "browser.btn_reinstall": "Yeniden kur",
   "browser.engine_up_to_date": "Tarayıcı çekirdeği güncel",
   "browser.engine_installed_now": "kurulu",
   "browser.engine_none_installed": "henüz çekirdek kurulu değil",

@@ -537,6 +537,8 @@
   "browser.badge_latest": "MÁS RECIENTE",
   "browser.badge_latest_hint": "El motor más reciente que publica ShardX",
   "browser.engine_update_available": "Hay un motor de navegador más reciente",
+  "browser.engine_rebuild_available": "ShardX volvió a publicar este motor con correcciones: reinstálalo",
+  "browser.btn_reinstall": "Reinstalar",
   "browser.engine_up_to_date": "El motor del navegador está actualizado",
   "browser.engine_installed_now": "instalado",
   "browser.engine_none_installed": "aún no hay motor instalado",

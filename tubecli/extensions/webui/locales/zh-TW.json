@@ -537,6 +537,8 @@
   "browser.badge_latest": "最新",
   "browser.badge_latest_hint": "ShardX 發布的最新核心",
   "browser.engine_update_available": "有新的瀏覽器核心",
+  "browser.engine_rebuild_available": "ShardX 已重新發布此核心（含修正）— 請重新安裝",
+  "browser.btn_reinstall": "重新安裝",
   "browser.engine_up_to_date": "瀏覽器核心已是最新",
   "browser.engine_installed_now": "已安裝",
   "browser.engine_none_installed": "尚未安裝核心",

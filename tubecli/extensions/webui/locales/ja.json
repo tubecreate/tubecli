@@ -537,6 +537,8 @@
   "browser.badge_latest": "最新",
   "browser.badge_latest_hint": "ShardX が公開している最新エンジン",
   "browser.engine_update_available": "新しいブラウザエンジンがあります",
+  "browser.engine_rebuild_available": "ShardX がこのエンジンを修正版で再公開しました — 再インストールしてください",
+  "browser.btn_reinstall": "再インストール",
   "browser.engine_up_to_date": "ブラウザエンジンは最新です",
   "browser.engine_installed_now": "インストール済み",
   "browser.engine_none_installed": "エンジン未インストール",

@@ -27,6 +27,7 @@ import os from 'os';
 import axios from 'axios';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
+import { createRequire } from 'module';
 
 // ── Dò engine ShardX ───────────────────────────────────────────────────────
 // Tách khỏi thân launch() vì BA chỗ cần cùng một câu trả lời: hồ sơ ghim ShardX,
@@ -48,7 +49,7 @@ function shardxEngineRoot() {
 
 // So sánh theo SỐ, mới nhất đứng trước — cùng cách với resolver trong
 // script_runner.js (~:1667). Không so chuỗi: "9" sẽ bị xếp sau "10".
-// Dùng cho CẢ HAI họ engine (ShardX 149.0.7827.103, BAS 30.2.0).
+// Dùng cho CẢ HAI họ engine (ShardX 152.0.7977.65, BAS 30.8.0).
 function engineVerCmp(a, b) {
     const pa = String(a).split('.').map(Number);
     const pb = String(b).split('.').map(Number);
@@ -82,6 +83,136 @@ function shardxBinCandidates(verDir, ver) {
     ];
 }
 
+const SHARDX_VERSION_DIR_RE = /^\d+(\.\d+){3}$/;
+
+async function readGlobalSettings() {
+    try {
+        const extDir = path.dirname(fileURLToPath(import.meta.url));
+        const gsPath = path.resolve(extDir, '..', '..', '..', 'data', 'global_settings.json');
+        if (await fs.pathExists(gsPath)) return (await fs.readJson(gsPath)) || {};
+    } catch (e) { /* settings hỏng thì dùng mặc định */ }
+    return {};
+}
+
+// Hồ sơ ghim ShardX chạy nhân nào khi máy có bản MỚI HƠN bản ghim.
+//   'latest' (mặc định): nhân mới nhất đã cài — y như Chrome thật tự cập nhật, và
+//            UA/Client Hints/TLS được kéo theo nhân ở applyEngineVersion() nên
+//            hồ sơ vẫn nhất quán. Không có mặc định này thì tải 152 về cũng vô
+//            ích: mọi hồ sơ đang ghim "ShardX 149..." vẫn mở bằng 149.
+//   'pinned': đúng bản ghim (không có trên máy thì vẫn lùi về bản mới nhất).
+// Đặt trong data/global_settings.json: "shardx_engine_policy": "pinned".
+async function shardxEnginePolicy() {
+    const gs = await readGlobalSettings();
+    return String(gs.shardx_engine_policy || 'latest').toLowerCase() === 'pinned' ? 'pinned' : 'latest';
+}
+
+// Dấu shardx_runtime.write_install_stamp() ghi lúc cài: engine_build, grease, TLS
+// của ĐÚNG đợt phát hành đó. Nhân cài trước khi có dấu: mượn manifest-cache nếu
+// manifest nói đúng số này (máy dev: 149 cài tay, cache đã lên 152 → không mượn).
+async function readShardxEngineStamp(version) {
+    const root = shardxEngineRoot();
+    if (!root || !version) return {};
+    try {
+        const f = path.join(root, 'runtime', 'engines', version, 'tubecli-install.json');
+        if (await fs.pathExists(f)) {
+            const st = await fs.readJson(f);
+            if (st && typeof st === 'object') return st;
+        }
+    } catch (e) { /* dấu hỏng thì thử manifest */ }
+    try {
+        const m = await fs.readJson(path.join(root, 'runtime', 'manifest-cache.json'));
+        if (m && m.chromium_version === version) {
+            return { chromium_version: version, grease_brand: m.grease_brand,
+                     grease_version: m.grease_version, tls: m.tls, engine_build: m.engine_build };
+        }
+    } catch (e) { /* không có manifest thì chỉ sửa được phần suy ra từ số */ }
+    return {};
+}
+
+/**
+ * Kéo phiên bản Chrome mà hồ sơ KHAI về đúng nhân đang chạy — port nguyên
+ * apply_engine_version() của SDK ShardX 2.x (sdks/python/shardx/runtime.py).
+ *
+ * Trước đây chỉ sửa client_hints, còn navigator.user_agent giữ nguyên
+ * "Chrome/149.0.0.0": hồ sơ lên nhân 152 thì header Sec-CH-UA nói 152 mà UA
+ * nói 149 — mâu thuẫn mà trang kiểm tra nào cũng so. Grease và TLS cũng phải
+ * theo đợt phát hành: 152 đổi grease_brand ("Not)A;Brand" → "Not?A_Brand") và
+ * thêm ML-DSA 0x0904–0x0906 vào signature_algorithms (8 → 11); hồ sơ thời 149
+ * giữ bản cũ thì JA4 không còn khớp Chrome mà nó khai.
+ *
+ * Chỉ ghi đè khoá TLS mà dấu có (shuffle_extensions của hồ sơ giữ nguyên), và hồ
+ * sơ KHÔNG có khối tls thì để yên — vắng mặt nghĩa là "dùng mặc định của nhân".
+ */
+function applyEngineVersion(config, chromiumVersion, stamp = {}) {
+    const parts = String(chromiumVersion || '').split('.');
+    if (!config || parts.length !== 4) return false;
+    const major = parts[0];
+    const build = parseInt(parts[2], 10);
+    const patch = parseInt(parts[3], 10);
+
+    const nav = config.navigator;
+    if (nav && typeof nav.user_agent === 'string') {
+        const idx = nav.user_agent.indexOf('Chrome/');
+        if (idx >= 0) {
+            const rest = nav.user_agent.slice(idx + 7);
+            const end = rest.indexOf(' ');
+            const tail = end >= 0 ? rest.slice(end) : '';
+            nav.user_agent = `${nav.user_agent.slice(0, idx)}Chrome/${major}.0.0.0${tail}`;
+        }
+    }
+
+    if (!config.client_hints || typeof config.client_hints !== 'object') config.client_hints = {};
+    const ch = config.client_hints;
+    ch.brand_version = major;
+    ch.brand_full_version = chromiumVersion;
+    if (!Number.isNaN(build)) ch.chrome_build = build;
+    if (!Number.isNaN(patch)) ch.chrome_patch = patch;
+    if (stamp.grease_brand) ch.grease_brand = stamp.grease_brand;
+    if (stamp.grease_version) {
+        ch.grease_version = String(stamp.grease_version);
+        ch.grease_full_version = `${stamp.grease_version}.0.0.0`;
+    }
+
+    if (stamp.tls && typeof stamp.tls === 'object' && config.tls && typeof config.tls === 'object') {
+        Object.assign(config.tls, stamp.tls);
+    }
+    return true;
+}
+
+// Chromium chỉ giữ lần xuất hiện CUỐI của một switch, mà Playwright đã tự đặt
+// --disable-features=<danh sách của nó> TRƯỚC args của ta. Đẩy một mình
+// "--disable-features=WebGPU" là xoá danh sách đó (MediaRouter, Translate,
+// HttpsUpgrades... bật lại). Nên gộp: danh sách Playwright + tính năng của ta.
+function playwrightDisableFeaturesWith(...extra) {
+    let base = [];
+    try {
+        const req = createRequire(import.meta.url);
+        // "exports" của playwright-core không mở đường dẫn con → require tuyệt đối.
+        const pwRoot = path.dirname(req.resolve('playwright-core'));
+        const { chromiumSwitches } = req(path.join(pwRoot, 'lib', 'server', 'chromium', 'chromiumSwitches.js'));
+        const sw = (chromiumSwitches(false) || []).find(a => String(a).startsWith('--disable-features='));
+        if (sw) base = sw.slice('--disable-features='.length).split(',').filter(Boolean);
+    } catch (e) { /* đổi cấu trúc playwright-core thì chỉ còn danh sách của ta */ }
+    return '--disable-features=' + [...new Set([...base, ...extra])].join(',');
+}
+
+// Hồ sơ không khai WebGPU (mọi bản android-*, vài bản mac/win cũ) mà vẫn để lộ
+// navigator.gpu của máy thật. Hồ sơ Linux desktop thì KHÔNG tắt: nhân tự trả
+// adapter rỗng như Chrome Linux thật. Cùng luật với Browser.launch của SDK.
+function shardxNeedsWebgpuOff(config) {
+    const wgp = config && config.webgpu;
+    const hasWebgpu = !!(wgp && wgp.limits && Object.keys(wgp.limits).length);
+    if (hasWebgpu) return false;
+    const ch = (config && config.client_hints) || {};
+    const nav = (config && config.navigator) || {};
+    const mobile = ch.mobile === true
+        || String(ch.platform || '').toLowerCase().startsWith('android')
+        || String(nav.user_agent || '').toLowerCase().includes('android');
+    const p = String(nav.platform || '').toLowerCase();
+    const linuxDesktop = !mobile && (p.startsWith('linux') || p.startsWith('x11'));
+    return !linuxDesktop;
+}
+
 /**
  * Trả về { exe, version } của một engine ShardX dùng được, hoặc null nếu máy
  * không có engine nào. Ưu tiên đúng bản được ghim; không có thì lấy bản ĐÃ CÀI
@@ -100,6 +231,9 @@ async function resolveShardxExe(versionNum) {
     try {
         for (const name of await fs.readdir(enginesDir)) {
             try {
+                // "152.0.7977.65.new"/".old" là thư mục tạm của lượt cài lại
+                // (routes.api_download_engine) — sót lại khi máy tắt giữa chừng.
+                if (!SHARDX_VERSION_DIR_RE.test(name)) continue;
                 if ((await fs.stat(path.join(enginesDir, name))).isDirectory()) versions.push(name);
             } catch (e) { /* một mục lỗi thì bỏ qua, các mục khác vẫn dùng được */ }
         }
@@ -161,6 +295,15 @@ function parseEnginePin(browserVersion) {
 // trong thân launch() để nhánh quyết định engine và nhánh dò engine dùng CHUNG
 // một bảng.
 const BAS_ENGINE_MAP = {
+    // 30.3 → 30.8 đọc từ mục lục zip trên bablosoft (24/9/2026). Số ở đây là bản
+    // Chromium MỚI NHẤT trong gói (gói mang 2–3 bản); đồng bộ với BAS_TO_CHROMIUM
+    // trong shardx_runtime.py.
+    '30.8.0': '153.0.8010.37',
+    '30.7.0': '152.0.7977.83',
+    '30.6.0': '151.0.7922.72',
+    '30.5.0': '150.0.7871.47',
+    '30.4.0': '150.0.7871.47',
+    '30.3.0': '149.0.7827.54',
     '30.2.0': '149.0.7827.54',
     '30.1.0': '148.0.7778.97',
     '30.0.0': '147.0.7727.56',
@@ -171,7 +314,12 @@ const BAS_ENGINE_MAP = {
     '28.3.1': '138.0.7333.45',
     '28.2.0': '137.0.7222.35'
 };
-const BAS_REVERSE_MAP = Object.fromEntries(Object.entries(BAS_ENGINE_MAP).map(([k, v]) => [v, k]));
+// Nhiều gói BAS chung một số Chromium (30.2/30.3 → 149, 30.4/30.5 → 150):
+// fromEntries lấy mục SAU CÙNG, tức gói CŨ nhất. Giữ mục đầu = gói mới nhất.
+const BAS_REVERSE_MAP = {};
+for (const [bas, chromium] of Object.entries(BAS_ENGINE_MAP)) {
+    if (!(chromium in BAS_REVERSE_MAP)) BAS_REVERSE_MAP[chromium] = bas;
+}
 
 function basEngineDir() {
     return path.join(path.dirname(fileURLToPath(import.meta.url)), 'data', 'script');
@@ -1455,7 +1603,8 @@ export class BrowserManager {
                 if (enginePin.family === 'shardx') {
                     isShardX = true;
                     isShardXProfile = true;
-                    const resolved = await resolveShardxExe(enginePin.version);
+                    const policy = await shardxEnginePolicy();
+                    const resolved = await resolveShardxExe(policy === 'latest' ? null : enginePin.version);
                     if (!resolved) {
                         // Bản cũ ném lỗi ở đây rồi bị catch bên dưới nuốt mất:
                         // isShardXProfile vẫn true nhưng shardxExePath null, guard
@@ -1471,7 +1620,12 @@ export class BrowserManager {
                     shardxExePath = resolved.exe;
                     targetChromiumVer = resolved.version;
                     targetBasVer = null;
-                    if (enginePin.version && resolved.version !== enginePin.version) {
+                    if (policy === 'latest' && enginePin.version && resolved.version !== enginePin.version
+                        && engineVerCmp(resolved.version, enginePin.version) < 0) {
+                        // Nhân mới hơn bản ghim: đây là CẬP NHẬT, không phải thay thế.
+                        console.log(`[Launch] ENGINE_UPGRADED pinned=shardx/${enginePin.version} `
+                            + `used=shardx/${resolved.version} policy=latest`);
+                    } else if (enginePin.version && resolved.version !== enginePin.version) {
                         console.warn(`[Launch] ENGINE_SUBSTITUTED pinned=shardx/${enginePin.version} `
                             + `used=shardx/${resolved.version} reason=pinned_version_not_installed`);
                         console.warn(`[Launch] Bản ShardX ${enginePin.version} chưa tải; dùng bản đã cài mới nhất `
@@ -2029,6 +2183,7 @@ export class BrowserManager {
                 && all.some((b, j) => j !== i && b.startsWith('--remote-debugging-port=')
                     && b !== '--remote-debugging-port=0')));
 
+        let needWebgpuOff = false;
         if (shardxFpFile) {
             try {
                 const tempDir = path.join(path.dirname(fileURLToPath(import.meta.url)), 'data', 'temp_fps');
@@ -2059,29 +2214,23 @@ export class BrowserManager {
                     console.warn(`[ShardX] Error injecting timezone/language: ${tzErr.message}`);
                 }
 
-                // Dynamic Client Hints version override right before launch
+                // UA + Client Hints + grease + TLS theo ĐÚNG nhân sắp chạy (port
+                // apply_engine_version của SDK ShardX 2.x). Chỉ sửa bản tạm trong
+                // data/temp_fps, file gốc của hồ sơ giữ nguyên: đổi nhân qua lại
+                // thì lần mở nào cũng tự khớp lại.
                 if (targetChromiumVer) {
                     try {
-                        const parts = targetChromiumVer.split('.');
-                        if (parts.length === 4) {
-                            const major = parts[0];
-                            const build = parseInt(parts[2], 10);
-                            const patch = parseInt(parts[3], 10);
-                            
-                            if (!shardxData.client_hints) shardxData.client_hints = {};
-                            
-                            shardxData.client_hints.brand = "Google Chrome";
-                            shardxData.client_hints.brand_version = major;
-                            shardxData.client_hints.brand_full_version = targetChromiumVer;
-                            shardxData.client_hints.chrome_build = build;
-                            shardxData.client_hints.chrome_patch = patch;
-                            
-                            console.log(`[ShardX] Injected Client Hints version: brand_full_version=${targetChromiumVer}, build=${build}, patch=${patch}`);
+                        const stamp = await readShardxEngineStamp(targetChromiumVer);
+                        if (applyEngineVersion(shardxData, targetChromiumVer, stamp)) {
+                            console.log(`[ShardX] Engine version applied: Chrome/${targetChromiumVer.split('.')[0]} `
+                                + `full=${targetChromiumVer} grease=${shardxData.client_hints.grease_brand || '-'} `
+                                + `tls=${stamp.tls ? 'engine' : (shardxData.tls ? 'profile' : 'default')}`);
                         }
                     } catch (chErr) {
-                        console.warn(`[ShardX] Error injecting Client Hints version: ${chErr.message}`);
+                        console.warn(`[ShardX] Error applying engine version: ${chErr.message}`);
                     }
                 }
+                if (shardxNeedsWebgpuOff(shardxData)) needWebgpuOff = true;
 
                 const seed = profileName ? profileName.split('').reduce((acc, char) => (acc * 31 + char.charCodeAt(0)) & 0x7FFFFFFF, 0) : Math.floor(Math.random() * 1000000);
                 shardxData.noise = {
@@ -2100,6 +2249,7 @@ export class BrowserManager {
             }
 
             launchArgs.push(`--fingerprint-profile=${shardxFpFile}`);
+            if (needWebgpuOff) launchArgs.push(playwrightDisableFeaturesWith('WebGPU'));
         }
 
         // Cấu hình kích thước cửa sổ
@@ -2338,3 +2488,7 @@ export class BrowserManager {
         return stats;
     }
 }
+
+// Cho test (tests/shardx_engine_upgrade_test.mjs) gọi thẳng, không phải dựng cả lượt mở.
+export { applyEngineVersion, shardxNeedsWebgpuOff, playwrightDisableFeaturesWith,
+         readShardxEngineStamp, BAS_ENGINE_MAP, BAS_REVERSE_MAP, SHARDX_VERSION_DIR_RE };
