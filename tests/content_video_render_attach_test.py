@@ -58,6 +58,7 @@ SHOTS = []
 
 # Mọi đường ra mạng đều giả — test không được chạm máy chủ đang chạy.
 POSTS, POLLS, CK = [], [], {}
+_REAL_FINISHED = P._finished_video
 P._finished_video = lambda state, ep_id: ""
 P._post = lambda path, payload=None, timeout=60, **k: POSTS.append(path) or {"task_id": f"new{len(POSTS)}"}
 P._get = lambda path, timeout=60, **k: {"video_url": VIDEO}
@@ -68,6 +69,8 @@ P._checkpoint_merge = lambda state, data: CK.update(data)
 P.media_seconds = lambda path: 60.0
 P.planned_seconds = lambda state: 0
 P.share_links = lambda state: {}
+JOB = {"t": 0.0}
+P._render_started = lambda ep_id: JOB["t"]      # job.json của bộ dựng canvas — không đọc DATA_DIR thật
 
 
 def render(checkpoint, running="running", attempt_started=NOW - 120):
@@ -111,6 +114,22 @@ SHOTS[:] = [{"composed_image": OLD_IMG, "tts_audio_url": "/api/v1/tts/audio/tts_
 ok(P._assets_newer_than(7, VIDEO, since=NOW - 600), "giọng lưu dạng /api/v1/tts/audio/<tên> được tính", SHOTS)
 P._shot_audio_file = _real_audio
 ok(not P._assets_newer_than(7, VIDEO, since=0) is None, "không mốc → so với mp4 như cũ")
+
+# 6: task tạo từ lõi cũ (không giờ bắt đầu), ảnh vẽ bù ở lượt TRƯỚC, lượt dựng cũ đã XONG sau đó → Retry lượt này:
+# mp4 mới hơn ảnh nhưng job.json (giờ bắt đầu dựng) cũ hơn ảnh ⇒ không được dùng lại mp4.
+SHOTS[:] = [{"composed_image": OLD_IMG}, {"composed_image": NEW_IMG}]
+JOB["t"] = NOW - 1800
+_real_finished = _REAL_FINISHED
+st6 = {"episode_id": 7, "checkpoint": {"video_path": VIDEO}, "_attempt_started": NOW}
+ok(_real_finished(st6, 7) == "", "mp4 xong SAU khi vẽ bù nhưng lượt dựng BẮT ĐẦU trước → không dùng lại", VIDEO)
+JOB["t"] = NOW - 30
+ok(_real_finished(st6, 7) == VIDEO, "lượt dựng bắt đầu SAU khi vẽ bù → dùng lại mp4 (không dựng thừa)")
+JOB["t"] = NOW - 3 * 86400
+ok(_real_finished(st6, 7) == VIDEO, "job.json quá cũ so với mp4 (lượt khác) → không tính, không dựng thừa")
+JOB["t"] = 0.0
+ok(_real_finished({"episode_id": 7, "checkpoint": {"video_path": VIDEO}, "_attempt_started": NOW - 120}, 7) == "",
+   "không có job.json → ảnh vẽ ở lượt Retry này (sau giờ bắt đầu lượt) vẫn buộc dựng lại")
+P._finished_video = lambda state, ep_id: ""
 
 print()
 print("=" * 62)

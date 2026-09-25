@@ -8,6 +8,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from tubecli.core import brain as B  # noqa: E402
 from tubecli.extensions.content_video import pipeline as P  # noqa: E402
+P._render_started = lambda ep_id: 0.0   # job.json của bộ dựng — KHÔNG đọc canvas_jobs thật của máy
 _REAL_POLL = P._poll_studio
 _REAL_CALL_LLM = B.AgentBrain._call_llm
 

@@ -3766,13 +3766,29 @@ def _finished_video(state: Dict, ep_id: int) -> str:
             return ""
     if not (path and os.path.isfile(path)):
         return ""
-    return "" if _assets_newer_than(ep_id, path) else path
+    return "" if _assets_newer_than(ep_id, path, attempt=float(state.get("_attempt_started") or 0)) else path
 
 
-def _assets_newer_than(ep_id: int, path: str, since: float = 0.0) -> bool:
-    """Có ảnh hay tiếng nào mới hơn mp4 (hay mới hơn mốc `since` nếu có) không. Lượt trước dựng xong, lượt này mới
-    đọc được tiếng cho một shot hỏng ⇒ mp4 cũ là bản thiếu tiếng shot đó, không được dùng lại. Không hỏi được
-    Studio thì coi như CÓ: thà dựng lại còn hơn đăng bản thiếu."""
+def _render_started(ep_id: int) -> float:
+    """Giờ lượt dựng canvas gần nhất của tập BẮT ĐẦU (job.json ghi lúc chuẩn bị, còn lại sau khi xong), 0 nếu không có.
+
+    Ảnh/giọng được đọc lúc bắt đầu dựng — so với giờ mp4 XONG là sai: lượt dựng chạy 15 phút, ảnh vẽ bù ở phút 5
+    thì mp4 vẫn «mới hơn» ảnh mà không có ảnh ấy (user 25/9/2026, 4 ảnh lỗi 401 vẽ bù rồi video vẫn thiếu)."""
+    try:
+        from tubecli.config import DATA_DIR
+        return os.path.getmtime(os.path.join(str(DATA_DIR), "content_studio", "canvas_jobs", f"ep{int(ep_id)}",
+                                             "job.json"))
+    except (OSError, ValueError, TypeError, ImportError):
+        return 0.0
+
+
+def _assets_newer_than(ep_id: int, path: str, since: float = 0.0, attempt: float = 0.0) -> bool:
+    """Có ảnh hay tiếng nào mới hơn lúc lượt dựng ra `path` BẮT ĐẦU không. Lượt trước dựng xong, lượt này mới đọc
+    được tiếng cho một shot hỏng ⇒ mp4 cũ là bản thiếu tiếng shot đó, không được dùng lại. Không hỏi được Studio
+    thì coi như CÓ: thà dựng lại còn hơn đăng bản thiếu.
+
+    Mốc: `since` (giờ bắt đầu đã ghi) nếu có; không thì cái SỚM NHẤT trong giờ ghi mp4, giờ job.json của bộ dựng
+    canvas và `attempt` (giờ lượt Retry này bắt đầu — thứ gì lượt này vẽ/đọc bù thì lượt dựng cũ chắc chắn thiếu)."""
     if since:
         made = since
     else:
@@ -3780,6 +3796,10 @@ def _assets_newer_than(ep_id: int, path: str, since: float = 0.0) -> bool:
             made = os.path.getmtime(path)
         except OSError:
             return True
+        job = _render_started(ep_id)
+        # job.json quá cũ so với mp4 (tập đổi bộ dựng, mp4 ra từ đường ffmpeg) thì không phải lượt đã ra file này.
+        job = job if job and made - 12 * 3600 <= job <= made + 5 else 0.0
+        made = min([made] + [t for t in (job, attempt) if t])
     try:
         shots = _storyboards(int(ep_id))
     except Exception as e:
@@ -3827,10 +3847,11 @@ def _step_render(state: Dict, options: Dict) -> None:
     # Lượt cũ bắt đầu TRƯỚC khi lượt này vẽ bù ảnh / đọc bù giọng (user 25/9/2026: Cancel → Retry, vẽ lại 4 ảnh lỗi
     # 401 rồi bước dựng «bám» lượt cũ ⇒ video ra vẫn thiếu 4 ảnh). Studio không huỷ được lượt dựng, chạy song song hai
     # lượt trên cùng tập thì giẫm thư mục dựng của nhau ⇒ chờ nó xong, rồi dựng lại MỘT lần khi có thứ mới hơn file.
-    # Mốc so: giờ lượt cũ BẮT ĐẦU (ghi từ lõi .152); checkpoint cũ không có thì giờ lượt Retry này bắt đầu — lượt dựng
-    # đang bám chắc chắn khởi động trước đó. KHÔNG so với mp4: nó xong SAU khi ảnh vẽ bù nên luôn «mới hơn».
-    since = float((state.get("checkpoint") or {}).get("export_started_at") or state.get("_attempt_started") or 0)
-    if attached and since and _assets_newer_than(ep_id, path, since=since):
+    # Mốc so: giờ lượt cũ BẮT ĐẦU (ghi từ lõi .153); checkpoint cũ không có thì job.json của bộ dựng / giờ lượt Retry
+    # này bắt đầu (xem _assets_newer_than). KHÔNG so với mp4: nó xong SAU khi ảnh vẽ bù nên luôn «mới hơn».
+    since = float((state.get("checkpoint") or {}).get("export_started_at") or 0)
+    attempt = float(state.get("_attempt_started") or 0)
+    if attached and os.path.isfile(path) and _assets_newer_than(ep_id, path, since=since, attempt=attempt):
         state["_say"]("render", "running",
                       f"export {old} was started before the new pictures/voices of this attempt — rendering again")
         path = _wait_export(state, ep_id, _start_export(state, ep_id, options))
