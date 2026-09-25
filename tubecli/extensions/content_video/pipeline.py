@@ -3769,24 +3769,30 @@ def _finished_video(state: Dict, ep_id: int) -> str:
     return "" if _assets_newer_than(ep_id, path) else path
 
 
-def _assets_newer_than(ep_id: int, path: str) -> bool:
-    """Có ảnh hay tiếng nào mới hơn mp4 không. Lượt trước dựng xong, lượt này mới đọc
-    được tiếng cho một shot hỏng ⇒ mp4 cũ là bản thiếu tiếng shot đó, không được dùng
-    lại. Không hỏi được Studio thì coi như CÓ: thà dựng lại còn hơn đăng bản thiếu."""
-    try:
-        made = os.path.getmtime(path)
-    except OSError:
-        return True
+def _assets_newer_than(ep_id: int, path: str, since: float = 0.0) -> bool:
+    """Có ảnh hay tiếng nào mới hơn mp4 (hay mới hơn mốc `since` nếu có) không. Lượt trước dựng xong, lượt này mới
+    đọc được tiếng cho một shot hỏng ⇒ mp4 cũ là bản thiếu tiếng shot đó, không được dùng lại. Không hỏi được
+    Studio thì coi như CÓ: thà dựng lại còn hơn đăng bản thiếu."""
+    if since:
+        made = since
+    else:
+        try:
+            made = os.path.getmtime(path)
+        except OSError:
+            return True
     try:
         shots = _storyboards(int(ep_id))
     except Exception as e:
         logger.info(f"[ContentVideo] cannot check assets of episode {ep_id}: {e}")
         return True
     for s in shots:
-        for key in ("image_url", "tts_audio_url"):
-            asset = str(s.get(key) or "").strip()
+        # Ảnh Studio vẽ nằm ở `composed_image` (image_url thường rỗng), giọng edge/EverAI/OmniVoice ghi dạng
+        # /api/v1/tts/audio/<tên> — trước 25/9/2026 chỉ xét image_url + đường dẫn thô nên phép so này không bao giờ
+        # thấy gì: Retry vẽ bù ảnh xong vẫn dùng lại mp4 thiếu ảnh.
+        for key in ("composed_image", "image_url", "tts_audio_url"):
+            asset = _shot_audio_file(s.get(key))
             try:
-                if asset and os.path.isfile(asset) and os.path.getmtime(asset) > made + 1:
+                if asset and os.path.getmtime(asset) > made + 1:
                     return True
             except OSError:
                 continue
@@ -3811,18 +3817,55 @@ def _step_render(state: Dict, options: Dict) -> None:
     # nó thay vì khởi động ffmpeg thứ hai trên cùng cái máy đã chậm sẵn.
     old = str((state.get("checkpoint") or {}).get("export_task_id") or "")
     stt = _running_export(old)
+    attached = bool(stt)
     if stt:
         state["_say"]("render", "running", f"export {old} is still {stt} — waiting for it, not starting another")
         task_id = old
     else:
-        # clean_scenes: task lưu lên Drive thì Studio ghi thêm bản KHÔNG phụ đề để cắt video từng cảnh (user 22/9/2026:
-        # «scene upload lên drive… bỏ phần subtitle đi»). Studio cũ lờ khoá này.
-        res = _post(f"/api/v1/studio/episodes/{ep_id}/export-ffmpeg",
-                    {"clean_scenes": bool(options.get("drive"))}, timeout=60)
-        if not res.get("task_id"):
-            raise RuntimeError(f"export-ffmpeg did not start: {str(res)[:200]}")
-        task_id = str(res["task_id"])
-        _checkpoint_merge(state, {"export_task_id": task_id})
+        task_id = _start_export(state, ep_id, options)
+    path = _wait_export(state, ep_id, task_id)
+    # Lượt cũ bắt đầu TRƯỚC khi lượt này vẽ bù ảnh / đọc bù giọng (user 25/9/2026: Cancel → Retry, vẽ lại 4 ảnh lỗi
+    # 401 rồi bước dựng «bám» lượt cũ ⇒ video ra vẫn thiếu 4 ảnh). Studio không huỷ được lượt dựng, chạy song song hai
+    # lượt trên cùng tập thì giẫm thư mục dựng của nhau ⇒ chờ nó xong, rồi dựng lại MỘT lần khi có thứ mới hơn file.
+    # Mốc so: giờ lượt cũ BẮT ĐẦU (ghi từ lõi .152); checkpoint cũ không có thì giờ lượt Retry này bắt đầu — lượt dựng
+    # đang bám chắc chắn khởi động trước đó. KHÔNG so với mp4: nó xong SAU khi ảnh vẽ bù nên luôn «mới hơn».
+    since = float((state.get("checkpoint") or {}).get("export_started_at") or state.get("_attempt_started") or 0)
+    if attached and since and _assets_newer_than(ep_id, path, since=since):
+        state["_say"]("render", "running",
+                      f"export {old} was started before the new pictures/voices of this attempt — rendering again")
+        path = _wait_export(state, ep_id, _start_export(state, ep_id, options))
+    _use_video(state, path)
+    _checkpoint_merge(state, {"video_path": path})
+    planned = planned_seconds(state)
+    voiced = float(state.get("audio_seconds") or 0)
+    if state["video_seconds"] and voiced and state["video_seconds"] < voiced * _SHORT_VIDEO_RATIO:
+        # Giọng đã thu dài hơn video nhiều lần: bộ dựng KHÔNG dùng giọng (không tìm thấy file, hay đường dẫn ghi
+        # ở shot không tới được) — đó là lỗi dựng, không phải kịch bản ngắn.
+        state.setdefault("warnings", []).append(
+            f"The video is {clock(state['video_seconds'])} long but the recorded voice is {clock(voiced)} — the "
+            f"renderer used almost none of it, so the shots played as silent stills. Check the Assemble log "
+            f"(subtitles on 0 shots means it found no per-shot audio) before publishing.")
+    elif state["video_seconds"] and planned and state["video_seconds"] < planned * _SHORT_VIDEO_RATIO:
+        state.setdefault("warnings", []).append(
+            f"The video is {clock(state['video_seconds'])} long but the script was planned for "
+            f"~{clock(planned)}. Check the Voice line: shots without a voice play as 5-second stills.")
+
+
+def _start_export(state: Dict, ep_id: int, options: Dict) -> str:
+    """Bắt đầu một lượt dựng mới trong Studio, ghi id vào checkpoint (Retry bám lại được)."""
+    # clean_scenes: task lưu lên Drive thì Studio ghi thêm bản KHÔNG phụ đề để cắt video từng cảnh (user 22/9/2026:
+    # «scene upload lên drive… bỏ phần subtitle đi»). Studio cũ lờ khoá này.
+    res = _post(f"/api/v1/studio/episodes/{ep_id}/export-ffmpeg",
+                {"clean_scenes": bool(options.get("drive"))}, timeout=60)
+    if not res.get("task_id"):
+        raise RuntimeError(f"export-ffmpeg did not start: {str(res)[:200]}")
+    task_id = str(res["task_id"])
+    _checkpoint_merge(state, {"export_task_id": task_id, "export_started_at": time.time()})
+    return task_id
+
+
+def _wait_export(state: Dict, ep_id: int, task_id: str) -> str:
+    """Chờ lượt dựng xong, gom cảnh báo của khâu dựng; trả đường dẫn mp4 của tập."""
     try:
         done = _poll_studio(f"/api/v1/studio/export-ffmpeg/status/{task_id}",
                             TIMEOUTS["render"], state, "render", done_statuses=("completed",),
@@ -3855,21 +3898,7 @@ def _step_render(state: Dict, options: Dict) -> None:
     path = str((ep or {}).get("video_url") or "")
     if not path:
         raise RuntimeError("Export finished but the episode has no video_url.")
-    _use_video(state, path)
-    _checkpoint_merge(state, {"video_path": path})
-    planned = planned_seconds(state)
-    voiced = float(state.get("audio_seconds") or 0)
-    if state["video_seconds"] and voiced and state["video_seconds"] < voiced * _SHORT_VIDEO_RATIO:
-        # Giọng đã thu dài hơn video nhiều lần: bộ dựng KHÔNG dùng giọng (không tìm thấy file, hay đường dẫn ghi
-        # ở shot không tới được) — đó là lỗi dựng, không phải kịch bản ngắn.
-        state.setdefault("warnings", []).append(
-            f"The video is {clock(state['video_seconds'])} long but the recorded voice is {clock(voiced)} — the "
-            f"renderer used almost none of it, so the shots played as silent stills. Check the Assemble log "
-            f"(subtitles on 0 shots means it found no per-shot audio) before publishing.")
-    elif state["video_seconds"] and planned and state["video_seconds"] < planned * _SHORT_VIDEO_RATIO:
-        state.setdefault("warnings", []).append(
-            f"The video is {clock(state['video_seconds'])} long but the script was planned for "
-            f"~{clock(planned)}. Check the Voice line: shots without a voice play as 5-second stills.")
+    return path
 
 
 def _use_video(state: Dict, path: str) -> None:
@@ -6815,6 +6844,7 @@ def _prepare(payload: Dict[str, Any], report, is_cancelled, needs: tuple) -> Dic
         "agent": agent, "profiles": _agent_scope(agent), "task_id": task_id,
         "checkpoint": _read_checkpoint(task_id), "corpus": [], "videos": [],
         "warnings": [], "_say": say, "_cancelled": cancelled, "_needs": needs,
+        "_attempt_started": time.time(),    # mốc «tài sản của lượt NÀY» — xem _step_render
         # Không dùng lại khoá "sources": trong payload nó đã mang nghĩa "URL cần
         # crawl thêm". Đây là tiêu đề các trang ĐÃ gom, nguyên liệu viết SEO.
         "seo_sources": [r for r in (payload.get("seo_sources") or []) if isinstance(r, dict)],

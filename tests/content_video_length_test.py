@@ -460,6 +460,7 @@ st = {"task_id": "t", "episode_id": 9, "script": " ".join(["w"] * 300),
       "_cancelled": lambda: False, "_say": lambda *a: None}
 P._step_render(st, {})
 assert posts == ["/api/v1/studio/episodes/9/export-ffmpeg"], posts
+assert isinstance(cks[-1].pop("export_started_at", None), float), cks[-1]   # mốc cho Retry bám lượt cũ (.152)
 assert cks[-1] == {"drama_id": 9, "episode_id": 9, "export_task_id": "new1",
                    "video_path": "/tmp/ep9.mp4"}, cks[-1]
 assert P.render_max_wait(st) == 4 * 3600, "short video → 4h floor"
