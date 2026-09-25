@@ -2547,12 +2547,20 @@ def _split_even(text: str, parts: int) -> List[str]:
     sents = [x.strip() for x in _SENT_RE.split((text or "").strip()) if x.strip()]
     if parts <= 1 or len(sents) <= 1:
         return [" ".join(sents)] + [""] * (parts - 1)
+    if len(sents) <= parts:                 # mỗi câu một khúc, khúc thừa ở cuối mới rỗng
+        return sents + [""] * (parts - len(sents))
     total = sum(len(x.split()) for x in sents)
-    out, cur, used, k = [], [], 0, 0
-    for sent in sents:
+    out, cur, used = [], [], 0
+    for i, sent in enumerate(sents):
         cur.append(sent)
         used += len(sent.split())
-        if len(out) < parts - 1 and used >= total * (len(out) + 1) / parts:
+        left = len(sents) - i - 1           # câu còn lại sau câu này
+        need = parts - len(out) - 1         # khúc còn phải lấp nếu cắt ở đây
+        # Cắt khi đủ phần chữ của khúc — nhưng chỉ khi câu còn lại đủ cho mọi khúc sau; và BẮT BUỘC cắt khi câu
+        # còn lại vừa bằng số khúc. Chỉ cân theo chữ thì câu đầu ngắn bị gộp với câu sau rồi khúc CUỐI hết câu:
+        # 25/9/2026 máy 28 video Bảng phấn «đường ruột», 4 câu dài 10/12/15/15 chữ → [c1+c2, c3, c4, ""] — chữ
+        # trên hình đi theo câu còn giọng dồn lên trước, rồi cảnh cuối nhóm im 5 giây (8 lần trong video).
+        if need > 0 and left >= need and (used >= total * (len(out) + 1) / parts or left == need):
             out.append(" ".join(cur))
             cur = []
     out.append(" ".join(cur))

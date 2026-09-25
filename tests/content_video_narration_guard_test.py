@@ -337,6 +337,25 @@ ok(len(puts2) > 0 and st2.get("storyboard_restored", 0) > 0,
    "…lúc ấy vẫn chép lại kịch bản như trước (chốt mới không làm mất lưới an toàn)",
    (len(puts2), st2.get("storyboard_restored")))
 
+# Chia lời một cảnh cho các nhịp (25/9/2026 máy 28): câu đầu ngắn bị gộp với câu sau rồi nhịp CUỐI rỗng → im 5 giây.
+def _w(n, ch):
+    return " ".join([ch] * (n - 1)) + " " + ch + "."
+FOUR = [_w(10, "a"), _w(12, "b"), _w(15, "c"), _w(15, "d")]
+got = P._split_even(" ".join(FOUR), 4)
+ok(got == FOUR, "4 câu 10/12/15/15 chữ cho 4 nhịp → mỗi nhịp đúng một câu, không nhịp nào rỗng", got)
+got = P._split_even(" ".join(FOUR[:2]), 3)
+ok(got == FOUR[:2] + [""], "2 câu cho 3 nhịp → mỗi câu một nhịp, chỉ nhịp thừa ở cuối rỗng", got)
+LONG = [_w(20, "a"), _w(3, "b"), _w(3, "c"), _w(3, "d"), _w(20, "e")]
+got = P._split_even(" ".join(LONG), 2)
+ok(len(got) == 2 and all(got) and " ".join(got).split() == " ".join(LONG).split(),
+   "nhiều câu hơn nhịp → vẫn cân theo chữ, đủ chữ, không nhịp rỗng", got)
+for k in range(2, 8):
+    SS = [_w(3 + (i * 7) % 11, chr(97 + i)) for i in range(k + 3)]
+    for parts in range(2, k + 4):
+        got = P._split_even(" ".join(SS), parts)
+        ok(all(got) and " ".join(got).split() == " ".join(SS).split(),
+           f"{len(SS)} câu cho {parts} nhịp → không nhịp rỗng, không mất chữ", got)
+
 print()
 print("=" * 62)
 print(f"{PASS}/{PASS + FAIL} PASS" if not FAIL else f"{PASS}/{PASS + FAIL} PASS — {FAIL} HỎNG")
