@@ -12,8 +12,8 @@ import os
 import re
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
+from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
 
 from tubecli.extensions.codex.manager import ALL_STATES, codex_manager
@@ -36,28 +36,37 @@ _MEDIA_TYPES = {
 _NO_CACHE = {"Cache-Control": "no-cache, no-store, must-revalidate"}
 
 
+def _static(filepath: str, media: str, request: Request):
+    """File tĩnh của bảng: ETag theo mtime+size, `no-cache` = trình duyệt hỏi lại rồi nhận 304 khi chưa đổi.
+    Bản trước `no-store`: 119 KB JS + 40 KB CSS + 29 KB HTML tải lại mỗi lần mở (25/9/2026)."""
+    st = os.stat(filepath)
+    etag = f'W/"{int(st.st_mtime)}-{st.st_size}"'
+    headers = {"ETag": etag, "Cache-Control": "no-cache"}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    return FileResponse(filepath, media_type=media, headers=headers)
+
+
 # ── UI router ────────────────────────────────────────────────────────
 
 ui_router = APIRouter(tags=["codex-ui"])
 
 
 @ui_router.get("/codex")
-async def serve_codex_ui():
-    """Serve the Codex task board."""
-    return FileResponse(
-        os.path.join(_STATIC_DIR, "codex.html"), media_type="text/html", headers=_NO_CACHE
-    )
+async def serve_codex_ui(request: Request):
+    """Serve the task board page."""
+    return _static(os.path.join(_STATIC_DIR, "codex.html"), "text/html", request)
 
 
 @ui_router.get("/codex/{filename:path}")
-async def serve_codex_static(filename: str):
-    """Serve Codex static assets."""
+async def serve_codex_static(filename: str, request: Request):
+    """Serve the board's static assets."""
     filepath = os.path.normpath(os.path.join(_STATIC_DIR, filename))
     if not filepath.startswith(_STATIC_DIR) or not os.path.isfile(filepath):
         raise HTTPException(404, "File not found")
     ext = os.path.splitext(filename)[1].lower()
     media = _MEDIA_TYPES.get(ext) or mimetypes.guess_type(filepath)[0] or "application/octet-stream"
-    return FileResponse(filepath, media_type=media, headers=_NO_CACHE)
+    return _static(filepath, media, request)
 
 
 # ── API router ───────────────────────────────────────────────────────
@@ -193,8 +202,35 @@ async def get_stats():
 DETAIL_ONLY_FIELDS = ("plan", "result")
 
 
+def _board_response(request: Request, group: str, lane: str, agent: str, language: str, q: str, sort: str,
+                    offset: int, limit: int):
+    """`view=board` (bảng việc, 25/9/2026): mỗi task một dòng gọn (manager.board_row) + đếm nhóm + làn tạm dừng, có
+    phân trang. ETag tính trên nội dung (không tính `now`) → bảng hỏi lại mỗi 5 giây mà không có gì đổi thì nhận 304
+    rỗng thay vì 371 KB."""
+    import hashlib
+    import json as _json
+
+    rows, total = codex_manager.query_tasks(group=group, lane=lane, agent=agent, language=language, q=q, sort=sort,
+                                            offset=offset, limit=limit)
+    body: Dict[str, Any] = {"view": "board", "tasks": rows, "count": len(rows), "total": total,
+                            "offset": max(0, int(offset or 0)), "limit": int(limit or 0),
+                            "has_more": max(0, int(offset or 0)) + len(rows) < total,
+                            "stats": codex_manager.get_stats(), "lane_pauses": codex_manager.lane_pauses()}
+    digest = hashlib.sha1(_json.dumps(body, sort_keys=True, default=str, ensure_ascii=False).encode("utf-8")).hexdigest()
+    etag = f'W/"{digest[:24]}"'
+    headers = {"ETag": etag, "Cache-Control": "no-cache"}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    body["now"] = codex_manager.server_now()
+    return JSONResponse(body, headers=headers)
+
+
 @router.get("/tasks")
-async def list_tasks(status: str = "", limit: int = 50, created_by: str = "", slim: int = 0):
+async def list_tasks(request: Request = None, status: str = "", limit: int = 50, created_by: str = "", slim: int = 0,
+                     view: str = "", group: str = "all", lane: str = "", agent: str = "", language: str = "",
+                     q: str = "", sort: str = "newest", offset: int = 0):
+    if view == "board":
+        return _board_response(request, group, lane, agent, language, q, sort, offset, limit)
     if status and status != "active" and status not in ALL_STATES:
         raise HTTPException(400, f"Unknown status: {status}")
     tasks = codex_manager.list_tasks(status=status, limit=limit, created_by=created_by)

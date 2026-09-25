@@ -153,6 +153,90 @@ def _new_id() -> str:
     return str(_uuid7())
 
 
+# ── Bảng việc: nhóm trạng thái + tóm tắt bước (25/9/2026) ──────────────────────────────────────────────────────
+# User: «tên giống hệt nhau», «phải cuộn xuống nhiều quá mới thấy đang chạy tới bước nào bao nhiêu %», «load ban đầu
+# quá chậm». Bảng chỉ cần MỘT dòng tóm tắt mỗi task (bước đang chạy, %, lỗi) chứ không cần cả mảng bước + Goal — đo
+# 25/9: 119 task = 371 KB, trong đó steps 52 % và goal 20 %.
+BOARD_GROUPS: Dict[str, Optional[set]] = {
+    "all": None,
+    "needs_you": {PENDING_APPROVAL, REVIEW},
+    "working": {QUEUED, RUNNING},
+    "backlog": {BACKLOG},
+    "done": {DONE},
+    "stopped": {FAILED, REJECTED, CANCELLED},
+}
+BOARD_KEYS = ("id", "seq", "title", "status", "lane", "hold", "priority", "retry_count", "created_by",
+              "assignee_type", "assignee_id", "assignee_name", "created_at", "updated_at", "started_at",
+              "finished_at", "drive", "meta")
+META_KEYS = ("stage", "kind", "language", "target_language", "text_model", "image_model", "preset", "voice",
+             "source", "parent_id", "parent_seq")
+_COUNTER_RE = re.compile(r"(\d+)\s*(?:-\s*(\d+))?\s*(?:/|\bof\b)\s*(\d+)", re.I)
+
+
+def step_fraction(step: Dict[str, Any]) -> Optional[float]:
+    """Phần đã xong (0..1) của một bước: % máy chủ ghi, không có thì đọc «12/69» / «scenes 7-12 of 60» trong câu."""
+    p = step.get("progress")
+    try:
+        if p is not None and float(p) > 0:
+            return max(0.0, min(1.0, float(p) / 100.0))
+    except (TypeError, ValueError):
+        pass
+    m = _COUNTER_RE.search(str(step.get("message") or ""))
+    if m:
+        total = int(m.group(3))
+        done = int(m.group(1)) - 1 if m.group(2) is not None else int(m.group(1))
+        if total > 0 and 0 <= done <= total:
+            return done / total
+    return None
+
+
+def step_summary(task: Dict[str, Any]) -> Dict[str, Any]:
+    """{done, total, current?: {name, label, progress, message, started_at}, failed?: {name, label, message}} — đủ
+    cho dòng «Đang: bước · k/N · %» của thẻ thu gọn mà không chở cả mảng bước."""
+    steps = [x for x in (task.get("steps") or []) if isinstance(x, dict)]
+    out: Dict[str, Any] = {"done": sum(1 for x in steps if x.get("status") in (STEP_SUCCESS, STEP_SKIPPED)),
+                           "total": len(steps)}
+    cur = next((x for x in reversed(steps) if x.get("status") == STEP_RUNNING), None)
+    if cur is not None:
+        out["current"] = {"name": str(cur.get("name") or ""), "label": str(cur.get("label") or cur.get("name") or ""),
+                          "index": steps.index(cur) + 1, "progress": step_fraction(cur),
+                          "message": str(cur.get("message") or "")[:160], "started_at": _aware(cur.get("started_at"))}
+    bad = next((x for x in steps if x.get("status") in (STEP_ERROR, STEP_CANCELLED)), None)
+    if bad is not None:
+        out["failed"] = {"name": str(bad.get("name") or ""), "label": str(bad.get("label") or bad.get("name") or ""),
+                         "status": str(bad.get("status") or ""), "message": str(bad.get("message") or "")[:200]}
+    return out
+
+
+def board_row(task: Dict[str, Any]) -> Dict[str, Any]:
+    """Một dòng của bảng: tên, trạng thái, thông số (meta), tóm tắt bước, lỗi ngắn — KHÔNG goal/steps/plan/result
+    (mở thẻ mới tải, qua GET /tasks/{id})."""
+    t = _with_tz(dict(task))
+    row = {k: t[k] for k in BOARD_KEYS if k in t and t[k] not in (None, "", [], {})}
+    row.setdefault("title", "")
+    ap = t.get("approval") or {}
+    row["approval"] = {"required": bool(ap.get("required")), "note": str(ap.get("note") or "")[:300]}
+    err = str(t.get("error") or "")
+    if err:
+        row["error"] = err[:240]
+    row["has_result"] = bool(t.get("result"))
+    row["has_plan"] = bool(t.get("plan"))
+    skill = (t.get("skill_ref") or {}).get("skill_name") if isinstance(t.get("skill_ref"), dict) else ""
+    if skill:
+        row["skill"] = str(skill)
+    row["summary"] = step_summary(t)
+    return row
+
+
+def _haystack(task: Dict[str, Any]) -> str:
+    meta = task.get("meta") if isinstance(task.get("meta"), dict) else {}
+    bits = [str(task.get("title") or ""), str(task.get("goal") or "")[:400], str(task.get("assignee_name") or ""),
+            f"#{task.get('seq', '')}"]
+    for v in meta.values():
+        bits.append(" ".join(str(x) for x in v.values()) if isinstance(v, dict) else str(v))
+    return " ".join(bits).lower()
+
+
 class CodexTask:
     """A unit of delegated work. Plain class + to_dict/from_dict, **kwargs tail."""
 
@@ -514,6 +598,86 @@ class CodexManager:
         """Giờ hiện tại của máy chủ, có múi giờ — mốc để giao diện đếm ngược thời gian."""
         return _now()
 
+    def query_tasks(self, group: str = "all", lane: str = "", agent: str = "", language: str = "", q: str = "",
+                    sort: str = "newest", offset: int = 0, limit: int = 50) -> Tuple[List[Dict[str, Any]], int]:
+        """(dòng bảng, tổng sau lọc) — lọc theo nhóm trạng thái (BOARD_GROUPS), loại việc (video / general), agent,
+        ngôn ngữ (meta.language), chữ tìm (tên, mục tiêu, agent, #số, thông số); phân trang bằng offset/limit."""
+        self._ensure_loaded()
+        with self._lock:
+            items = list(self._tasks.values())
+        want = BOARD_GROUPS.get(group, None) if group in BOARD_GROUPS else ({group} if group in ALL_STATES else None)
+        if want is not None:
+            items = [t for t in items if t.get("status") in want]
+        if lane == "video":
+            items = [t for t in items if (t.get("lane") or "") == "video"]
+        elif lane == "general":
+            items = [t for t in items if (t.get("lane") or "") != "video"]
+        if agent:
+            items = [t for t in items if str(t.get("assignee_id") or "") == agent]
+        if language:
+            base = language.split("-")[0].lower()
+            items = [t for t in items if str(((t.get("meta") or {}).get("language") if isinstance(t.get("meta"), dict)
+                                              else "") or "").split("-")[0].lower() == base]
+        needle = " ".join(str(q or "").split()).lower()
+        if needle:
+            items = [t for t in items if needle in _haystack(t)]
+        if sort == "updated":
+            items.sort(key=lambda t: t.get("updated_at", ""), reverse=True)
+        elif sort == "oldest":
+            items.sort(key=lambda t: t.get("created_at", ""))
+        else:
+            items.sort(key=lambda t: t.get("created_at", ""), reverse=True)
+        total = len(items)
+        off = max(0, int(offset or 0))
+        lim = max(0, int(limit or 0))
+        page = items[off:off + lim] if lim else items[off:]
+        return [board_row(t) for t in page], total
+
+    def set_title(self, task_id: str, title: str, actor: str = "pipeline") -> Optional[Dict[str, Any]]:
+        """Đổi tên task ở MỌI trạng thái — tên thật của video chỉ có sau bước viết kịch bản, mà update_task từ chối
+        task đã chạy (25/9/2026: 22 thẻ cùng tên «Video from content: chuyên gia it»). Tên không đổi thì không ghi."""
+        self._ensure_loaded()
+        new = " ".join(str(title or "").split())[:150]
+        if not new:
+            return None
+        with self._lock:
+            stored = self._tasks.get(task_id)
+            if stored is None:
+                return None
+            if stored.get("title") == new:
+                return dict(stored)
+            old = str(stored.get("title") or "")
+            stored["title"] = new
+            stored["updated_at"] = _now()
+            self._save()
+            snapshot = dict(stored)
+        self.append_event(task_id, "log", f"Title: {new}", actor=actor, data={"title": new, "old_title": old})
+        return snapshot
+
+    def set_meta(self, task_id: str, patch: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """Gộp thông số hiển thị vào task.meta (META_KEYS: giai đoạn, ngôn ngữ, model viết/vẽ, mẫu, giọng, nguồn,
+        task cha) ở MỌI trạng thái. Giá trị None hay "" XOÁ khoá. Không đổi updated_at (dấu phụ, như set_drive)."""
+        self._ensure_loaded()
+        src = patch if isinstance(patch, dict) else {}
+        with self._lock:
+            stored = self._tasks.get(task_id)
+            if stored is None:
+                return None
+            meta = dict(stored.get("meta") or {}) if isinstance(stored.get("meta"), dict) else {}
+            for k, v in src.items():
+                if k not in META_KEYS:
+                    continue
+                if v is None or v == "":
+                    meta.pop(k, None)
+                elif isinstance(v, dict):
+                    meta[k] = {str(a): b for a, b in v.items() if b not in (None, "")}
+                else:
+                    meta[k] = v
+            if meta != stored.get("meta"):
+                stored["meta"] = meta
+                self._save()
+            return dict(stored)
+
     def get_stats(self) -> Dict[str, int]:
         self._ensure_loaded()
         with self._lock:
@@ -525,6 +689,10 @@ class CodexManager:
                 stats[st] += 1
         stats["total"] = len(items)
         stats["active"] = sum(1 for t in items if t.get("status") in ACTIVE_STATES)
+        # Nhóm của thanh trạng thái trên bảng việc (BOARD_GROUPS).
+        for name, want in BOARD_GROUPS.items():
+            if want is not None:
+                stats[name] = sum(1 for t in items if t.get("status") in want)
         return stats
 
     # ── Create ───────────────────────────────────────────────────

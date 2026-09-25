@@ -85,6 +85,15 @@ class ContentVideoExtension(Extension):
                     logger.info(f"[ContentVideo] marked {n} video task(s) already saved to Google Drive")
             except Exception as e:
                 logger.warning(f"[ContentVideo] could not mark tasks already saved to Drive: {e}")
+            # Bảng việc (25/9/2026): task cũ chưa có tên thật/thông số → đọc payload + checkpoint một lần.
+            try:
+                from tubecli.extensions.content_video.pipeline import backfill_task_meta
+
+                n = backfill_task_meta()
+                if n:
+                    logger.info(f"[ContentVideo] filled title/meta for {n} older video task(s)")
+            except Exception as e:
+                logger.warning(f"[ContentVideo] could not fill title/meta of older tasks: {e}")
 
         # Một chip trong tab Kỹ năng của agent. Verb thì vô hình — nó nổ khi model
         # quyết định, nên chủ máy không nhìn thấy agent có khả năng này và cũng

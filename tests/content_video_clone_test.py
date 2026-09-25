@@ -212,7 +212,7 @@ ok(EVENTS[-1]["kind"] == P.KIND_CLONE and EVENTS[-1]["source_task_id"] == "src" 
 ok(opts["language"] == "en" and opts["tts_engine"] == "edge" and opts["tts_voice"] == "en-US-AriaNeural"
    and opts["publish"] is False and "source_text" not in opts and opts["drive"] is True and opts["drive_token_id"] == "tok1",
    "options: ngôn ngữ + giọng mới, không đăng, bỏ bài gốc, giữ Drive như bản gốc", opts)
-ok(CREATED[-1]["lane"] == P.CODEX_LANE and CREATED[-1]["hold"] is True and CREATED[-1]["title"].startswith("Clone (English)"),
+ok(CREATED[-1]["lane"] == P.CODEX_LANE and CREATED[-1]["hold"] is True and CREATED[-1]["title"] == "Da sau 60",      # tên bài thật; «Clone → English» là chip (25/9)
    "task clone xếp hàng trong làn video", CREATED[-1].get("title"))
 P.create_clone_task("src", "ja", "", "", "", "user", False)
 ok(EVENTS[-1]["options"]["drive"] is False and EVENTS[-1]["options"]["tts_voice"] == "ja-JP-NanamiNeural",

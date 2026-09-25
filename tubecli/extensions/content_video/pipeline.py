@@ -1997,6 +1997,7 @@ def _step_script(state: Dict, options: Dict) -> None:
     if ck_prev.get("script") and not (state.get("feedback") or []):
         state["script"] = str(ck_prev["script"])
         state["title"] = str(ck_prev.get("title") or state.get("title") or f"{agent.name} · {time.strftime('%Y-%m-%d')}")[:120]
+        _task_title(state.get("task_id"), state["title"], options)
         state["scene_count"] = _publish_plan(state["task_id"], str(agent.name), state["title"], state["script"])
         state["_say"]("script", "running", f"reusing the script from the previous attempt · {state['scene_count']} scenes")
         return
@@ -2126,6 +2127,8 @@ def _step_script(state: Dict, options: Dict) -> None:
         title = f"{agent.name} · {time.strftime('%Y-%m-%d')}"
     state["script"] = text
     state["title"] = title[:120]
+    _task_title(state.get("task_id"), state["title"], options)
+    _task_meta(state.get("task_id"), language=state.get("language"))
     # Checkpoint the script: a revision round reads it back, and a restart
     # between plan and render must not lose an accepted text.
     # The render task is built from this checkpoint: the template name rides
@@ -3846,6 +3849,7 @@ def _step_tts(state: Dict, options: Dict) -> None:
                         f"CapCut account {state.get('capcut_email') or ''} has no voice for "
                         f"{language_name(lang)}. Pick capcut_speaker, add a matching voice, or use tts_engine=edge.")
     state["tts_engine"] = engine
+    _task_meta(state.get("task_id"), voice=_voice_meta(engine, state, options))
     state["_say"]("tts", "running", f"engine: {engine}")
     if engine == "capcut":
         _tts_capcut(state, options)
@@ -7099,6 +7103,19 @@ def _prepare(payload: Dict[str, Any], report, is_cancelled, needs: tuple) -> Dic
             state["preset_name"] = canon
             state["preset"] = {"name": canon, "fields": fields}
     state["aspect_ratio"] = _resolve_aspect(options, state["preset"])
+    if task_id and payload.get("kind"):
+        # Thông số lên thẻ: model viết (agent hay hộp Retry), giọng + model vẽ của mẫu, ngôn ngữ đã biết.
+        pm = _preset_meta(state)
+        eng, voice, _email = _preset_voice(state, options)
+        roles = pm.get("image_models") if isinstance(pm.get("image_models"), dict) else {}
+        _ip, _im = _model_ref((state.get("retry_overrides") or {}).get("image_model"))
+        img = _im or str(roles.get("precise") or roles.get("hook") or "").split("|")[-1]
+        _task_meta(task_id, text_model=str(getattr(state["agent"], "model", "") or ""),
+                   preset=state.get("preset_name") or None,
+                   voice={"engine": eng if eng not in ("", "auto") else "auto", "id": voice} if voice or eng not in ("", "auto") else None,
+                   image_model=img or None,
+                   language=str(state.get("language") or (state.get("checkpoint") or {}).get("language")
+                                or _meta_language(options) or ""))
     return {"options": options, "state": state, "say": say, "cancelled": cancelled}
 
 
@@ -7137,6 +7154,7 @@ def run_render(payload: Dict[str, Any],
     options, state, say, cancelled = ctx["options"], ctx["state"], ctx["say"], ctx["cancelled"]
     state["script"] = str(payload.get("script") or (state.get("checkpoint") or {}).get("script") or "")
     state["title"] = str(payload.get("title") or (state.get("checkpoint") or {}).get("title") or "")
+    _task_title(state.get("task_id"), state["title"], options)
     if not state["script"].strip():
         raise RuntimeError("No script to render — accept a plan first.")
     lang = str(payload.get("language") or (state.get("checkpoint") or {}).get("language") or "").strip()
@@ -7233,6 +7251,108 @@ def _drive_mark(task_id: Any, rec: Dict[str, Any]) -> None:
         codex_manager.set_drive(str(task_id), rec)
     except Exception as e:      # noqa: BLE001
         logger.info(f"[ContentVideo] could not mark task {task_id} as saved to Drive: {e}")
+
+
+# ── Tên thật + thông số lên thẻ Codex (bảng việc, 25/9/2026) ────────────────────────────────────────────────────
+# User: «tên nó giống hệt nhau, đáng lẽ là tên nội dung của bài (project, ngôn ngữ, model)». Tên task đặt lúc tạo từ
+# tên agent; tên thật chỉ có sau bước viết kịch bản → ghi lại bằng set_title. Thông số (giai đoạn, ngôn ngữ, model,
+# mẫu, giọng, task cha) ghi vào task.meta để bảng hiện ngay dưới tên mà không phải đọc sổ sự kiện của từng task.
+_STAGE_OF_KIND = {KIND_PLAN: "plan", "content_video.digest": "plan", KIND_AUTO: "auto", KIND_RENDER: "render",
+                  KIND_CLONE: "clone", KIND_DRIVE: "drive"}
+_GENERIC_TITLE_RE = re.compile(r"^(?:Video from content|Content video|Auto publish|Content digest)\s*[:·]|"
+                               r"^(?:Clone \([^)]*\):|Drive:)\s")
+
+
+def _task_meta(task_id: Any, **patch: Any) -> None:
+    """Gộp thông số hiển thị vào task Codex (manager.set_meta) — lỗi chỉ vào log, không chặn lượt chạy."""
+    if not task_id:
+        return
+    try:
+        from tubecli.extensions.codex.manager import codex_manager
+
+        codex_manager.set_meta(str(task_id), {k: v for k, v in patch.items() if v not in (None, "")})
+    except Exception as e:      # noqa: BLE001
+        logger.info(f"[ContentVideo] task meta not saved for {task_id}: {e}")
+
+
+def _task_title(task_id: Any, title: Any, options: Optional[Dict] = None) -> None:
+    """Tên thật lên thẻ Codex — trừ khi người dùng đã gõ tiêu đề trên form (options.title) thì giữ của họ."""
+    text = " ".join(str(title or "").split())
+    if not task_id or not text or (options and str(options.get("title") or "").strip()):
+        return
+    try:
+        from tubecli.extensions.codex.manager import codex_manager
+
+        codex_manager.set_title(str(task_id), text)
+    except Exception as e:      # noqa: BLE001
+        logger.info(f"[ContentVideo] task title not saved for {task_id}: {e}")
+
+
+def _meta_language(options: Dict, agent: Any = None) -> str:
+    lang = str((options or {}).get("language") or "").strip()
+    if lang and lang != "auto":
+        return lang
+    lang = str(getattr(agent, "language", "") or "").strip()
+    return lang if lang and lang != "auto" else ""
+
+
+def _meta_source(options: Dict) -> str:
+    """pasted | youtube | corpus — nguồn của lượt."""
+    text = str((options or {}).get("source_text") or "")
+    if text.strip():
+        return "youtube" if youtube_link_only(text) else "pasted"
+    return "corpus"
+
+
+def _voice_meta(engine: str, state: Dict, options: Dict) -> Dict[str, str]:
+    """{engine, id, name} của giọng lượt này dùng — cho chip «Giọng …» trên thẻ."""
+    if engine == "capcut":
+        vid = str(options.get("capcut_speaker") or state.get("capcut_speaker") or "")
+        used = str(state.get("tts_voice_used") or "")
+        name = used.split("·")[1].strip() if used.count("·") >= 1 else ""
+        return {"engine": "capcut", "id": vid, "name": name if name and name != vid else ""}
+    eng = str(state.get("tts_batch_engine") or "edge")
+    vid = str(options.get("tts_voice") or state.get("tts_voice_pref") or _edge_voice(str(state.get("language") or "vi")))
+    return {"engine": eng, "id": vid}
+
+
+def backfill_task_meta(limit: int = 400) -> int:
+    """Task video tạo TRƯỚC bản có meta: đọc payload + checkpoint MỘT lần → meta + tên thật (chỉ thay tên chung
+    chung như «Video from content: <agent>»). Sau lượt này mỗi task mang khoá "meta" nên không đọc lại."""
+    from tubecli.extensions.codex.manager import codex_manager
+
+    # Task Drive không nằm ở làn video (không tranh CPU với lượt dựng) → nhận diện bằng kind trong sổ sự kiện.
+    todo = [t for t in codex_manager.list_tasks(limit=0) if "meta" not in t and (
+        (t.get("lane") or "") == "video" or str(codex_manager.kind_of(str(t["id"])) or "").startswith("content_video."))]
+    done = 0
+    for t in todo[:max(0, int(limit))]:
+        tid = str(t["id"])
+        payload = _source_payload(tid)
+        ck = _read_checkpoint(tid) or {}
+        kind = str(payload.get("kind") or "")
+        opts = payload.get("options") if isinstance(payload.get("options"), dict) else {}
+        stage = _STAGE_OF_KIND.get(kind, "")
+        parent = str(payload.get("plan_task_id") or payload.get("source_task_id") or "")
+        meta: Dict[str, Any] = {
+            "stage": stage or None, "kind": kind or None,
+            "language": str(ck.get("language") or payload.get("language") or _meta_language(opts) or ""),
+            "preset": str(ck.get("preset") or payload.get("preset") or opts.get("preset") or ""),
+            "source": _meta_source(opts) if stage in ("plan", "auto") else None,
+            "parent_id": parent or None, "parent_seq": payload.get("source_seq"),
+        }
+        if stage == "clone":
+            meta["target_language"] = str(payload.get("language") or "")
+        eng = str(opts.get("tts_engine") or "").lower()
+        if eng and eng != "auto" and opts.get("tts_voice"):
+            meta["voice"] = {"engine": eng, "id": str(opts.get("tts_voice"))}
+        codex_manager.set_meta(tid, meta)
+        title = str(ck.get("title") or payload.get("title") or "")
+        if not title and parent:
+            title = str((_read_checkpoint(parent) or {}).get("title") or "")
+        if title and _GENERIC_TITLE_RE.match(str(t.get("title") or "")):
+            codex_manager.set_title(tid, title, actor="board")
+        done += 1
+    return done
 
 
 def backfill_drive_marks(limit: int = 300) -> int:
@@ -7371,7 +7491,7 @@ def create_drive_sync_task(source_task_id: str, drive_token_id: str = "", drive_
         goal.append(f"- Only after a successful upload: task #{seq} is deleted together with its images, voice, "
                     "video and Content Studio project")
     task = codex_manager.create_task(
-        goal="\n".join(goal), title=f"Drive: {title[:60]}", created_by=created_by,
+        goal="\n".join(goal), title=title[:150], created_by=created_by,
         origin=dict(src.get("origin") or {}), assignee_type="agent",
         assignee_id=str(src.get("assignee_id") or ""), assignee_name=str(src.get("assignee_name") or ""),
         approval_required=False)
@@ -7381,6 +7501,9 @@ def create_drive_sync_task(source_task_id: str, drive_token_id: str = "", drive_
               "source_seq": seq, "agent_id": str(src.get("assignee_id") or ""),
               "options": {"drive": True, "drive_token_id": str(drive_token_id or ""),
                           "drive_public": bool(drive_public), "delete_after": bool(delete_after)}})
+    src_meta = src.get("meta") if isinstance(src.get("meta"), dict) else {}
+    _task_meta(task["id"], stage="drive", kind=KIND_DRIVE, language=str(src_meta.get("language") or ""),
+               parent_id=str(info["task_id"]), parent_seq=seq)
     return task
 
 
@@ -7596,7 +7719,7 @@ def create_clone_task(source_task_id: str, language: str, tts_engine: str = "", 
     if options.get("drive"):
         goal.append("- Save to Google Drive like the original")
     task = codex_manager.create_task(
-        goal="\n".join(goal), title=f"Clone ({name}): {title[:48]}", created_by=created_by,
+        goal="\n".join(goal), title=title[:150], created_by=created_by,
         origin=dict(src.get("origin") or {}), assignee_type="agent",
         assignee_id=str(src.get("assignee_id") or ""), assignee_name=str(src.get("assignee_name") or ""),
         approval_required=False, lane=CODEX_LANE, hold=True, priority=int(src.get("priority") or 0))
@@ -7605,6 +7728,12 @@ def create_clone_task(source_task_id: str, language: str, tts_engine: str = "", 
         data={"kind": KIND_CLONE, "task_id": task["id"], "agent_id": str(src.get("assignee_id") or ""),
               "source_task_id": str(info["task_id"]), "source_seq": seq, "language": lang,
               "preset": str(ck.get("preset") or ""), "options": options})
+    src_meta = src.get("meta") if isinstance(src.get("meta"), dict) else {}
+    _task_meta(task["id"], stage="clone", kind=KIND_CLONE, language=lang, target_language=lang,
+               preset=str(ck.get("preset") or ""), text_model=str(src_meta.get("text_model") or ""),
+               image_model=str(src_meta.get("image_model") or ""),
+               voice={"engine": options["tts_engine"], "id": options["tts_voice"]},
+               parent_id=str(info["task_id"]), parent_seq=seq)
     return task
 
 
@@ -7671,6 +7800,7 @@ def _step_clone(state: Dict, options: Dict) -> None:
             raise RuntimeError(f"Content Studio did not return an episode id: {str(ep)[:200]}")
         _checkpoint_merge(state, {"drama_id": drama_id, "episode_id": ep_id, "title": title, "language": lang,
                                   "preset": state.get("preset_name", "")})
+        _task_title(state.get("task_id"), title)
     state["drama_id"], state["episode_id"], state["title"] = drama_id, ep_id, title
 
     shots = _storyboards(int(ep_id))
@@ -8255,6 +8385,10 @@ def create_plan_task(agent_id: str, options: Optional[Dict] = None,
               "high_water_prev": high_water_prev, "high_water": high_water,
               "tracker_id": tracker_id},
     )
+    _task_meta(task["id"], stage="plan", kind=KIND_PLAN, language=_meta_language(options, agent),
+               text_model=str(getattr(agent, "model", "") or ""),
+               preset=str(options.get("preset") or getattr(agent, "content_video_preset", "") or ""),
+               source=_meta_source(options))
     return task
 
 
@@ -8319,6 +8453,10 @@ def create_auto_task(agent_id: str, options: Optional[Dict] = None,
               # sẽ vào video này rồi còn được lượt sau đếm lại.
               "high_water_prev": high_water_prev, "high_water": high_water},
     )
+    _task_meta(task["id"], stage="auto", kind=KIND_AUTO, language=_meta_language(options, agent),
+               text_model=str(getattr(agent, "model", "") or ""),
+               preset=str(options.get("preset") or getattr(agent, "content_video_preset", "") or ""),
+               source=_meta_source(options))
     return task
 
 
@@ -8352,7 +8490,8 @@ def create_render_task(plan_task: Dict, actor: str = "user") -> Optional[Dict]:
     task = codex_manager.create_task(
         goal=(f"Render the accepted script for agent {plan_task.get('assignee_name') or agent_id}\n\n"
               f"Title: {title}\nFrom plan task #{plan_task.get('seq')} ({task_id})"),
-        title=f"{label} · render: {title[:36] or agent_id}",
+        # Tên THẬT của video (giai đoạn «Dựng» là chip trên thẻ, không phải tiền tố trong tên).
+        title=title[:150] or f"{label} · render: {agent_id}",
         created_by=actor,
         origin=dict(plan_task.get("origin") or {}),
         assignee_type="agent",
@@ -8375,6 +8514,11 @@ def create_render_task(plan_task: Dict, actor: str = "user") -> Optional[Dict]:
               "seo_sources": [r for r in (ck.get("seo_sources") or []) if isinstance(r, dict)]},
     )
     codex_manager.append_event(task_id, "log", f"→ render queued as #{task['seq']}", actor=ACTOR)
+    plan_meta = plan_task.get("meta") if isinstance(plan_task.get("meta"), dict) else {}
+    _task_meta(task["id"], stage="render", kind=KIND_RENDER, language=str(ck.get("language") or ""),
+               preset=str(ck.get("preset") or ""), text_model=str(plan_meta.get("text_model") or ""),
+               voice=plan_meta.get("voice"), image_model=str(plan_meta.get("image_model") or ""),
+               source=str(plan_meta.get("source") or ""), parent_id=task_id, parent_seq=plan_task.get("seq"))
     return task
 
 

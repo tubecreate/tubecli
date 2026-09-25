@@ -245,7 +245,7 @@ ok(P.drive_sync_info("src2")["ok"], "task DỰNG đang ở Review cũng đồng 
 print("── B. create_drive_sync_task ───────────────────────────────")
 task = P.create_drive_sync_task("src", "tok_a", True, False)
 ev = events[-1][1]
-ok(created[-1]["title"] == "Drive: 10 Claves Zen" and created[-1]["approval_required"] is False
+ok(created[-1]["title"] == "10 Claves Zen" and created[-1]["approval_required"] is False      # tên thật; «Drive» là chip giai đoạn (25/9)
    and "lane" not in created[-1] and created[-1]["assignee_id"] == "a1" and created[-1]["origin"] == {"chat_id": "9"},
    "task «Drive: tiêu đề», không cần duyệt, không chiếm làn video, cùng agent + nơi gọi", created[-1])
 ok(ev == {"kind": P.KIND_DRIVE, "task_id": task["id"], "source_task_id": "src", "source_seq": 21, "agent_id": "a1",

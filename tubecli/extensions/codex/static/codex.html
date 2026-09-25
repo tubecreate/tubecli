@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Codex — TubeCLI</title>
+<title>Task board — TubeCLI</title>
 <script>
 /*
  * Pre-paint theme. Must run BEFORE any stylesheet applies so there is no dark
@@ -39,15 +39,15 @@
   <!-- ═══ Header ═══════════════════════════════════════════════ -->
   <header class="cx-header">
     <div class="cx-header-left">
-      <a class="cx-icon-btn cx-back" href="/dashboard" data-i18n-title="codex.back_dashboard" title="Dashboard">
+      <a class="cx-icon-btn cx-back" href="/dashboard" target="_top" data-i18n-title="codex.back_dashboard" title="Dashboard">
         <span class="material-symbols-outlined">arrow_back</span>
       </a>
       <div class="cx-brand">
         <div class="cx-brand-row">
-          <span class="material-symbols-outlined cx-brand-icon">flight_takeoff</span>
-          <h1 data-i18n="codex.title">Codex</h1>
+          <span class="material-symbols-outlined cx-brand-icon">checklist</span>
+          <h1 data-i18n="codex.title">Task board</h1>
         </div>
-        <div class="cx-brand-sub" data-i18n="codex.subtitle">Mission control for agentic work</div>
+        <div class="cx-brand-sub" data-i18n="codex.subtitle">Hand work to agents, follow progress, accept the result</div>
       </div>
     </div>
 
@@ -57,15 +57,22 @@
         <span id="cx-worker-text" data-i18n="codex.worker_unknown">Worker status unknown</span>
       </div>
 
-      <label class="cx-switch" data-i18n-title="codex.auto_refresh">
-        <input type="checkbox" id="cx-auto" checked onchange="CODEX.setAuto(this.checked)">
-        <span data-i18n="codex.auto_refresh">Auto-refresh</span>
-      </label>
-
-      <label class="cx-switch" data-i18n-title="codex.auto_approve_hint">
-        <input type="checkbox" id="cx-auto-approve" onchange="CODEX.setAutoApprove(this.checked)">
-        <span data-i18n="codex.auto_approve">Auto-approve</span>
-      </label>
+      <!-- Hai công tắc ít dùng nằm trong menu bánh răng — đầu trang chỉ còn thứ hay bấm. -->
+      <details class="cx-more-menu cx-settings">
+        <summary class="cx-btn cx-btn-ghost cx-btn-icon" data-i18n-title="codex.settings_menu" title="Settings">
+          <span class="material-symbols-outlined">settings</span>
+        </summary>
+        <div class="cx-menu">
+          <label class="cx-switch" data-i18n-title="codex.auto_refresh">
+            <input type="checkbox" id="cx-auto" checked onchange="CODEX.setAuto(this.checked)">
+            <span data-i18n="codex.auto_refresh">Auto-refresh</span>
+          </label>
+          <label class="cx-switch" data-i18n-title="codex.auto_approve_hint">
+            <input type="checkbox" id="cx-auto-approve" onchange="CODEX.setAutoApprove(this.checked)">
+            <span data-i18n="codex.auto_approve">Auto-approve</span>
+          </label>
+        </div>
+      </details>
 
       <button type="button" class="cx-btn cx-btn-ghost cx-btn-icon" id="cx-refresh-btn"
               onclick="CODEX.refresh(true)" data-i18n-title="codex.btn_refresh" title="Refresh">
@@ -79,20 +86,20 @@
     </div>
   </header>
 
-  <!-- ═══ Stat tiles ═══════════════════════════════════════════ -->
-  <section class="cx-stats" id="cx-stats"></section>
+  <!-- ═══ Thanh trạng thái (nhóm) ══════════════════════════════ -->
+  <section class="cx-segments" id="cx-segments"></section>
 
   <!-- ═══ Làn tạm dừng vì hết quota ════════════════════════════ -->
   <section class="cx-lane-pauses hidden" id="cx-lane-pauses" aria-live="polite"></section>
 
-  <!-- ═══ Filters ══════════════════════════════════════════════ -->
+  <!-- ═══ Bộ lọc + tìm ═════════════════════════════════════════ -->
   <section class="cx-toolbar">
-    <div class="cx-chips" id="cx-chips"></div>
+    <div class="cx-filters" id="cx-filters"></div>
     <div class="cx-search">
       <span class="material-symbols-outlined">search</span>
       <input type="search" id="cx-search" autocomplete="off"
              data-i18n-placeholder="codex.search_placeholder"
-             placeholder="Search title or goal…"
+             placeholder="Search by title, #number, model, voice…"
              oninput="CODEX.onSearch(this.value)">
     </div>
   </section>
@@ -100,6 +107,7 @@
   <!-- ═══ Board ════════════════════════════════════════════════ -->
   <main class="cx-main">
     <div class="cx-list" id="cx-list"></div>
+    <div class="cx-more" id="cx-more"></div>
   </main>
 
 </div>
@@ -515,6 +523,7 @@
   </div>
 </div>
 
+<script>window.I18N_NS = ['codex'];</script>
 <script src="/static/i18n.js"></script>
 <script src="/codex/codex.js"></script>
 </body>

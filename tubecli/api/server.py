@@ -4695,7 +4695,7 @@ WEBUI_SERVED_PAGES = {
     "template_designer":  {"page_url": "/template-designer",  "icon": "design_services",   "display_name": "Template Designer"},
     "studio3d":           {"page_url": "/studio",             "icon": "view_in_ar",        "display_name": "Studio 3D"},
     "chat":               {"page_url": "/chat",               "icon": "forum",             "display_name": "Chat"},
-    "codex":              {"page_url": "/codex",              "icon": "terminal",          "display_name": "Codex"},
+    "codex":              {"page_url": "/codex",              "icon": "checklist",         "display_name": "Task board"},
     # Panel trong dashboard SPA — page_url là deep-link #/tab (handleRoute của webui);
     # ?embed=1 ẩn sidebar khi bị nhúng iframe (index.html embed-mode)
     # HAI trang khác nhau: #/api-manager là "API Manager" (agent nào dùng model
@@ -5681,58 +5681,165 @@ async def update_extension(name: str):
 
 
 # ── Aggregated i18n (per-extension locales) ─────────────────────────
+#
+# Từ điển gộp của mọi extension, đệm trong bộ nhớ theo ngôn ngữ (25/9/2026).
+#
+# Trước đây mỗi GET quét lại toàn bộ <extension>/locales/ và json.loads ~40 tệp
+# NGAY TRONG route async — chặn event loop của cả máy chủ mỗi lần một trang mở
+# (dashboard tiếng Việt xin hai lượt: vi + en, ~264 + 288 KB trên đĩa), còn client
+# gắn ?v=Date.now() nên trình duyệt không bao giờ dùng lại được. Giờ:
+#   • quét đĩa + parse chạy trong luồng phụ (asyncio.to_thread), event loop rảnh;
+#   • kết quả giữ lại, khoá bằng CHỮ KÝ stat (đường dẫn + mtime_ns + size của từng
+#     tệp đã quét): sửa một tệp JSON, cài/gỡ extension là chữ ký đổi → dựng lại,
+#     không cần restart; không đổi thì không đọc lại tệp nào;
+#   • ETag (sha1 thân phản hồi) + If-None-Match → 304 Not Modified. Cache-Control:
+#     no-cache = trình duyệt giữ bản đã tải nhưng hỏi lại mỗi lần (KHÔNG no-store);
+#   • ?ns=codex,common → chỉ trả khoá bắt đầu bằng «codex.» / «common.» (~8 % gói).
+# Không có ns thì thân phản hồi giống hệt trước từng byte (cùng cách tuần tự hoá của
+# JSONResponse). Tham số lạ (?v=…) vẫn bị bỏ qua như cũ.
+import asyncio
+import hashlib
+import json
+import threading
 
-@app.get("/api/v1/i18n/{lang}")
-async def get_aggregated_i18n(lang: str):
-    """Aggregate locale files from ALL extensions into a single flat dict.
-    Scans both built-in extensions and external extensions directories.
+_I18N_LANG_RE = _re.compile(r'^[a-z]{2}(-[A-Z]{2})?$')
+_I18N_CACHE: dict = {}          # lang → {"sig": tuple, "merged": dict, "bodies": {ns_key: (bytes, etag)}}
+_I18N_LOCK = threading.Lock()   # hai request cùng lúc không dựng đúp; chỉ giữ trong luồng phụ
+_I18N_NS_MEMO_MAX = 16          # số tổ hợp ns nhớ sẵn mỗi ngôn ngữ — đủ cho các trang, chặn phình vô hạn
+
+
+def _i18n_locale_roots() -> list:
+    """Các thư mục cha chứa <extension>/locales/ — built-in trước, external sau (thứ tự gộp cũ).
+    Tách riêng để test trỏ sang cây tạm mà không đụng data thật."""
+    from tubecli.config import EXTENSIONS_EXTERNAL_DIR
+    builtin_ext_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "extensions")
+    return [builtin_ext_dir, str(EXTENSIONS_EXTERNAL_DIR)]
+
+
+def _i18n_locale_files(lang: str) -> list:
+    """Tệp locale sẽ gộp, ĐÚNG THỨ TỰ gộp: từng extension một, en lót dưới rồi <lang> đè lên.
+
+    Bản xưa `break` ngay tệp đầu tìm thấy, nên extension có vi.json thiếu vài khoá làm
+    tên khoá lộ ra giao diện thay vì rơi về tiếng Anh — giữ nguyên cách sửa đó.
     """
-    import re
-    import json
-    import os
-
-    # Sanitize lang
-    if not re.match(r'^[a-z]{2}(-[A-Z]{2})?$', lang):
-        lang = "en"
-
-    merged = {}
-
-    def _load_locales_from_dir(base_dir):
-        """Scan a directory for subdirectories containing locales/."""
+    files = []
+    for base_dir in _i18n_locale_roots():
         if not os.path.isdir(base_dir):
-            return
-        for entry in os.listdir(base_dir):
-            ext_dir = os.path.join(base_dir, entry)
-            if not os.path.isdir(ext_dir):
-                continue
-            locales_dir = os.path.join(ext_dir, "locales")
+            continue
+        try:
+            entries = os.listdir(base_dir)
+        except OSError:
+            continue
+        for entry in entries:
+            locales_dir = os.path.join(base_dir, entry, "locales")
             if not os.path.isdir(locales_dir):
                 continue
-            # English underneath, then the requested language on top. The previous
-            # version `break`ed after the first file it found, so an extension that
-            # shipped vi.json missing a few keys leaked those key names into the UI
-            # as literal text instead of degrading to English.
             for try_lang in (["en", lang] if lang != "en" else ["en"]):
                 locale_path = os.path.join(locales_dir, f"{try_lang}.json")
-                if not os.path.isfile(locale_path):
-                    continue
-                try:
-                    with open(locale_path, "r", encoding="utf-8") as f:
-                        merged.update(json.load(f))
-                except Exception:
-                    pass
+                if os.path.isfile(locale_path):
+                    files.append(locale_path)
+    return files
 
-    # 1. Built-in extensions: tubecli/extensions/*/locales/
-    builtin_ext_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "extensions")
-    _load_locales_from_dir(builtin_ext_dir)
 
-    # 2. External extensions: data/extensions_external/*/locales/
-    from tubecli.config import EXTENSIONS_EXTERNAL_DIR
-    _load_locales_from_dir(str(EXTENSIONS_EXTERNAL_DIR))
+def _i18n_signature(files: list) -> tuple:
+    """Chữ ký một lượt quét: (đường dẫn, mtime_ns, size) của từng tệp. Khác là dựng lại."""
+    sig = []
+    for path in files:
+        try:
+            st = os.stat(path)
+            sig.append((path, st.st_mtime_ns, st.st_size))
+        except OSError:
+            sig.append((path, -1, -1))
+    return tuple(sig)
+
+
+def _i18n_merge(files: list) -> dict:
+    """Đọc + gộp phẳng. Tệp hỏng bị bỏ qua (như trước), không làm gãy cả từ điển."""
+    merged = {}
+    for path in files:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                merged.update(json.load(f))
+        except Exception:
+            pass
+    return merged
+
+
+def _i18n_dumps(data: dict) -> bytes:
+    # Đúng cách JSONResponse tuần tự hoá `return merged` trước đây → thân giống hệt từng byte.
+    return json.dumps(data, ensure_ascii=False, allow_nan=False, indent=None,
+                      separators=(",", ":")).encode("utf-8")
+
+
+def _i18n_parse_ns(ns) -> tuple:
+    """?ns=codex,common → ("codex", "common"). Bỏ khoảng trắng, chấm thừa, rỗng, trùng; sắp xếp để
+    «codex,common» và «common,codex» dùng chung một bản đệm + một ETag. Không có / rỗng → () = trọn bộ."""
+    if not ns:
+        return ()
+    parts = {p.strip().strip(".") for p in str(ns).split(",")}
+    return tuple(sorted(p for p in parts if p))
+
+
+def _i18n_bundle(lang: str, ns_key: tuple) -> tuple:
+    """(thân JSON bytes, ETag) cho một ngôn ngữ + bộ ns. CHẠY TRONG LUỒNG PHỤ — gọi qua asyncio.to_thread."""
+    files = _i18n_locale_files(lang)
+    sig = _i18n_signature(files)
+    with _I18N_LOCK:
+        entry = _I18N_CACHE.get(lang)
+        if entry is None or entry["sig"] != sig:
+            entry = {"sig": sig, "merged": _i18n_merge(files), "bodies": {}}
+            _I18N_CACHE[lang] = entry
+        cached = entry["bodies"].get(ns_key)
+        if cached is None:
+            merged = entry["merged"]
+            if ns_key:
+                prefixes = tuple(p + "." for p in ns_key)
+                merged = {k: v for k, v in merged.items() if k.startswith(prefixes)}
+            body = _i18n_dumps(merged)
+            cached = (body, '"%s"' % hashlib.sha1(body).hexdigest())
+            if len(entry["bodies"]) >= _I18N_NS_MEMO_MAX:
+                entry["bodies"].clear()
+            entry["bodies"][ns_key] = cached
+        return cached
+
+
+def _i18n_etag_matches(if_none_match, etag: str) -> bool:
+    """If-None-Match có khớp ETag không — nhận danh sách, `*`, và dạng yếu W/"…"."""
+    if not if_none_match:
+        return False
+    for tag in str(if_none_match).split(","):
+        tag = tag.strip()
+        if tag == "*":
+            return True
+        if tag.startswith("W/"):
+            tag = tag[2:]
+        if tag == etag:
+            return True
+    return False
+
+
+@app.get("/api/v1/i18n/{lang}")
+async def get_aggregated_i18n(lang: str, request: Request, ns: Optional[str] = None):
+    """Aggregate locale files from ALL extensions into a single flat dict.
+    Scans both built-in extensions and external extensions directories.
+
+    ?ns=codex,common — only the keys under those prefixes ("codex.", "common.").
+    ETag / If-None-Match → 304 Not Modified. Other query parameters (?v=…) are ignored.
+    """
+    from fastapi.responses import Response
+
+    # Sanitize lang
+    if not _I18N_LANG_RE.match(lang):
+        lang = "en"
+
+    body, etag = await asyncio.to_thread(_i18n_bundle, lang, _i18n_parse_ns(ns))
+    headers = {"ETag": etag, "Cache-Control": "no-cache"}
+    if _i18n_etag_matches(request.headers.get("if-none-match"), etag):
+        return Response(status_code=304, headers=headers)
 
     # No _DEBUG block here: this endpoint is reachable from the browser and was
     # returning absolute install paths (which include the OS username).
-    return merged
+    return Response(content=body, media_type="application/json", headers=headers)
 
 
 # ── Language Settings ────────────────────────────────────────────────

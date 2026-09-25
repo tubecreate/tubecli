@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════
- *  Codex — Mission control task board
+ *  Bảng việc (task board) của TubeCLI
  *  Vanilla ES2020, one IIFE module, no framework, no bundler.
  *  API: /api/v1/codex   ·   Page: /codex
  * ═══════════════════════════════════════════════════════════════════
@@ -49,23 +49,28 @@ const CODEX = (() => {
     approval: 'gavel', result: 'check_circle', error: 'error', plan: 'lightbulb',
     progress: 'arrow_right',
   };
-  const STAT_TILES = [
-    { key: 'total', filter: 'all', icon: 'inbox', label: 'codex.stat_total' },
-    { key: 'pending_approval', filter: 'pending_approval', icon: 'pending_actions', label: 'codex.stat_pending_approval' },
-    { key: 'backlog', filter: 'backlog', icon: 'stacks', label: 'codex.stat_backlog' },
-    { key: 'queued', filter: 'queued', icon: 'schedule', label: 'codex.stat_queued' },
-    { key: 'running', filter: 'running', icon: 'bolt', label: 'codex.stat_running' },
-    { key: 'review', filter: 'review', icon: 'rate_review', label: 'codex.stat_review' },
-    { key: 'done', filter: 'done', icon: 'task_alt', label: 'codex.stat_done' },
-    { key: 'failed', filter: 'failed', icon: 'error', label: 'codex.stat_failed' },
-  ];
+  // Bảng việc (25/9/2026): nhóm trạng thái của thanh lọc — máy chủ đếm (get_stats) và lọc (query_tasks) theo cùng tên.
+  const GROUPS = ['needs_you', 'working', 'backlog', 'done', 'stopped', 'all'];
+  const PAGE = 50;
+  // Bước «đang chạy» của thẻ: chỉ hỏi lại chi tiết thẻ đang mở khi task còn chạy.
+  const LIVE_STATES = new Set(['queued', 'running']);
+  const STAGE_ICON = { plan: 'edit_note', auto: 'movie', render: 'movie', clone: 'translate', drive: 'add_to_drive' };
 
   // ── State ──────────────────────────────────────────────────────
   const state = {
     tasks: [],            // last good snapshot, newest first
     stats: {},
     worker: null,
-    filter: 'all',
+    filter: 'needs_you',  // nhóm trạng thái (GROUPS) — máy chủ lọc
+    kind: '',             // '' | 'video' | 'general'
+    agent: '',            // assignee_id
+    language: '',         // meta.language
+    sort: 'newest',
+    total: 0,             // tổng sau lọc (máy chủ)
+    hasMore: false,
+    etag: '',             // ETag của trang 1 — hỏi lại mỗi nhịp, không đổi thì 304 rỗng
+    firstFilterPicked: false,
+    languages: [],        // mã ngôn ngữ thấy trong trang hiện tại — ô lọc
     search: '',
     expanded: new Set(),  // task ids
     // Đồng hồ MÁY CHỦ lúc lấy danh sách gần nhất ({iso, at}) — xem serverNow().
@@ -287,34 +292,77 @@ const CODEX = (() => {
   }
 
   // ── Data loading ───────────────────────────────────────────────
+  function boardQuery(offset) {
+    const p = new URLSearchParams();
+    p.set('view', 'board');
+    p.set('group', state.filter || 'all');
+    if (state.kind) p.set('lane', state.kind);
+    if (state.agent) p.set('agent', state.agent);
+    if (state.language) p.set('language', state.language);
+    if (state.search.trim()) p.set('q', state.search.trim());
+    p.set('sort', state.sort || 'newest');
+    p.set('offset', String(offset || 0));
+    p.set('limit', String(PAGE));
+    return API + '/tasks?' + p.toString();
+  }
+
+  /** Trang 1 của bảng, có ETag: máy chủ không đổi gì thì trả 304 rỗng (không phải 371 KB mỗi 5 giây như trước). */
+  async function fetchBoard(offset, etag) {
+    const headers = { 'Content-Type': 'application/json' };
+    if (etag && !offset) headers['If-None-Match'] = etag;
+    const resp = await fetch(boardQuery(offset), { headers });
+    if (resp.status === 304) return { unchanged: true };
+    const text = await resp.text();
+    let data = null;
+    try { data = text ? JSON.parse(text) : null; } catch (e) { data = { detail: text }; }
+    if (!resp.ok) throw new Error((data && (data.detail || data.message)) || ('HTTP ' + resp.status));
+    return { data: data || {}, etag: resp.headers.get('ETag') || '' };
+  }
+
+  function applyBoard(data, append) {
+    const list = data.tasks || [];
+    if (append) state.tasks = state.tasks.concat(list);
+    else state.tasks = list;
+    state.total = Number(data.total || 0);
+    state.hasMore = !!data.has_more;
+    if (data.stats) state.stats = data.stats;
+    state.lanePauses = data.lane_pauses || {};
+    if (data.now) state.clock = { iso: data.now, at: Date.now() };
+    // Thẻ đang mở đã tải chi tiết (goal, các bước, kết quả) → gắn lại, kẻo mỗi nhịp làm mới lại trắng.
+    state.tasks.forEach((x) => { const d = state.detail[x.id]; if (d) Object.assign(x, d); });
+    state.languages = Array.from(new Set(state.tasks.map(x => (x.meta && x.meta.language) || '').filter(Boolean))).sort();
+    state.loaded = true;
+    pruneState();
+  }
+
+  /** Lần mở đầu: đứng ở «Cần bạn» nếu có việc chờ, không thì «Đang chạy», không thì «Tất cả». */
+  function pickFirstFilter() {
+    if (state.firstFilterPicked) return false;
+    state.firstFilterPicked = true;
+    const s = state.stats || {};
+    const want = Number(s.needs_you || 0) > 0 ? 'needs_you' : (Number(s.working || 0) > 0 ? 'working' : 'all');
+    if (want !== state.filter) { state.filter = want; return true; }
+    return false;
+  }
+
   async function refresh(manual) {
     const btn = $('cx-refresh-btn');
     if (manual && btn) btn.classList.add('cx-spin');
-
     const results = await Promise.allSettled([
-      api('/stats'),
-      api('/tasks?slim=1&limit=' + TASK_LIMIT),
+      fetchBoard(0, manual ? '' : state.etag),
       api('/worker'),
     ]);
-
-    if (results[0].status === 'fulfilled') state.stats = results[0].value || {};
-    if (results[1].status === 'fulfilled') {
-      const payload = results[1].value || {};
-      // Máy chủ bản cũ không gửi `now` → giữ nguyên đồng hồ máy khách như trước.
-      state.clock = payload.now ? { iso: payload.now, at: Date.now() } : null;
-      const list = payload.tasks || [];
-      list.sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
-      // Danh sách gọn không mang plan/result; thẻ đang mở đã tải chi tiết rồi thì gắn lại, kẻo mỗi nhịp làm mới
-      // (5 giây) lại xoá trắng phần kế hoạch và kết quả đang xem.
-      state.slim = !!payload.slim;
-      if (state.slim) list.forEach((x) => { const d = state.detail[x.id]; if (d) Object.assign(x, d); });
-      state.tasks = list;
-      state.lanePauses = payload.lane_pauses || {};
-      state.loaded = true;
-      pruneState();
+    let changed = false;
+    if (results[0].status === 'fulfilled') {
+      const r = results[0].value || {};
+      if (!r.unchanged) {
+        applyBoard(r.data || {}, false);
+        state.etag = r.etag || '';
+        changed = true;
+        if (pickFirstFilter()) { await refresh(false); return; }
+      }
     }
-    state.worker = results[2].status === 'fulfilled' ? (results[2].value || {}) : null;
-
+    state.worker = results[1].status === 'fulfilled' ? (results[1].value || {}) : null;
     const failed = results.filter(r => r.status === 'rejected');
     if (failed.length) {
       const now = Date.now();
@@ -323,14 +371,50 @@ const CODEX = (() => {
         toast(t('codex.toast_load_failed'), 'error');
       }
     }
-
-    renderStats();
+    renderSegments();
+    renderFilters();
     renderLanePauses();
-    renderChips();
     renderWorker();
-    renderList();
-
+    renderList(changed);
+    renderMore();
+    refreshOpenDetails();
     if (manual && btn) setTimeout(() => btn.classList.remove('cx-spin'), 400);
+  }
+
+  async function loadMore() {
+    const btn = $('cx-more-btn');
+    if (btn) btn.disabled = true;
+    try {
+      const r = await fetchBoard(state.tasks.length, '');
+      if (!r.unchanged) applyBoard(r.data || {}, true);
+      renderList(true);
+      renderMore();
+    } catch (e) {
+      toast(t('codex.toast_load_failed'), 'error');
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  function renderMore() {
+    const box = $('cx-more');
+    if (!box) return;
+    if (!state.loaded || !state.tasks.length) { box.innerHTML = ''; return; }
+    box.innerHTML = `<span class="cx-more-text">${esc(t('codex.list_shown', { n: state.tasks.length, total: state.total }))}</span>`
+      + (state.hasMore ? `<button type="button" class="cx-btn cx-btn-sm cx-btn-ghost" id="cx-more-btn" onclick="CODEX.loadMore()">${icon('expand_more')}${esc(t('codex.list_more', { n: PAGE }))}</button>` : '');
+  }
+
+  /** Thẻ đang mở của task còn chạy: hỏi lại chi tiết (các bước, kết quả) mỗi nhịp — dòng bảng chỉ có tóm tắt. */
+  async function refreshOpenDetails() {
+    const ids = Array.from(state.expanded).filter(id => {
+      const x = state.tasks.find(y => y.id === id);
+      return x && (LIVE_STATES.has(x.status) || !state.detail[id]);
+    });
+    for (const id of ids) {
+      if (state.detailBusy[id]) continue;
+      try { await loadDetail(id, false); } catch (e) { /* nhịp sau thử lại */ }
+    }
+    if (ids.length) renderList(true);
   }
 
   // ── Làn tạm dừng vì hết quota (17/9/2026) ──────────────────────────────────────────────────────
@@ -448,41 +532,37 @@ const CODEX = (() => {
     return state.assignees;
   }
 
-  // ── Rendering: stats / chips / worker ──────────────────────────
-  function renderStats() {
-    const box = $('cx-stats');
+  // ── Rendering: thanh trạng thái / bộ lọc / worker ──────────────────────────────────────────────────
+  function renderSegments() {
+    const box = $('cx-segments');
     if (!box) return;
-    box.innerHTML = STAT_TILES.map(tile => {
-      const n = Number(state.stats[tile.key] || 0);
-      const active = state.filter === tile.filter ? ' active' : '';
-      const cls = tile.key === 'total' ? '' : ' st-' + tile.key;
-      return `<button type="button" class="cx-stat${cls}${active}" onclick="CODEX.setFilter('${esc(tile.filter)}')">
-          ${icon(tile.icon)}
-          <span>
-            <span class="cx-stat-num">${n}</span>
-            <span class="cx-stat-label">${esc(t(tile.label))}</span>
-          </span>
+    const s = state.stats || {};
+    box.innerHTML = GROUPS.map(g => {
+      const n = g === 'all' ? Number(s.total || 0) : Number(s[g] || 0);
+      const active = state.filter === g ? ' active' : '';
+      return `<button type="button" class="cx-seg-btn${active}" onclick="CODEX.setFilter('${g}')">
+          <span>${esc(t('codex.group_' + g))}</span><span class="cx-seg-n">${n}</span>
         </button>`;
     }).join('');
   }
 
-  function renderChips() {
-    const box = $('cx-chips');
+  function renderFilters() {
+    const box = $('cx-filters');
     if (!box) return;
-    const chips = [
-      { f: 'all', label: t('codex.filter_all'), count: state.stats.total, cls: '' },
-      { f: 'active', label: t('codex.filter_active'), count: state.stats.active, cls: '' },
-    ].concat(STATES.map(s => ({
-      f: s, label: statusLabel(s), count: state.stats[s], cls: ' st-' + s,
-    })));
-
-    box.innerHTML = chips.map(c => {
-      const active = state.filter === c.f ? ' active' : '';
-      const n = Number(c.count || 0);
-      return `<button type="button" class="cx-chip${c.cls}${active}" onclick="CODEX.setFilter('${esc(c.f)}')">
-          ${esc(c.label)}<span class="cx-chip-count">${n}</span>
-        </button>`;
-    }).join('');
+    const agents = ((state.assignees && state.assignees.agents) || []);
+    const kindOpts = [['', t('codex.filter_kind_all')], ['video', t('codex.filter_kind_video')], ['general', t('codex.filter_kind_general')]];
+    const sel = (id, fn, opts, val, label) => `<label class="cx-filter"><span class="cx-filter-label">${esc(label)}</span>
+        <select onchange="CODEX.${fn}(this.value)" aria-label="${esc(label)}">${opts.map(([v, l]) =>
+          `<option value="${esc(v)}"${v === val ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></label>`;
+    const langOpts = [['', t('codex.filter_lang_all')]].concat(state.languages.map(c => [c, langLabel(c, c)]));
+    if (state.language && !state.languages.includes(state.language)) langOpts.push([state.language, langLabel(state.language, state.language)]);
+    const agentOpts = [['', t('codex.filter_agent_all')]].concat(agents.map(a => [a.id, a.name || a.id]));
+    if (state.agent && !agents.some(a => a.id === state.agent)) agentOpts.push([state.agent, state.agent]);
+    const sortOpts = [['newest', t('codex.sort_newest')], ['updated', t('codex.sort_updated')], ['oldest', t('codex.sort_oldest')]];
+    box.innerHTML = sel('kind', 'setKind', kindOpts, state.kind, t('codex.filter_kind'))
+      + sel('agent', 'setAgent', agentOpts, state.agent, t('codex.filter_agent'))
+      + sel('lang', 'setLanguage', langOpts, state.language, t('codex.filter_lang'))
+      + sel('sort', 'setSort', sortOpts, state.sort, t('codex.sort'));
   }
 
   function renderWorker() {
@@ -507,20 +587,8 @@ const CODEX = (() => {
   }
 
   // ── Rendering: board ───────────────────────────────────────────
-  function visibleTasks() {
-    let items = state.tasks.slice();
-    if (state.filter === 'active') items = items.filter(x => ACTIVE_STATES.has(x.status));
-    else if (state.filter !== 'all') items = items.filter(x => x.status === state.filter);
-
-    const q = state.search.trim().toLowerCase();
-    if (q) {
-      items = items.filter(x => {
-        const hay = ((x.title || '') + ' ' + (x.goal || '') + ' ' + (x.assignee_name || '') + ' #' + (x.seq || '')).toLowerCase();
-        return hay.indexOf(q) >= 0;
-      });
-    }
-    return items;
-  }
+  /** Máy chủ đã lọc + phân trang (query_tasks); trang này chỉ vẽ. */
+  function visibleTasks() { return state.tasks.slice(); }
 
   function renderList(force) {
     const box = $('cx-list');
@@ -572,7 +640,7 @@ const CODEX = (() => {
     }
     const items = visibleTasks();
     if (!items.length) {
-      const filtered = state.tasks.length > 0;
+      const filtered = state.filter !== 'all' || !!state.search.trim() || !!state.kind || !!state.agent || !!state.language;
       return `<div class="cx-empty">
           ${icon(filtered ? 'filter_alt_off' : 'rocket_launch')}
           <div class="cx-empty-title">${esc(t(filtered ? 'codex.empty_filtered_title' : 'codex.empty_title'))}</div>
@@ -594,35 +662,113 @@ const CODEX = (() => {
     const id = esc(task.id);
     const status = STATES.indexOf(task.status) >= 0 ? task.status : 'queued';
     const expanded = state.expanded.has(task.id);
-    const assignee = task.assignee_name || (task.assignee_id ? task.assignee_id : t('codex.assignee_auto'));
-    const assigneeIcon = task.assignee_type === 'team' ? 'groups' : 'smart_toy';
-
-    const meta = [];
-    const pos = task.status === 'backlog' ? backlogPosition(task) : 0;
-    if (pos) meta.push(`<span class="cx-meta-pos">${icon('format_list_numbered')}${esc(t('codex.meta_backlog_pos', { n: pos }))}</span>`);
-    meta.push(`<span title="${esc(assignee)}">${icon(assigneeIcon)}${esc(assignee)}</span>`);
-    meta.push(`<span>${icon('schedule')}${esc(relTime(task.created_at))}</span>`);
-    if (task.created_by) meta.push(`<span>${icon('person')}${esc(t('codex.meta_created_by', { actor: task.created_by }))}</span>`);
-    if (Number(task.priority || 0) > 0) meta.push(`<span>${icon('low_priority')}${esc(t('codex.meta_priority', { n: Number(task.priority) }))}</span>`);
-    if (Number(task.retry_count || 0) > 0) meta.push(`<span>${icon('replay')}${esc(t('codex.meta_retry', { n: Number(task.retry_count) }))}</span>`);
-    if (task.skill_ref && task.skill_ref.skill_name) meta.push(`<span>${icon('extension')}${esc(task.skill_ref.skill_name)}</span>`);
-    const dur = duration(task.started_at, task.finished_at);
-    if (dur) meta.push(`<span>${icon('timer')}${esc(dur)}</span>`);
-
     return `<article class="cx-card st-${esc(status)}${expanded ? ' expanded' : ''}" id="cx-card-${id}">
         <div class="cx-card-head" onclick="CODEX.toggle('${id}')">
           <span class="cx-seq">#${esc(task.seq || '?')}</span>
           <span class="cx-badge">${icon(STATUS_ICON[status] || 'help')}${esc(statusLabel(status))}</span>
           <div class="cx-card-main">
-            <div class="cx-card-title">${esc(task.title || task.goal || '')}</div>
-            <div class="cx-card-meta">${meta.join('')}</div>
-            ${stripHtml(task)}
+            <div class="cx-card-title" title="${esc(task.title || '')}">${esc(task.title || task.goal || '')}</div>
+            <div class="cx-card-meta">${metaChips(task)}</div>
+            ${nowLineHtml(task)}
           </div>
           <div class="cx-card-actions" onclick="event.stopPropagation()">${actionsHtml(task)}</div>
           ${icon('expand_more', 'cx-chevron')}
         </div>
         ${expanded ? bodyHtml(task) : ''}
       </article>`;
+  }
+
+  /** Dòng 2 của thẻ: giai đoạn · ngôn ngữ · mẫu · model · giọng · agent · lúc nào — từ task.meta (máy chủ ghi). */
+  function metaChips(task) {
+    const m = task.meta || {};
+    const out = [];
+    const stage = String(m.stage || '');
+    if (stage) {
+      let label = t('codex.stage_' + stage);
+      if (stage === 'clone' && m.target_language) label += ' → ' + langLabel(m.target_language, m.target_language);
+      out.push(`<span class="cx-stage">${icon(STAGE_ICON[stage] || 'label')}${esc(label)}</span>`);
+    }
+    if (m.parent_seq) out.push(`<a class="cx-parent" href="#" onclick="event.preventDefault(); CODEX.showTask('${esc(m.parent_id || '')}', ${Number(m.parent_seq)})">${esc(t('codex.meta_parent', { seq: m.parent_seq }))}</a>`);
+    if (m.language && stage !== 'clone') out.push(`<span>${icon('language')}${esc(langLabel(m.language, m.language))}</span>`);
+    if (m.preset) out.push(`<span title="${esc(t('codex.meta_template'))}">${icon('dashboard_customize')}${esc(m.preset)}</span>`);
+    if (m.text_model) out.push(`<span class="cx-mono" title="${esc(t('codex.meta_text_model'))}">${icon('smart_toy')}${esc(m.text_model)}</span>`);
+    if (m.image_model) out.push(`<span class="cx-mono" title="${esc(t('codex.meta_image_model'))}">${icon('image')}${esc(m.image_model)}</span>`);
+    if (m.voice && (m.voice.id || m.voice.engine)) out.push(`<span title="${esc(t('codex.meta_voice'))}">${icon('record_voice_over')}${esc(voiceLabel(m.voice))}</span>`);
+    const assignee = task.assignee_name || task.assignee_id || '';
+    if (assignee && !m.text_model) out.push(`<span>${icon(task.assignee_type === 'team' ? 'groups' : 'smart_toy')}${esc(assignee)}</span>`);
+    if (Number(task.retry_count || 0) > 0) out.push(`<span>${icon('replay')}${esc(t('codex.meta_retry', { n: Number(task.retry_count) }))}</span>`);
+    if (task.skill) out.push(`<span>${icon('extension')}${esc(task.skill)}</span>`);
+    out.push(`<span>${icon('schedule')}${esc(relTime(task.created_at))}</span>`);
+    const dur = duration(task.started_at, task.finished_at);
+    if (dur) out.push(`<span>${icon('timer')}${esc(dur)}</span>`);
+    return out.join('');
+  }
+
+  const ENGINE_LABELS = { edge: 'Edge', everai: 'EverAI', omnivoice: 'OmniVoice', capcut: 'CapCut', vibevoice: 'VibeVoice', auto: '' };
+
+  /** «Huyền Anh (EverAI)» — tên nếu có, không thì mã giọng làm gọn (vi_female_huyenanh_mb → huyenanh). */
+  function voiceLabel(v) {
+    const eng = String(v.engine || '').toLowerCase();
+    const engLabel = ENGINE_LABELS[eng] !== undefined ? ENGINE_LABELS[eng] : eng;
+    let name = String(v.name || '').trim();
+    if (!name) {
+      const id = String(v.id || '');
+      if (eng === 'everai') { const p = id.split('_'); name = p.length >= 3 ? p[2] : id; }
+      else if (eng === 'edge') { const m = /^[a-z]{2}-[A-Z]{2}-(.+?)(?:Neural)?$/.exec(id); name = m ? m[1] : id; }
+      else name = id;
+    }
+    if (!name) return engLabel || t('codex.meta_voice_auto');
+    return engLabel && name.toLowerCase().indexOf(engLabel.toLowerCase()) < 0 ? `${name} (${engLabel})` : name;
+  }
+
+  /** Dòng 3: việc đang làm tới đâu — hay vì sao dừng — không phải mở thẻ ra mới thấy. */
+  function nowLineHtml(task) {
+    const sm = task.summary || {};
+    const st = task.status;
+    if (st === 'running' || st === 'queued') {
+      const cur = sm.current;
+      if (!cur) {
+        return `<div class="cx-now-line"><span class="cx-now-label">${esc(t(st === 'queued' ? 'codex.now_queued' : 'codex.now_waiting'))}</span></div>`;
+      }
+      const frac = (cur.progress === null || cur.progress === undefined) ? null : Number(cur.progress);
+      const pct = frac !== null && isFinite(frac) ? Math.round(frac * 100) : null;
+      const counter = /(\d+)\s*(?:\/|\bof\b)\s*(\d+)/i.exec(String(cur.message || ''));
+      const bits = [`<span class="cx-now-label">${esc(t('codex.now_prefix'))} ${esc(cur.label || cur.name || '')}</span>`];
+      if (counter) bits.push(`<span class="cx-mono">${esc(counter[1])}/${esc(counter[2])}</span>`);
+      if (pct !== null) bits.push(`<span class="cx-mono">${pct} %</span>`);
+      if (sm.total) bits.push(`<span class="cx-now-step">${esc(t('codex.now_step', { i: cur.index || (sm.done + 1), n: sm.total }))}</span>`);
+      return `<div class="cx-now-line">${bits.join('<span class="cx-dot-sep">·</span>')}
+          <span class="cx-now-eta" data-start="${esc(cur.started_at || '')}" data-frac="${frac !== null && isFinite(frac) ? frac.toFixed(4) : ''}"></span>
+        </div>
+        <div class="cx-now-bar${pct === null ? ' indeterminate' : ''}"><span style="width:${pct === null ? 100 : Math.max(2, pct)}%"></span></div>`;
+    }
+    if (st === 'backlog') {
+      const pos = backlogPosition(task);
+      return `<div class="cx-now-line muted">${icon('format_list_numbered')}<span>${esc(pos ? t('codex.meta_backlog_pos', { n: pos }) : t('codex.status_backlog'))}</span></div>`;
+    }
+    if (st === 'pending_approval') {
+      return `<div class="cx-now-line muted">${icon('pending_actions')}<span>${esc(t('codex.now_pending'))}</span></div>`;
+    }
+    if (st === 'failed' || st === 'cancelled' || st === 'rejected') {
+      const f = sm.failed || {};
+      const text = (st === 'failed' ? (task.error || f.message || '') : (f.message || '')).replace(/^\w+Error:\s*/, '');
+      const where = f.label ? `${f.label}: ` : '';
+      const cls = st === 'failed' ? 'bad' : 'muted';
+      const txt = text ? where + text : t(st === 'failed' ? 'codex.status_failed' : (st === 'cancelled' ? 'codex.now_cancelled' : 'codex.status_rejected'));
+      return `<div class="cx-now-line ${cls}" title="${esc(txt)}">${icon(st === 'failed' ? 'error' : 'do_not_disturb_on')}<span class="cx-now-text">${esc(txt.slice(0, 200))}</span></div>`;
+    }
+    if (st === 'review' || st === 'done') {
+      const m = task.meta || {};
+      const bits = [];
+      if (m.stage === 'plan') bits.push(esc(t('codex.now_script_ready')));
+      else if (m.stage === 'drive') bits.push(esc(task.drive && task.drive.folder_url ? t('codex.now_drive_done', { n: task.drive.files || 0 }) : t('codex.now_done')));
+      else bits.push(esc(task.has_result ? t('codex.now_video_ready') : t('codex.now_done')));
+      if (task.drive && task.drive.folder_url && m.stage !== 'drive') bits.push(esc(t('codex.now_drive_done', { n: task.drive.files || 0 })));
+      const links = [];
+      if (task.drive && task.drive.folder_url) links.push(`<a href="${esc(task.drive.folder_url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(t('codex.ds_open_folder'))}</a>`);
+      return `<div class="cx-now-line ok">${icon('task_alt')}<span>${bits.join(' · ')}</span>${links.join('')}</div>`;
+    }
+    return '';
   }
 
   /** Thứ tự (từ 1) của task trong hàng đợi của làn nó — sắp y hệt _backlog_key bên
@@ -638,56 +784,48 @@ const CODEX = (() => {
     return line.findIndex(x => x.id === task.id) + 1;
   }
 
-  function stripHtml(task) {
-    const steps = Array.isArray(task.steps) ? task.steps : [];
-    if (!steps.length) return '';
-    const done = steps.filter(s => s.status === 'success' || s.status === 'skipped').length;
-    const bars = steps.map(s => `<span class="cx-seg ${esc(s.status || 'pending')}"></span>`).join('');
-    return `<div class="cx-strip">
-        <span class="cx-strip-bars">${bars}</span>
-        <span class="cx-strip-label">${esc(t('codex.steps_progress', { done: done, total: steps.length }))}</span>
-      </div>`;
-  }
-
   function actionsHtml(task) {
     const id = esc(task.id);
     const dis = state.busy[task.id] ? ' disabled' : '';
     const b = (cls, fn, ic, label) =>
       `<button type="button" class="cx-btn cx-btn-sm ${cls}" onclick="CODEX.${fn}('${id}')"${dis}>${icon(ic)}${esc(t(label))}</button>`;
-
-    // Xoá: mọi task không còn chạy/chờ chạy. Nút hỏi trước (chỉ Codex hay cả file).
-    const del = b('cx-btn-ghost cx-btn-del', 'confirmDelete', 'delete', 'codex.action_delete');
-    // Đồng bộ lên Drive: task VIDEO đã xong. Máy chủ kiểm lại lúc bấm (task chỉ viết kịch bản thì nói rõ video ở đâu).
-    // Đã lên Drive (máy chủ ghi dấu lúc tải xong) → nút xanh «Đã lên Drive»; bấm chỉ để đồng bộ lại / đổi tài khoản.
+    // Mục trong menu «⋯»: cùng hàm, dạng dòng.
+    const mi = (fn, ic, label, cls) =>
+      `<button type="button" class="cx-menu-item${cls ? ' ' + cls : ''}" onclick="CODEX.${fn}('${id}')"${dis}>${icon(ic)}${esc(t(label))}</button>`;
+    const more = (items) => items.length ? `<details class="cx-more-menu" onclick="event.stopPropagation()">
+        <summary class="cx-btn cx-btn-sm cx-btn-ghost cx-btn-icon" aria-label="${esc(t('codex.action_more'))}" title="${esc(t('codex.action_more'))}">${icon('more_horiz')}</summary>
+        <div class="cx-menu">${items.join('')}</div></details>` : '';
+    const video = task.lane === 'video';
+    const stage = (task.meta && task.meta.stage) || '';
     const onDrive = !!(task.drive && task.drive.folder_url);
-    const sync = task.lane !== 'video' ? '' : onDrive
-      ? `<button type="button" class="cx-btn cx-btn-sm cx-btn-drive-done" onclick="CODEX.openDriveSync('${id}')"${dis}`
-        + ` title="${esc(t('codex.drive_synced_title', { email: task.drive.email || '', files: task.drive.files || 0 }))}">`
-        + `${icon('cloud_done')}${esc(t('codex.action_drive_synced'))}</button>`
-      : b('cx-btn-ghost', 'openDriveSync', 'add_to_drive', 'codex.action_drive_sync');
-    // Clone sang ngôn ngữ khác: cùng nhịp + ảnh, chữ dịch, giọng mới (25/9/2026). Máy chủ kiểm lại lúc mở hộp.
-    const clone = task.lane !== 'video' ? '' : b('cx-btn-ghost', 'openClone', 'translate', 'codex.action_clone');
+    const del = mi('confirmDelete', 'delete', 'codex.action_delete', 'danger');
+    const driveItem = !video ? '' : mi('openDriveSync', onDrive ? 'cloud_done' : 'add_to_drive', onDrive ? 'codex.action_drive_synced' : 'codex.action_drive_sync');
+    const cloneItem = !video ? '' : mi('openClone', 'translate', 'codex.action_clone');
     switch (task.status) {
       case 'pending_approval':
         return b('cx-btn-success', 'approve', 'check', 'codex.action_approve') +
-               b('cx-btn-danger', 'reject', 'close', 'codex.action_reject') + del;
+               b('cx-btn-danger', 'reject', 'close', 'codex.action_reject') + more([del]);
       case 'backlog':
-        return b('cx-btn-ghost', 'runNow', 'play_arrow', 'codex.action_run_now') +
-               b('cx-btn-ghost', 'cancel', 'stop_circle', 'codex.action_cancel') + del;
+        return b('cx-btn-ghost', 'runNow', 'play_arrow', 'codex.action_run_now') + more([mi('cancel', 'stop_circle', 'codex.action_cancel'), del]);
       case 'queued':
       case 'running':
         return b('cx-btn-ghost', 'cancel', 'stop_circle', 'codex.action_cancel');
       case 'review':
-        return b('cx-btn-success', 'accept', 'done_all', 'codex.action_accept') +
-               b('cx-btn-warn', 'requestChanges', 'edit_note', 'codex.action_request_changes') + sync + clone;
+        return b('cx-btn-success', 'accept', 'done_all', stage === 'plan' ? 'codex.action_accept_plan' : 'codex.action_accept') +
+               b('cx-btn-warn', 'requestChanges', 'edit_note', 'codex.action_request_changes') +
+               more([driveItem, cloneItem, del].filter(Boolean));
       case 'failed':
       case 'rejected':
       case 'cancelled':
         // Huỷ xong vẫn Chạy lại được: pipeline tiếp từ bước đã dừng (checkpoint). Task video: mở hộp Retry để xem
         // / đổi model viết, model ảnh, giọng cho riêng lần chạy lại (25/9/2026).
-        return b('cx-btn-ghost', task.lane === 'video' ? 'openRetry' : 'retry', 'replay', 'codex.action_retry') + del;
+        return b('cx-btn-primary', video ? 'openRetry' : 'retry', 'replay', 'codex.action_retry') +
+               more([driveItem, del].filter(Boolean));
       case 'done':
-        return sync + clone + del;
+        return (video ? (onDrive
+          ? `<button type="button" class="cx-btn cx-btn-sm cx-btn-drive-done" onclick="CODEX.openDriveSync('${id}')"${dis} title="${esc(t('codex.drive_synced_title', { email: task.drive.email || '', files: task.drive.files || 0 }))}">${icon('cloud_done')}${esc(t('codex.action_drive_synced'))}</button>`
+          : b('cx-btn-ghost', 'openDriveSync', 'add_to_drive', 'codex.action_drive_sync')) : '')
+          + more([cloneItem, del].filter(Boolean));
       default:
         return '';
     }
@@ -696,39 +834,100 @@ const CODEX = (() => {
   function bodyHtml(task) {
     const id = esc(task.id);
     const parts = [];
+    const d = state.detail[task.id] || {};
+    const steps = Array.isArray(task.steps) ? task.steps : (Array.isArray(d.steps) ? d.steps : []);
+    const sm = task.summary || {};
 
-    // Danh sách gọn không mang kế hoạch/kết quả; lúc chúng đang trên đường về thì nói rõ, đừng để khoảng trống.
-    if (state.detailBusy[task.id]) {
-      parts.push(`<div class="cx-section cx-detail-wait">
-          <span class="cx-spin-dot"></span>${esc(t('codex.loading_detail'))}
+    if (state.detailBusy[task.id] && !state.detail[task.id]) {
+      parts.push(`<div class="cx-section cx-detail-wait"><span class="cx-spin-dot"></span>${esc(t('codex.loading_detail'))}</div>`);
+    }
+
+    // 1. Dải «Đang» — ghim ngay dưới đầu thẻ khi cuộn: bước nào, %, còn bao lâu, câu mới nhất của Activity.
+    if (task.status === 'running' || task.status === 'queued') {
+      const cur = steps.find(s => s.status === 'running') || (sm.current ? { label: sm.current.label, message: sm.current.message, started_at: sm.current.started_at, progress: sm.current.progress !== null && sm.current.progress !== undefined ? sm.current.progress * 100 : null } : null);
+      const frac = cur ? stepFraction(cur) : null;
+      const pct = frac !== null ? Math.round(frac * 100) : null;
+      const idx = cur ? (steps.indexOf(cur) + 1 || sm.current && sm.current.index || 0) : 0;
+      parts.push(`<div class="cx-now">
+          <div class="cx-now-head">
+            <span class="cx-now-kicker">${esc(t('codex.now_kicker'))}</span>
+            <span class="cx-now-title">${esc(cur ? (cur.label || cur.name || '') : t(task.status === 'queued' ? 'codex.now_queued' : 'codex.now_waiting'))}</span>
+            ${cur && sm.total ? `<span class="cx-mono cx-now-idx">${esc(t('codex.now_step', { i: idx || sm.done + 1, n: sm.total }))}${pct !== null ? ' · ' + pct + ' %' : ''}</span>` : ''}
+            <span class="cx-now-eta" data-start="${esc(cur && cur.started_at || '')}" data-frac="${frac !== null ? frac.toFixed(4) : ''}"></span>
+          </div>
+          <div class="cx-now-bar${pct === null ? ' indeterminate' : ''}"><span style="width:${pct === null ? 100 : Math.max(2, pct)}%"></span></div>
+          ${cur && cur.message && cur.message !== cur.label ? `<div class="cx-now-msg">${esc(cur.message)}</div>` : ''}
         </div>`);
     }
 
-    // Goal
-    parts.push(`<div class="cx-section">
-        <div class="cx-section-title">${icon('flag')}${esc(t('codex.section_goal'))}</div>
-        <div class="cx-goal">${esc(task.goal || '')}</div>
-      </div>`);
-
-    // Approval decision
-    const ap = task.approval || {};
-    if (ap.decided_by || ap.note) {
+    // 2. Các bước — xong: một dòng + thời lượng; đang chạy: nổi bật; chưa tới: mờ.
+    if (steps.length) {
       parts.push(`<div class="cx-section">
+          <div class="cx-section-title">${icon('checklist')}${esc(t('codex.section_steps'))}</div>
+          <div class="cx-timeline">${steps.map(s => {
+            const st = STEP_ICON[s.status] ? s.status : 'pending';
+            const dd = duration(s.started_at, s.ended_at);
+            const frac = st === 'running' ? stepFraction(s) : null;
+            return `<div class="cx-step ${esc(st)}">
+                <span class="cx-step-dot"></span>
+                <div class="cx-step-head">
+                  <span class="cx-step-label">${esc(s.label || s.name || '')}</span>
+                  ${s.message && s.message !== s.label ? `<span class="cx-step-msg-inline">${esc(s.message)}</span>` : ''}
+                  ${frac !== null ? `<span class="cx-step-pct">${esc(String(Math.round(frac * 100)))}%</span>` : ''}
+                  ${dd ? `<span class="cx-step-time">${esc(dd)}</span>` : (st !== 'running' && st !== 'pending' ? `<span class="cx-step-status">${esc(stepLabel(st))}</span>` : '')}
+                </div>
+              </div>`;
+          }).join('')}${waitingHtml(task)}</div>
+        </div>`);
+    }
+
+    // 3. Kết quả hay lỗi — ngay sau các bước, nút Chạy lại nằm cạnh lỗi.
+    if (task.error) {
+      const video = task.lane === 'video';
+      parts.push(`<div class="cx-section">
+          <div class="cx-section-head">
+            <div class="cx-section-title">${icon('report')}${esc(t('codex.section_error'))}</div>
+            ${['failed', 'rejected', 'cancelled'].indexOf(task.status) >= 0 ? `<button type="button" class="cx-btn cx-btn-sm cx-btn-primary" onclick="CODEX.${video ? 'openRetry' : 'retry'}('${id}')">${icon('replay')}${esc(t('codex.action_retry'))}</button>` : ''}
+          </div>
+          <pre class="cx-pre error">${linkify(esc(task.error))}</pre>
+        </div>`);
+    }
+    if (task.result) {
+      parts.push(`<div class="cx-section">
+          <div class="cx-section-head">
+            <div class="cx-section-title">${icon('description')}${esc(t('codex.section_result'))}</div>
+            <button type="button" class="cx-btn cx-btn-sm cx-btn-ghost" onclick="CODEX.copyResult('${id}')">
+              ${icon('content_copy')}${esc(t('codex.action_copy_result'))}
+            </button>
+          </div>
+          ${mediaPreviewHtml(task)}
+          <pre class="cx-pre">${linkify(esc(task.result))}</pre>
+        </div>`);
+    }
+
+    // 4. Hoạt động — mở khi đang chạy, gấp khi đã xong.
+    const live = LIVE_STATES.has(task.status);
+    parts.push(`<details class="cx-section cx-fold"${live ? ' open' : ''}>
+        <summary class="cx-section-title cx-fold-title">${icon('history')}${esc(t('codex.section_events'))}${icon('expand_more', 'cx-section-chev')}</summary>
+        <div class="cx-events" id="cx-ev-${id}">${eventsHtml(task.id)}</div>
+      </details>`);
+
+    // 5. Chi tiết — gấp mặc định: mục tiêu, duyệt, kế hoạch AI (kịch bản), mã.
+    const ap = task.approval || {};
+    const plan = Array.isArray(task.plan) ? task.plan : [];
+    const canPlan = ['pending_approval', 'backlog', 'queued', 'rejected', 'failed'].indexOf(task.status) >= 0 && task.lane !== 'video';
+    const detailBits = [];
+    detailBits.push(`<div class="cx-section"><div class="cx-section-title">${icon('flag')}${esc(t('codex.section_goal'))}</div><div class="cx-goal">${esc(task.goal || '')}</div></div>`);
+    if (ap.note || (ap.required && ap.decided_by)) {
+      detailBits.push(`<div class="cx-section">
           <div class="cx-section-title">${icon('gavel')}${esc(t('codex.section_approval'))}</div>
           <div class="cx-muted">${esc(t('codex.approval_decided', { actor: ap.decided_by || '—' }))}${ap.decided_at ? ' · ' + esc(clockTime(ap.decided_at)) : ''}</div>
           ${ap.note ? `<div class="cx-approval-note">${esc(ap.note)}</div>` : ''}
         </div>`);
     }
-
-    // AI plan
-    const plan = Array.isArray(task.plan) ? task.plan : [];
-    const canPlan = ['pending_approval', 'backlog', 'queued', 'rejected', 'failed'].indexOf(task.status) >= 0;
     if (plan.length) {
-      // Thu gọn MẶC ĐỊNH: kế hoạch của «Tạo video từ nội dung» là cả kịch bản (hàng chục cảnh),
-      // mở thẻ ra là phải kéo qua cả trang mới tới các bước và nhật ký. Bấm tiêu đề để mở; trạng
-      // thái nằm trong state.planOpen nên lượt tự làm mới không đóng lại (13/9/2026).
       const open = state.planOpen.has(task.id);
-      parts.push(`<div class="cx-section">
+      detailBits.push(`<div class="cx-section">
           <button type="button" class="cx-section-title cx-section-toggle" aria-expanded="${open ? 'true' : 'false'}"
             title="${esc(t(open ? 'codex.plan_hide' : 'codex.plan_show'))}" onclick="CODEX.togglePlan('${id}')">
             ${icon('lightbulb')}${esc(t('codex.section_plan'))}
@@ -748,79 +947,24 @@ const CODEX = (() => {
         </div>`);
     } else if (canPlan) {
       const planning = !!state.planning[task.id];
-      parts.push(`<div class="cx-section">
+      detailBits.push(`<div class="cx-section">
           <button type="button" class="cx-btn cx-btn-sm cx-btn-ai" onclick="CODEX.planTask('${id}')"${planning ? ' disabled' : ''}>
             ${icon(planning ? 'progress_activity' : 'auto_awesome', planning ? 'cx-spin' : '')}
             ${esc(t(planning ? 'codex.planning' : 'codex.action_plan'))}
           </button>
         </div>`);
     }
+    detailBits.push(`<div class="cx-section cx-ids"><span class="cx-mono">${esc(task.id)}</span>${task.created_by ? ` · ${esc(t('codex.meta_created_by', { actor: task.created_by }))}` : ''}${Number(task.priority || 0) > 0 ? ` · ${esc(t('codex.meta_priority', { n: Number(task.priority) }))}` : ''}</div>`);
+    parts.push(`<details class="cx-section cx-fold">
+        <summary class="cx-section-title cx-fold-title">${icon('info')}${esc(t('codex.section_details'))}<span class="cx-section-count">${esc(t('codex.details_hint'))}</span>${icon('expand_more', 'cx-section-chev')}</summary>
+        <div class="cx-fold-body">${detailBits.join('')}</div>
+      </details>`);
 
-    // Steps
-    const steps = Array.isArray(task.steps) ? task.steps : [];
-    if (steps.length) {
-      parts.push(`<div class="cx-section">
-          <div class="cx-section-title">${icon('checklist')}${esc(t('codex.section_steps'))}</div>
-          <div class="cx-timeline">${steps.map(s => {
-            const st = STEP_ICON[s.status] ? s.status : 'pending';
-            const d = duration(s.started_at, s.ended_at);
-            // Bước đang chạy là NƠI DUY NHẤT kể "đang làm gì / tới đâu / còn bao lâu" — một thanh tiến độ, một câu,
-            // một dòng thời gian (user 15/9/2026: "trùng bar, thiết kế tối ưu dễ theo dõi hơn"). Phần đã xong: %
-            // máy chủ gửi, không có thì đọc "12/69" / "scenes 7-12 of 60".
-            const frac = st === 'running' ? stepFraction(s) : null;
-            const showBar = frac !== null;
-            return `<div class="cx-step ${esc(st)}">
-                <span class="cx-step-dot"></span>
-                <div class="cx-step-head">
-                  <span class="cx-step-label">${esc(s.label || s.name || '')}</span>
-                  <span class="cx-step-status">${esc(stepLabel(st))}</span>
-                  ${showBar ? `<span class="cx-step-pct">${esc(String(Math.round(frac * 100)))}%</span>` : ''}
-                  ${d ? `<span class="cx-step-time">${esc(d)}</span>` : ''}
-                </div>
-                ${showBar ? `<div class="cx-step-bar"><span style="width:${(frac * 100).toFixed(1)}%"></span></div>` : ''}
-                ${s.message && s.message !== s.label ? `<div class="cx-step-msg">${esc(s.message)}</div>` : ''}
-                ${st === 'running' ? stepEtaHtml(s, frac) : ''}
-              </div>`;
-          }).join('')}${waitingHtml(task)}</div>
-        </div>`);
-    }
-
-    // Result
-    if (task.result) {
-      parts.push(`<div class="cx-section">
-          <div class="cx-section-head">
-            <div class="cx-section-title">${icon('description')}${esc(t('codex.section_result'))}</div>
-            <button type="button" class="cx-btn cx-btn-sm cx-btn-ghost" onclick="CODEX.copyResult('${id}')">
-              ${icon('content_copy')}${esc(t('codex.action_copy_result'))}
-            </button>
-          </div>
-          <pre class="cx-pre">${linkify(esc(task.result))}</pre>
-          ${mediaPreviewHtml(task)}
-        </div>`);
-    }
-
-    // Error
-    if (task.error) {
-      parts.push(`<div class="cx-section">
-          <div class="cx-section-title">${icon('report')}${esc(t('codex.section_error'))}</div>
-          <pre class="cx-pre error">${linkify(esc(task.error))}</pre>
-        </div>`);
-    }
-
-    // Event log
-    parts.push(`<div class="cx-section">
-        <div class="cx-section-title">${icon('history')}${esc(t('codex.section_events'))}</div>
-        <div class="cx-events" id="cx-ev-${id}">${eventsHtml(task.id)}</div>
-      </div>`);
-
-    // Chi tiết dài hơn màn hình: không có nút này thì phải kéo ngược lên tận đầu
-    // thẻ mới bấm thu lại được.
     parts.push(`<div class="cx-card-foot">
         <button type="button" class="cx-btn cx-btn-sm cx-btn-ghost" onclick="CODEX.collapse('${id}')">
           ${icon('expand_less')}${esc(t('codex.action_collapse'))}
         </button>
       </div>`);
-
     return `<div class="cx-card-body">${parts.join('')}</div>`;
   }
 
@@ -869,11 +1013,9 @@ const CODEX = (() => {
   }
 
   function patchNow() {
-    state.expanded.forEach(id => {
-      const card = $('cx-card-' + id);
-      if (!card || !card.querySelectorAll) return;
-      card.querySelectorAll('.cx-step-eta[data-start]').forEach(el => { el.textContent = nowTimeText(el); });
-    });
+    const box = $('cx-list');
+    if (!box) return;
+    box.querySelectorAll('.cx-now-eta[data-start], .cx-step-eta[data-start]').forEach(el => { el.textContent = nowTimeText(el); });
   }
 
   /** Dòng của Activity = LỊCH SỬ gọn: bỏ "bắt đầu" (bước đang chạy đã hiện ở danh sách bước), gộp bước chỉ có MỘT câu
@@ -951,6 +1093,30 @@ const CODEX = (() => {
     renderList(true);
   }
 
+  /** Chi tiết của một thẻ: task đầy đủ (mục tiêu, các bước, kế hoạch, kết quả) + nhật ký — dòng bảng chỉ có tóm tắt. */
+  async function loadDetail(taskId, withEvents) {
+    if (state.detailBusy[taskId]) return;
+    state.detailBusy[taskId] = true;
+    try {
+      const data = await api(taskUrl(taskId, withEvents ? '?events=200' : '?events=0'));
+      const full = (data && data.task) || null;
+      if (full) {
+        state.detail[taskId] = { goal: full.goal || '', steps: full.steps || [], plan: full.plan || [], result: full.result || '',
+                                 error: full.error || '', approval: full.approval || {}, status: full.status, summary: full.summary };
+        const cur = state.tasks.find((x) => x.id === taskId);
+        if (cur) Object.assign(cur, state.detail[taskId], full.status ? { status: full.status } : {});
+      }
+      if (withEvents) {
+        const evs = (data && data.events) || [];
+        state.events[taskId] = evs.slice(-EVENTS_KEEP);
+        if (evs.length) state.cursor[taskId] = evs[evs.length - 1].ts || state.cursor[taskId];
+        state.eventsLoaded[taskId] = true;
+      }
+    } finally {
+      delete state.detailBusy[taskId];
+    }
+  }
+
   async function toggle(taskId) {
     if (state.expanded.has(taskId)) {
       state.expanded.delete(taskId);
@@ -960,47 +1126,42 @@ const CODEX = (() => {
     state.expanded.add(taskId);
     renderList(true);
     try {
-      if (state.slim && !state.detail[taskId]) {
-        // Một lượt lấy cả task đầy đủ lẫn nhật ký (route /tasks/{id} trả cả hai), thay vì hai lượt.
-        state.detailBusy[taskId] = true;
-        renderList(true);
-        try {
-          const data = await api(taskUrl(taskId, '?events=200'));
-          const full = (data && data.task) || null;
-          if (full) {
-            state.detail[taskId] = { plan: full.plan || [], result: full.result || '' };
-            const cur = state.tasks.find((x) => x.id === taskId);
-            if (cur) Object.assign(cur, state.detail[taskId]);
-          }
-          const evs = (data && data.events) || [];
-          state.events[taskId] = evs.slice(-EVENTS_KEEP);
-          if (evs.length) state.cursor[taskId] = evs[evs.length - 1].ts || state.cursor[taskId];
-          state.eventsLoaded[taskId] = true;
-        } finally {
-          delete state.detailBusy[taskId];
-        }
-        renderList(true);
-        return;
-      }
-      await loadEvents(taskId, true);
-      patchEvents(taskId);
+      await loadDetail(taskId, true);
+      renderList(true);
     } catch (e) {
       state.eventsLoaded[taskId] = true;
-      patchEvents(taskId);
+      renderList(true);
       toast(t('codex.toast_load_failed'), 'error');
     }
   }
 
   function setFilter(f) {
-    state.filter = f;
-    renderStats();
-    renderChips();
-    renderList(true);
+    state.filter = GROUPS.indexOf(f) >= 0 ? f : 'all';
+    state.etag = '';
+    refresh(true);
   }
+  function setKind(v) { state.kind = v || ''; state.etag = ''; refresh(true); }
+  function setAgent(v) { state.agent = v || ''; state.etag = ''; refresh(true); }
+  function setLanguage(v) { state.language = v || ''; state.etag = ''; refresh(true); }
+  function setSort(v) { state.sort = v || 'newest'; state.etag = ''; refresh(true); }
 
+  let searchTimer = null;
   function onSearch(v) {
     state.search = v || '';
-    renderList(true);
+    if (searchTimer) clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => { state.etag = ''; refresh(true); }, 300);
+  }
+
+  /** «↳ từ #109»: nhảy tới task cha — lọc mọi nhóm, tìm theo số, rồi mở thẻ. */
+  async function showTask(id, seq) {
+    state.filter = 'all';
+    state.kind = ''; state.agent = ''; state.language = '';
+    state.search = '#' + seq;
+    const inp = $('cx-search');
+    if (inp) inp.value = state.search;
+    state.etag = '';
+    await refresh(true);
+    if (id && state.tasks.some(x => x.id === id) && !state.expanded.has(id)) toggle(id);
   }
 
   function setAuto(on) {
@@ -1233,7 +1394,7 @@ const CODEX = (() => {
   };
 
   /** Tên ngôn ngữ theo ngôn ngữ GIAO DIỆN («Tiếng Nhật» khi dashboard tiếng Việt); trình duyệt cũ → tên máy chủ gửi. */
-  function langName(code, fallback) {
+  function langLabel(code, fallback) {
     try {
       const ui = document.documentElement.lang || 'en';
       const n = new Intl.DisplayNames([ui], { type: 'language' }).of(code);
@@ -1266,11 +1427,11 @@ const CODEX = (() => {
     }
     const langs = info.languages || [];
     $('cx-cl-hint').textContent = t('codex.clone_hint', { title: info.title || ('#' + task.seq),
-                                                          lang: info.language ? langName(info.language) : '?' });
+                                                          lang: info.language ? langLabel(info.language) : '?' });
     $('cx-cl-drive-wrap').classList.toggle('hidden', !info.drive);
     $('cx-cl-drive').checked = !!info.drive;
     const sel = $('cx-cl-lang');
-    sel.innerHTML = langs.map(l => `<option value="${esc(l.code)}">${esc(langName(l.code, l.name))}</option>`).join('');
+    sel.innerHTML = langs.map(l => `<option value="${esc(l.code)}">${esc(langLabel(l.code, l.name))}</option>`).join('');
     const last = lsGet(CLONE_LANG_KEY);
     if (last && langs.some(l => l.code === last)) sel.value = last;
     $('cx-cl-form').classList.remove('hidden');
@@ -2400,6 +2561,11 @@ const CODEX = (() => {
     if (eventTimer) clearInterval(eventTimer);
     boardTimer = setInterval(() => {
       if (document.hidden || !state.auto) return;
+      // Không có gì chạy thì hỏi thưa hơn (cứ 4 nhịp một lần); có ETag nên nhịp «không đổi» chỉ tốn một 304 rỗng.
+      const s = state.stats || {};
+      const quiet = !Number(s.working || 0) && !Number(s.backlog || 0);
+      state.tick = (state.tick || 0) + 1;
+      if (quiet && state.tick % 4 !== 0) return;
       refresh(false);
     }, BOARD_POLL_MS);
     eventTimer = setInterval(() => {
@@ -2410,21 +2576,12 @@ const CODEX = (() => {
   }
 
   async function init() {
-    // Vẽ khung chờ NGAY, trước mọi lượt gọi mạng: i18n là 228 KB (đo 20/9/2026: 1,4 giây ngay trên máy, qua
-    // tunnel của node Flow thì lâu hơn hẳn) và trước đây nó chặn lượt vẽ đầu tiên — người dùng nhìn thấy một
-    // khoảng trống và tưởng treo. Chữ của khung chờ lúc này là khoá i18n thô, nhưng khung xương thì hiện ngay.
+    // Khung chờ NGAY; chữ giao diện và danh sách tải SONG SONG (trước đây tuần tự: chữ 228 KB rồi mới tới danh sách).
     renderList(true);
-    if (typeof loadI18nFromApi === 'function') {
-      try { await loadI18nFromApi(); } catch (e) { /* keys render as-is */ }
-    }
     const auto = $('cx-auto');
     if (auto) state.auto = !!auto.checked;
-    loadSettings();
-
-    renderStats();
-    renderChips();
-    renderList(true);
-
+    const i18nReady = (typeof loadI18nFromApi === 'function')
+      ? loadI18nFromApi().catch(() => {}) : Promise.resolve();
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         closeModal('cx-modal-note');
@@ -2434,8 +2591,12 @@ const CODEX = (() => {
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden && state.auto) refresh(false);
     });
-
-    await refresh(false);
+    await Promise.allSettled([refresh(false), loadSettings(), loadAssignees(), i18nReady]);
+    // Chữ về sau danh sách: vẽ lại một lần để nhãn động (trạng thái, nhóm, dòng «Đang») dùng đúng tiếng.
+    renderSegments();
+    renderFilters();
+    renderList(true);
+    renderMore();
     startTimers();
   }
 
@@ -2443,7 +2604,8 @@ const CODEX = (() => {
 
   // ── Public surface (referenced by inline onclick handlers) ─────
   return {
-    init, refresh, toggle, collapse, togglePlan, setFilter, onSearch, setAuto, setAutoApprove,
+    init, refresh, toggle, collapse, togglePlan, setFilter, setKind, setAgent, setLanguage, setSort, onSearch, loadMore, showTask,
+    setAuto, setAutoApprove,
     approve, reject, cancel, retry, runNow, accept, requestChanges,
     confirmNote, confirmDelete, doDelete, copyResult, planTask,
     openNewTask, submitNewTask, queueVideo, setNewKind, onVideoPreset, onVideoAgent, onVideoContent, onVideoLength, onVideoScript, onVideoKeepTheme, onVideoInstructions, planFromModal, closeModal, onBackdrop,
