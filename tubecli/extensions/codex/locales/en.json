@@ -260,7 +260,6 @@
   "codex.action_clone": "Clone",
   "codex.clone_title": "Clone task #{seq} into another language",
   "codex.clone_hint": "«{title}» ({lang}). Same shots and pictures; the narration and on-screen text are translated, diagrams with words are redrawn, and the voice you pick reads it.",
-  "codex.clone_drive_note": "Saved to Google Drive like the original.",
   "codex.clone_field_lang": "Language",
   "codex.clone_field_voice": "Voice",
   "codex.clone_voices_loading": "Loading voices…",
@@ -271,5 +270,7 @@
   "codex.clone_reason_busy": "Clone it once the task has finished.",
   "codex.clone_reason_not_video": "Only video tasks can be cloned.",
   "codex.clone_reason_no_episode": "This task has no Content Studio storyboard on this machine — nothing to clone.",
-  "codex.toast_clone_queued": "Clone of #{src} queued as #{seq}"
+  "codex.toast_clone_queued": "Clone of #{src} queued as #{seq}",
+  "codex.clone_field_drive": "Save to Google Drive",
+  "codex.clone_field_drive_hint": "Same Google account and sharing as the original"
 }

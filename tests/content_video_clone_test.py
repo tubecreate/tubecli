@@ -167,6 +167,48 @@ except RuntimeError as e:
     ok("did not translate 1 shot" in str(e) and not any(p[0].endswith("/clone-shots") for p in CALLS["posts"]),
        "model bỏ sót sau lần hỏi lại → lỗi rõ, chưa chép nhịp nào", str(e)[:120])
 
+# ── Tạo task clone: options + chặn trường hợp sai (codex_manager giả) ──────────────────────────────────────────
+import tubecli.extensions.codex.manager as CM  # noqa: E402
+
+TASKS = {"src": {"id": "src", "seq": 113, "status": "review", "title": "Da sau 60", "assignee_id": "ag1",
+                 "assignee_name": "Doctor", "priority": 2, "origin": {"channel": "web"}},
+         "busy": {"id": "busy", "seq": 114, "status": "running"}}
+KINDS = {"src": P.KIND_RENDER, "busy": P.KIND_RENDER}
+EVENTS, CREATED = [], []
+SRC_OPTS = {"preset": "Chalk VI", "drive": True, "drive_token_id": "tok1", "drive_public": True, "publish": True,
+            "tts_engine": "everai", "tts_voice": "vi_female_huyenanh_mb", "source_text": "rất dài", "language": "vi"}
+CM.codex_manager.get_task = lambda tid: TASKS.get(tid)
+CM.codex_manager.kind_of = lambda tid: KINDS.get(tid)
+CM.codex_manager.get_events = lambda tid, limit=1000: [{"data": {"kind": P.KIND_RENDER, "options": SRC_OPTS}}]
+CM.codex_manager.create_task = lambda **k: CREATED.append(k) or {"id": "new", "seq": 120, **k}
+CM.codex_manager.append_event = lambda tid, kind, text, actor=None, data=None: EVENTS.append(data or {})
+P._read_checkpoint = lambda tid: ({"episode_id": 553, "drama_id": 388, "title": "Da sau 60", "language": "vi",
+                                   "preset": "Chalk VI", "script": "x"} if tid == "src" else {})
+
+info = P.clone_info("src")
+ok(info["ok"] and info["language"] == "vi" and info["drive"] is True and all(l["code"] != "vi" for l in info["languages"]),
+   "hộp Clone: ngôn ngữ gốc, bỏ ngôn ngữ gốc khỏi danh sách, biết bản gốc có lưu Drive", info.get("language"))
+ok(P.clone_info("busy")["reason"] == "busy" and P.clone_info("nope")["reason"] == "not_found",
+   "task đang chạy / không có → nói lý do")
+P.create_clone_task("src", "en", "edge", "en-US-AriaNeural")
+opts = EVENTS[-1]["options"]
+ok(EVENTS[-1]["kind"] == P.KIND_CLONE and EVENTS[-1]["source_task_id"] == "src" and EVENTS[-1]["language"] == "en",
+   "event kind clone trỏ về task gốc", EVENTS[-1].get("kind"))
+ok(opts["language"] == "en" and opts["tts_engine"] == "edge" and opts["tts_voice"] == "en-US-AriaNeural"
+   and opts["publish"] is False and "source_text" not in opts and opts["drive"] is True and opts["drive_token_id"] == "tok1",
+   "options: ngôn ngữ + giọng mới, không đăng, bỏ bài gốc, giữ Drive như bản gốc", opts)
+ok(CREATED[-1]["lane"] == P.CODEX_LANE and CREATED[-1]["hold"] is True and CREATED[-1]["title"].startswith("Clone (English)"),
+   "task clone xếp hàng trong làn video", CREATED[-1].get("title"))
+P.create_clone_task("src", "ja", "", "", "", "user", False)
+ok(EVENTS[-1]["options"]["drive"] is False and EVENTS[-1]["options"]["tts_voice"] == "ja-JP-NanamiNeural",
+   "bỏ tick Drive → không tải lên; không chọn giọng → giọng Edge của ngôn ngữ", EVENTS[-1]["options"])
+for bad, why in ((("src", "vi"), "cùng ngôn ngữ"), (("src", "xx"), "ngôn ngữ lạ"), (("busy", "en"), "task đang chạy")):
+    try:
+        P.create_clone_task(*bad)
+        ok(False, f"{why} phải bị từ chối")
+    except ValueError:
+        ok(True, f"{why} → từ chối")
+
 # ── 5: danh sách bước ────────────────────────────────────────────────────────
 ids = [s[0] for s in P.CLONE_STEPS]
 ok(ids == ["capabilities", "clone", "images", "tts", "render", "thumbnail", "drive"],

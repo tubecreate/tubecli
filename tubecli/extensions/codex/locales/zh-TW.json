@@ -260,7 +260,6 @@
   "codex.action_clone": "複製",
   "codex.clone_title": "將任務 #{seq} 複製成其他語言",
   "codex.clone_hint": "«{title}»（{lang}）。鏡頭與圖片不變；旁白與畫面文字會翻譯，含文字的圖表會重畫，並由你選的聲音朗讀。",
-  "codex.clone_drive_note": "與原片一樣存到 Google 雲端硬碟。",
   "codex.clone_field_lang": "語言",
   "codex.clone_field_voice": "聲音",
   "codex.clone_voices_loading": "正在載入聲音…",
@@ -271,5 +270,7 @@
   "codex.clone_reason_busy": "等任務完成後再複製。",
   "codex.clone_reason_not_video": "只有影片任務可以複製。",
   "codex.clone_reason_no_episode": "本機沒有這個任務的 Content Studio 分鏡——沒有可複製的內容。",
-  "codex.toast_clone_queued": "#{src} 的複製已排入 #{seq}"
+  "codex.toast_clone_queued": "#{src} 的複製已排入 #{seq}",
+  "codex.clone_field_drive": "存到 Google 雲端硬碟",
+  "codex.clone_field_drive_hint": "與原片相同的 Google 帳戶與共用設定"
 }

@@ -7369,8 +7369,12 @@ def clone_voices(language: str) -> List[Dict[str, str]]:
 
 
 def create_clone_task(source_task_id: str, language: str, tts_engine: str = "", tts_voice: str = "",
-                      capcut_email: str = "", created_by: str = "user") -> Dict[str, Any]:
-    """Xếp task «Clone (<ngôn ngữ>): <tiêu đề>» vào làn video. ValueError khi task gốc không clone được."""
+                      capcut_email: str = "", created_by: str = "user",
+                      drive: Optional[bool] = None) -> Dict[str, Any]:
+    """Xếp task «Clone (<ngôn ngữ>): <tiêu đề>» vào làn video. ValueError khi task gốc không clone được.
+
+    drive: None = như bản gốc (cùng tài khoản + quyền chia sẻ); False = không tải bản clone lên Drive. Bật Drive cho
+    bản gốc vốn không lưu thì không được — chưa có tài khoản nào để dùng."""
     from tubecli.extensions.codex.manager import codex_manager
 
     info = clone_info(source_task_id)
@@ -7395,6 +7399,8 @@ def create_clone_task(source_task_id: str, language: str, tts_engine: str = "", 
                     "tts_voice": str(tts_voice or "") or _EDGE_VOICES.get(lang) or _EDGE_VOICES.get(_lang_base(lang), "")})
     if engine == "capcut" and capcut_email:
         options["capcut_email"] = str(capcut_email)
+    if drive is False:
+        options["drive"] = False
     name = language_name(lang)
     seq, title = src.get("seq"), str(info.get("title") or f"#{src.get('seq')}")
     goal = [f"Clone the video of task #{seq} into {name}", "",

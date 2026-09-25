@@ -260,7 +260,6 @@
   "codex.action_clone": "クローン",
   "codex.clone_title": "タスク #{seq} を別の言語に複製",
   "codex.clone_hint": "«{title}»（{lang}）。場面と画像はそのまま。ナレーションと画面の文字を翻訳し、文字入りの図は描き直して、選んだ声で読み上げます。",
-  "codex.clone_drive_note": "元の動画と同じく Google ドライブに保存します。",
   "codex.clone_field_lang": "言語",
   "codex.clone_field_voice": "声",
   "codex.clone_voices_loading": "声を読み込み中…",
@@ -271,5 +270,7 @@
   "codex.clone_reason_busy": "タスクが終わってから複製してください。",
   "codex.clone_reason_not_video": "複製できるのは動画のタスクだけです。",
   "codex.clone_reason_no_episode": "この機器にはこのタスクの Content Studio の絵コンテがありません。複製できません。",
-  "codex.toast_clone_queued": "#{src} の複製を #{seq} として追加しました"
+  "codex.toast_clone_queued": "#{src} の複製を #{seq} として追加しました",
+  "codex.clone_field_drive": "Google ドライブに保存",
+  "codex.clone_field_drive_hint": "元と同じ Google アカウントと共有設定"
 }

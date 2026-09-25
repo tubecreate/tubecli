@@ -450,6 +450,14 @@
           <select id="cx-cl-voice"></select>
           <div class="cx-field-meta cx-len-hint" id="cx-cl-voice-hint" aria-live="polite"></div>
         </div>
+        <!-- Chỉ hiện khi bản gốc có lưu Drive: bản clone lưu y như vậy, bỏ tick thì không tải lên. -->
+        <label class="cx-check hidden" id="cx-cl-drive-wrap">
+          <input type="checkbox" id="cx-cl-drive" checked>
+          <span>
+            <strong data-i18n="codex.clone_field_drive">Save to Google Drive</strong>
+            <em data-i18n="codex.clone_field_drive_hint">Same Google account and sharing as the original</em>
+          </span>
+        </label>
       </div>
     </div>
     <div class="cx-modal-foot cx-modal-foot-wrap">

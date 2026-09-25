@@ -181,6 +181,7 @@ class CloneRequest(BaseModel):
     tts_engine: str = ""
     tts_voice: str = ""
     capcut_email: str = ""
+    drive: Optional[bool] = None      # None = như bản gốc; False = không tải bản clone lên Drive
 
 
 @router.get("/tasks/{task_id}/clone")
@@ -200,7 +201,7 @@ async def clone_start(task_id: str, req: CloneRequest, request: Request):
 
     try:
         task = await asyncio.to_thread(create_clone_task, task_id, req.language, req.tts_engine, req.tts_voice,
-                                       req.capcut_email, "user")
+                                       req.capcut_email, "user", req.drive)
     except ValueError as e:
         raise HTTPException(400, str(e))
     return {"status": "queued", "task": task}

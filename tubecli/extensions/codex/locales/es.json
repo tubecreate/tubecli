@@ -260,7 +260,6 @@
   "codex.action_clone": "Clonar",
   "codex.clone_title": "Clonar la tarea #{seq} a otro idioma",
   "codex.clone_hint": "«{title}» ({lang}). Mismas escenas e imágenes; se traducen la narración y el texto en pantalla, los diagramas con texto se vuelven a dibujar y lee la voz que elijas.",
-  "codex.clone_drive_note": "Se guarda en Google Drive como el original.",
   "codex.clone_field_lang": "Idioma",
   "codex.clone_field_voice": "Voz",
   "codex.clone_voices_loading": "Cargando voces…",
@@ -271,5 +270,7 @@
   "codex.clone_reason_busy": "Clónala cuando la tarea termine.",
   "codex.clone_reason_not_video": "Solo se pueden clonar tareas de vídeo.",
   "codex.clone_reason_no_episode": "Esta tarea no tiene guion gráfico de Content Studio en esta máquina: no hay nada que clonar.",
-  "codex.toast_clone_queued": "Clon de #{src} en cola como #{seq}"
+  "codex.toast_clone_queued": "Clon de #{src} en cola como #{seq}",
+  "codex.clone_field_drive": "Guardar en Google Drive",
+  "codex.clone_field_drive_hint": "Misma cuenta de Google y mismo uso compartido que el original"
 }

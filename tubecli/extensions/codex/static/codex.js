@@ -1254,8 +1254,9 @@ const CODEX = (() => {
       return;
     }
     const langs = info.languages || [];
-    $('cx-cl-hint').textContent = t('codex.clone_hint', { title: info.title || ('#' + task.seq), lang: info.language || '?' })
-      + (info.drive ? ' ' + t('codex.clone_drive_note') : '');
+    $('cx-cl-hint').textContent = t('codex.clone_hint', { title: info.title || ('#' + task.seq), lang: info.language || '?' });
+    $('cx-cl-drive-wrap').classList.toggle('hidden', !info.drive);
+    $('cx-cl-drive').checked = !!info.drive;
     const sel = $('cx-cl-lang');
     sel.innerHTML = langs.map(l => `<option value="${esc(l.code)}">${esc(l.name)} (${esc(l.code)})</option>`).join('');
     const last = lsGet(CLONE_LANG_KEY);
@@ -1309,7 +1310,8 @@ const CODEX = (() => {
     try {
       const data = await request('/api/v1/content-video/tasks/' + encodeURIComponent(cl.id) + '/clone', {
         method: 'POST',
-        body: JSON.stringify({ language: lang, tts_engine: v.engine || '', tts_voice: v.id, capcut_email: v.email || '' }),
+        body: JSON.stringify({ language: lang, tts_engine: v.engine || '', tts_voice: v.id, capcut_email: v.email || '',
+                               drive: !!cl.info.drive && $('cx-cl-drive').checked }),
       });
       closeModal('cx-modal-clone');
       state.clone = null;

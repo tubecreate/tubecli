@@ -260,7 +260,6 @@
   "codex.action_clone": "복제",
   "codex.clone_title": "작업 #{seq}을(를) 다른 언어로 복제",
   "codex.clone_hint": "«{title}» ({lang}). 장면과 그림은 그대로, 내레이션과 화면 글자는 번역하고 글자가 있는 도표는 다시 그리며, 고른 목소리로 읽습니다.",
-  "codex.clone_drive_note": "원본처럼 Google 드라이브에 저장합니다.",
   "codex.clone_field_lang": "언어",
   "codex.clone_field_voice": "목소리",
   "codex.clone_voices_loading": "목소리 불러오는 중…",
@@ -271,5 +270,7 @@
   "codex.clone_reason_busy": "작업이 끝난 뒤 복제하세요.",
   "codex.clone_reason_not_video": "영상 작업만 복제할 수 있습니다.",
   "codex.clone_reason_no_episode": "이 기기에 이 작업의 Content Studio 스토리보드가 없어 복제할 수 없습니다.",
-  "codex.toast_clone_queued": "#{src}의 복제를 #{seq}(으)로 대기열에 넣었습니다"
+  "codex.toast_clone_queued": "#{src}의 복제를 #{seq}(으)로 대기열에 넣었습니다",
+  "codex.clone_field_drive": "Google 드라이브에 저장",
+  "codex.clone_field_drive_hint": "원본과 같은 Google 계정과 공유 설정"
 }

@@ -260,7 +260,6 @@
   "codex.action_clone": "Clone",
   "codex.clone_title": "Clone task #{seq} sang ngôn ngữ khác",
   "codex.clone_hint": "«{title}» ({lang}). Giữ nguyên các nhịp và hình ảnh; lời đọc và chữ trên hình được dịch, sơ đồ có chữ được vẽ lại, giọng bạn chọn sẽ đọc.",
-  "codex.clone_drive_note": "Lưu lên Google Drive như bản gốc.",
   "codex.clone_field_lang": "Ngôn ngữ",
   "codex.clone_field_voice": "Giọng đọc",
   "codex.clone_voices_loading": "Đang tải danh sách giọng…",
@@ -271,5 +270,7 @@
   "codex.clone_reason_busy": "Đợi task chạy xong rồi hãy clone.",
   "codex.clone_reason_not_video": "Chỉ task video mới clone được.",
   "codex.clone_reason_no_episode": "Task này không còn storyboard trong Content Studio trên máy này — không có gì để clone.",
-  "codex.toast_clone_queued": "Đã xếp bản clone của #{src} thành #{seq}"
+  "codex.toast_clone_queued": "Đã xếp bản clone của #{src} thành #{seq}",
+  "codex.clone_field_drive": "Lưu lên Google Drive",
+  "codex.clone_field_drive_hint": "Cùng tài khoản Google và quyền chia sẻ như bản gốc"
 }

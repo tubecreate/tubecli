@@ -260,7 +260,6 @@
   "codex.action_clone": "Клон",
   "codex.clone_title": "Клонировать задачу #{seq} на другой язык",
   "codex.clone_hint": "«{title}» ({lang}). Те же сцены и картинки; озвучка и текст на экране переводятся, схемы с надписями перерисовываются, читает выбранный голос.",
-  "codex.clone_drive_note": "Сохраняется в Google Диск, как оригинал.",
   "codex.clone_field_lang": "Язык",
   "codex.clone_field_voice": "Голос",
   "codex.clone_voices_loading": "Загрузка голосов…",
@@ -271,5 +270,7 @@
   "codex.clone_reason_busy": "Клонируйте после завершения задачи.",
   "codex.clone_reason_not_video": "Клонировать можно только видеозадачи.",
   "codex.clone_reason_no_episode": "На этой машине нет раскадровки Content Studio для этой задачи — клонировать нечего.",
-  "codex.toast_clone_queued": "Клон #{src} поставлен в очередь как #{seq}"
+  "codex.toast_clone_queued": "Клон #{src} поставлен в очередь как #{seq}",
+  "codex.clone_field_drive": "Сохранить в Google Диск",
+  "codex.clone_field_drive_hint": "Тот же аккаунт Google и доступ, что у оригинала"
 }

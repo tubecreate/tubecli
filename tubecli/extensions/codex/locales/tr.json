@@ -260,7 +260,6 @@
   "codex.action_clone": "Klonla",
   "codex.clone_title": "#{seq} görevini başka bir dile klonla",
   "codex.clone_hint": "«{title}» ({lang}). Sahneler ve görseller aynı kalır; anlatım ve ekrandaki yazılar çevrilir, yazılı diyagramlar yeniden çizilir, seçtiğiniz ses okur.",
-  "codex.clone_drive_note": "Orijinal gibi Google Drive'a kaydedilir.",
   "codex.clone_field_lang": "Dil",
   "codex.clone_field_voice": "Ses",
   "codex.clone_voices_loading": "Sesler yükleniyor…",
@@ -271,5 +270,7 @@
   "codex.clone_reason_busy": "Görev bittikten sonra klonlayın.",
   "codex.clone_reason_not_video": "Yalnızca video görevleri klonlanabilir.",
   "codex.clone_reason_no_episode": "Bu makinede bu görevin Content Studio film şeridi yok — klonlanacak bir şey yok.",
-  "codex.toast_clone_queued": "#{src} klonu #{seq} olarak sıraya alındı"
+  "codex.toast_clone_queued": "#{src} klonu #{seq} olarak sıraya alındı",
+  "codex.clone_field_drive": "Google Drive'a kaydet",
+  "codex.clone_field_drive_hint": "Orijinalle aynı Google hesabı ve paylaşım"
 }

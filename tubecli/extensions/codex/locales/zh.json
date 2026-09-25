@@ -260,7 +260,6 @@
   "codex.action_clone": "克隆",
   "codex.clone_title": "将任务 #{seq} 克隆为其他语言",
   "codex.clone_hint": "«{title}»（{lang}）。镜头与图片不变；旁白与画面文字会翻译，含文字的图表会重画，并由你选的声音朗读。",
-  "codex.clone_drive_note": "与原片一样保存到 Google 云端硬盘。",
   "codex.clone_field_lang": "语言",
   "codex.clone_field_voice": "声音",
   "codex.clone_voices_loading": "正在加载声音…",
@@ -271,5 +270,7 @@
   "codex.clone_reason_busy": "等任务完成后再克隆。",
   "codex.clone_reason_not_video": "只有视频任务可以克隆。",
   "codex.clone_reason_no_episode": "本机没有这个任务的 Content Studio 分镜——没有可克隆的内容。",
-  "codex.toast_clone_queued": "#{src} 的克隆已排入 #{seq}"
+  "codex.toast_clone_queued": "#{src} 的克隆已排入 #{seq}",
+  "codex.clone_field_drive": "保存到 Google 云端硬盘",
+  "codex.clone_field_drive_hint": "与原片相同的 Google 账号与共享设置"
 }
