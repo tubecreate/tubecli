@@ -931,6 +931,10 @@ async def test_draw(provider: Optional[str] = None, model: Optional[str] = None,
     if not r.get("ok"):
         return {"ok": False, "stage": "credentials", "provider": r.get("provider", ""),
                 "model": r.get("model", ""), "seconds": 0, "message": r.get("reason", "")}
+    # Thử ĐÚNG model đã chọn, KHÔNG lùi. 25/9/2026 máy khách chọn 9Router `cl/google/gemini-3.1-flash-lite-image`: 9Router
+    # từ chối («Provider 'cline' does not support image generation»), lõi lặng lẽ vẽ bằng Cloudflare FLUX, và nút Thử vẽ
+    # hiện «✓ Vẽ thử được · cl/google/… · 5.2 giây» — máy ấy đặt làm mặc định một model không vẽ được.
+    r.pop("fallback", None)
     path = os.path.join(shared_output_dir(), f"_probe_{int(time.time() * 1000)}.jpg")
     t0 = time.time()
     res = await generate_image("A single red apple on a plain white table, soft daylight, simple and clean",
@@ -954,6 +958,11 @@ async def test_draw(provider: Optional[str] = None, model: Optional[str] = None,
 
 
 # ── danh sách model ───────────────────────────────────────────────────────────
+
+# Tiền tố 9Router KHAI tên model ảnh mà KHÔNG vẽ được: `cl/` = Cline → «Provider 'cline' does not support image
+# generation» (đo 25/9/2026, cả gemini-3.1-flash-image lẫn gpt-5.4-image-2). Hiện trong danh sách là mời khách chọn nhầm.
+NR_NO_IMAGE_PREFIXES = ("cl/",)
+
 
 async def list_models(provider: str) -> list:
     """Model ảnh nhà cung cấp đang có, hỏi thẳng nhà (danh mục chat của cloud_api cố ý lọc bỏ model ảnh)."""
@@ -989,7 +998,8 @@ async def list_models(provider: str) -> list:
         found = []
         try:
             d = await asyncio.to_thread(_sync)
-            found = [m.get("id") for m in d.get("data", []) if "image" in str(m.get("id", "")).lower()]
+            found = [m.get("id") for m in d.get("data", []) if "image" in str(m.get("id", "")).lower()
+                     and not str(m.get("id", "")).lower().startswith(NR_NO_IMAGE_PREFIXES)]
         except Exception as e:
             logger.warning("list_models 9router: %s", e)
         return [NR_DEFAULT_MODEL] + [m for m in found if m != NR_DEFAULT_MODEL]

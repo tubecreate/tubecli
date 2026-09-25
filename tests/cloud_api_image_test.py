@@ -31,5 +31,16 @@ ok = 'r.pop("fallback", None)' in src and "is_image_model(req.model)" in src
 PASS += ok
 FAIL += not ok
 print("  ok  " if ok else "  FAIL", "test ảnh bỏ đường lùi, route test-model rẽ nhánh ảnh")
+g = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tubecli", "core", "image_gen.py"),
+         encoding="utf-8").read()
+td = g[g.index("async def test_draw("):g.index("# ── danh sách model")]
+ok = 'r.pop("fallback", None)' in td
+PASS += ok
+FAIL += not ok
+print("  ok  " if ok else "  FAIL", "nút Thử vẽ (AI tạo ảnh) thử ĐÚNG model đã chọn, không lùi nhà khác rồi báo xanh")
+ok = 'NR_NO_IMAGE_PREFIXES = ("cl/",)' in g and "startswith(NR_NO_IMAGE_PREFIXES)" in g
+PASS += ok
+FAIL += not ok
+print("  ok  " if ok else "  FAIL", "danh sách model ảnh 9Router bỏ `cl/` (Cline không vẽ ảnh)")
 print(f"\n{PASS}/{PASS + FAIL} PASS" if not FAIL else f"\n{PASS}/{PASS + FAIL} PASS — {FAIL} HỎNG")
 sys.exit(1 if FAIL else 0)
