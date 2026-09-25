@@ -3032,8 +3032,12 @@ window.updateCurlPreview = function() {
         curl = `curl -X POST "https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=$API_KEY" \\\n-H "Content-Type: application/json" \\\n-d '{"contents":[{"parts":[{"text":"${safePrompt}"}]}]}'`;
     } else if (provider === 'claude') {
         curl = `curl -X POST "https://api.anthropic.com/v1/messages" \\\n-H "x-api-key: $API_KEY" \\\n-H "anthropic-version: 2023-06-01" \\\n-H "content-type: application/json" \\\n-d '{"model":"${model}","max_tokens":1024,"messages":[{"role":"user","content":"${safePrompt}"}]}'`;
+    } else if (/image|flux|stable-diffusion|sdxl|dall-e|imagen|phoenix|lucid-origin/i.test(model)) {
+        // Model VẼ ẢNH: cổng /images/generations, không phải chat (25/9/2026 — test cx/gpt-image-2 luôn hỏng).
+        const base = provider === '9router' ? '$9ROUTER_BASE_URL' : 'https://api.openai.com/v1';
+        curl = `curl -X POST "${base}/images/generations" \\\n-H "Content-Type: application/json" \\\n-H "Authorization: Bearer $API_KEY" \\\n-d '{"model":"${model}","prompt":"${safePrompt}","n":1,"size":"1024x1024"}'`;
     } else {
-        let baseUrl = "https://api.openai.com/v1/chat/completions";
+        let baseUrl = provider === '9router' ? "$9ROUTER_BASE_URL/chat/completions" : "https://api.openai.com/v1/chat/completions";
         if (provider === 'deepseek') baseUrl = "https://api.deepseek.com/chat/completions";
         if (provider === 'grok') baseUrl = "https://api.x.ai/v1/chat/completions";
         curl = `curl -X POST "${baseUrl}" \\\n-H "Content-Type: application/json" \\\n-H "Authorization: Bearer $API_KEY" \\\n-d '{"model":"${model}","messages":[{"role":"user","content":"${safePrompt}"}]}'`;
@@ -3056,7 +3060,18 @@ window.runModelTest = async function() {
             prompt: document.getElementById('test-model-prompt').value
         });
         
-        if (r && r.status === 'success') {
+        if (r && r.status === 'success' && r.image) {
+            // Model ảnh: hiện luôn tấm vừa vẽ + kích thước thật (khung vuông/ngang là điều người thử muốn biết).
+            resBox.style.color = 'var(--green)';
+            resBox.textContent = '';
+            const cap = document.createElement('div');
+            cap.textContent = `OK · ${r.size ? r.size.join('×') : ''} · ${Math.round((r.bytes || 0) / 1024)} KB`;
+            const img = document.createElement('img');
+            img.src = r.image;
+            img.alt = window.currentTestModel;
+            img.style.cssText = 'display:block;max-width:100%;max-height:320px;margin-top:8px;border-radius:6px';
+            resBox.append(cap, img);
+        } else if (r && r.status === 'success') {
             resBox.style.color = 'var(--green)';
             resBox.textContent = typeof r.response === 'string' ? r.response : JSON.stringify(r.response, null, 2);
         } else {

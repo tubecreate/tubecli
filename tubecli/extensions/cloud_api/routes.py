@@ -184,6 +184,41 @@ class TestModelRequest(BaseModel):
     model: str
     prompt: str = "Reply 'Hello from API!'"
 
+def is_image_model(model: str) -> bool:
+    """Model VẼ ẢNH theo tên: cx/gpt-image-2, ag/gemini-3.1-flash-image, @cf/black-forest-labs/flux-1-schnell…
+
+    Nút Test từng gửi mọi model vào /chat/completions — model ảnh bị từ chối dù vẫn tốt (máy khách 25/9/2026 test
+    cx/gpt-image-2 «không được»)."""
+    m = str(model or "").lower()
+    return any(k in m for k in ("image", "flux", "stable-diffusion", "sdxl", "dall-e", "imagen", "phoenix", "lucid-origin"))
+
+
+async def _test_image_model(prov: str, model: str, prompt: str) -> dict:
+    """Vẽ thử MỘT ảnh bằng bộ vẽ của lõi (đúng cổng /images/generations của 9Router, Gemini, Cloudflare) — KHÔNG đường
+    lùi: hỏng thì trả đúng lỗi của nhà cung cấp (vd «usage limit has been reached»), chứ không vẽ bằng model khác
+    rồi báo xanh."""
+    import base64
+    import io
+    from tubecli.core import image_gen as G
+    r = G.resolve_provider(prov, model)
+    if not r.get("ok"):
+        raise HTTPException(400, r.get("reason") or f"{prov}/{model} is not usable on this machine")
+    r.pop("fallback", None)
+    try:
+        data = await G.generate_bytes(r, prompt or "a simple chalk drawing of a house", "1:1", timeout=180)
+    except Exception as e:      # noqa: BLE001 — trả nguyên lời nhà cung cấp cho người bấm Test
+        raise HTTPException(502, f"{prov}/{model}: {e}")
+    size = None
+    try:
+        from PIL import Image
+        size = list(Image.open(io.BytesIO(data)).size)
+    except Exception:           # noqa: BLE001
+        pass
+    mime = "image/png" if data[:4] == b"\x89PNG" else "image/jpeg"
+    return {"status": "success", "kind": "image", "size": size, "bytes": len(data),
+            "image": f"data:{mime};base64," + base64.b64encode(data).decode("ascii")}
+
+
 @router.post("/providers/{provider}/test-model")
 async def api_test_provider_model(provider: str, req: TestModelRequest):
     """Test a specific model."""
@@ -191,6 +226,8 @@ async def api_test_provider_model(provider: str, req: TestModelRequest):
     from tubecli.core.ai_generator import call_gemini, call_openai_compatible, call_claude
     
     prov = provider.lower()
+    if is_image_model(req.model):
+        return await _test_image_model(prov, req.model, req.prompt)
     # Cloudflare is compound (account_id + token) and account-scoped, so it does
     # not fit get_active_key. Route it to the dedicated caller, which reads the
     # compound credential itself.
