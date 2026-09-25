@@ -665,6 +665,8 @@ const CODEX = (() => {
         + ` title="${esc(t('codex.drive_synced_title', { email: task.drive.email || '', files: task.drive.files || 0 }))}">`
         + `${icon('cloud_done')}${esc(t('codex.action_drive_synced'))}</button>`
       : b('cx-btn-ghost', 'openDriveSync', 'add_to_drive', 'codex.action_drive_sync');
+    // Clone sang ngôn ngữ khác: cùng nhịp + ảnh, chữ dịch, giọng mới (25/9/2026). Máy chủ kiểm lại lúc mở hộp.
+    const clone = task.lane !== 'video' ? '' : b('cx-btn-ghost', 'openClone', 'translate', 'codex.action_clone');
     switch (task.status) {
       case 'pending_approval':
         return b('cx-btn-success', 'approve', 'check', 'codex.action_approve') +
@@ -677,14 +679,14 @@ const CODEX = (() => {
         return b('cx-btn-ghost', 'cancel', 'stop_circle', 'codex.action_cancel');
       case 'review':
         return b('cx-btn-success', 'accept', 'done_all', 'codex.action_accept') +
-               b('cx-btn-warn', 'requestChanges', 'edit_note', 'codex.action_request_changes') + sync;
+               b('cx-btn-warn', 'requestChanges', 'edit_note', 'codex.action_request_changes') + sync + clone;
       case 'failed':
       case 'rejected':
       case 'cancelled':
         // Huỷ xong vẫn Chạy lại được: pipeline tiếp từ bước đã dừng (checkpoint).
         return b('cx-btn-ghost', 'retry', 'replay', 'codex.action_retry') + del;
       case 'done':
-        return sync + del;
+        return sync + clone + del;
       default:
         return '';
     }
@@ -1217,6 +1219,105 @@ const CODEX = (() => {
     } catch (e) {
       toast(t('codex.toast_action_failed', { error: e.message }), 'error');
       $('cx-ds-go').disabled = false;
+    }
+  }
+
+  // ── Clone sang ngôn ngữ khác (25/9/2026) ───────────────────────────────────────────────────────────────────────
+  // User: «làm xong một bài bằng tiếng việt, muốn sử dụng lại hình ảnh và nội dung của nó nhưng dùng ngôn ngữ khác,
+  // bấm clone và chọn ngôn ngữ». Hộp: ngôn ngữ → giọng đọc được ngôn ngữ đó trên máy này → xếp task clone.
+  const CLONE_LANG_KEY = 'codex.clone.lang';
+  const CLONE_REASONS = {
+    script_only: 'codex.clone_reason_script_only', busy: 'codex.clone_reason_busy',
+    not_video: 'codex.clone_reason_not_video', no_episode: 'codex.clone_reason_no_episode',
+  };
+
+  async function openClone(id) {
+    const task = (state.tasks || []).find(x => x.id === id);
+    if (!task) return;
+    state.clone = { id: id, info: null, voices: [] };
+    $('cx-cl-title').textContent = t('codex.clone_title', { seq: task.seq });
+    $('cx-cl-hint').textContent = t('codex.cv_drive_loading');
+    $('cx-cl-form').classList.add('hidden');
+    $('cx-cl-go').disabled = true;
+    $('cx-modal-clone').classList.remove('hidden');
+    let info;
+    try {
+      info = await request('/api/v1/content-video/tasks/' + encodeURIComponent(id) + '/clone') || {};
+    } catch (e) {
+      $('cx-cl-hint').textContent = t('codex.toast_action_failed', { error: e.message });
+      return;
+    }
+    if (!state.clone || state.clone.id !== id) return;     // người dùng đã mở hộp của task khác
+    state.clone.info = info;
+    if (!info.ok) {
+      $('cx-cl-hint').textContent = CLONE_REASONS[info.reason] ? t(CLONE_REASONS[info.reason]) : (info.message || '');
+      return;
+    }
+    const langs = info.languages || [];
+    $('cx-cl-hint').textContent = t('codex.clone_hint', { title: info.title || ('#' + task.seq), lang: info.language || '?' })
+      + (info.drive ? ' ' + t('codex.clone_drive_note') : '');
+    const sel = $('cx-cl-lang');
+    sel.innerHTML = langs.map(l => `<option value="${esc(l.code)}">${esc(l.name)} (${esc(l.code)})</option>`).join('');
+    const last = lsGet(CLONE_LANG_KEY);
+    if (last && langs.some(l => l.code === last)) sel.value = last;
+    $('cx-cl-form').classList.remove('hidden');
+    await onCloneLang();
+  }
+
+  /** Đổi ngôn ngữ → hỏi máy những giọng đọc được ngôn ngữ đó (Edge mặc định đứng đầu). */
+  async function onCloneLang() {
+    const cl = state.clone;
+    if (!cl || !cl.info || !cl.info.ok) return;
+    const lang = $('cx-cl-lang').value;
+    const vsel = $('cx-cl-voice');
+    const hint = $('cx-cl-voice-hint');
+    vsel.innerHTML = '';
+    vsel.disabled = true;
+    hint.classList.remove('warn');
+    hint.textContent = t('codex.clone_voices_loading');
+    $('cx-cl-go').disabled = true;
+    let voices = [];
+    try {
+      const data = await request('/api/v1/content-video/voices?language=' + encodeURIComponent(lang));
+      voices = (data && data.voices) || [];
+    } catch (e) {
+      hint.textContent = t('codex.toast_action_failed', { error: e.message });
+      hint.classList.add('warn');
+      return;
+    }
+    if (!state.clone || state.clone.id !== cl.id || $('cx-cl-lang').value !== lang) return;
+    cl.voices = voices;
+    if (!voices.length) {
+      hint.textContent = t('codex.clone_voices_none');
+      hint.classList.add('warn');
+      return;
+    }
+    vsel.innerHTML = voices.map((v, i) => `<option value="${i}">${esc(v.name || v.id)}</option>`).join('');
+    vsel.disabled = false;
+    hint.textContent = t('codex.clone_voice_hint');
+    $('cx-cl-go').disabled = false;
+  }
+
+  async function startClone() {
+    const cl = state.clone;
+    if (!cl || !cl.info || !cl.info.ok) return;
+    const lang = $('cx-cl-lang').value;
+    const v = cl.voices[Number($('cx-cl-voice').value)] || {};
+    if (!lang || !v.id) return;
+    lsSet(CLONE_LANG_KEY, lang);
+    $('cx-cl-go').disabled = true;
+    try {
+      const data = await request('/api/v1/content-video/tasks/' + encodeURIComponent(cl.id) + '/clone', {
+        method: 'POST',
+        body: JSON.stringify({ language: lang, tts_engine: v.engine || '', tts_voice: v.id, capcut_email: v.email || '' }),
+      });
+      closeModal('cx-modal-clone');
+      state.clone = null;
+      toast(t('codex.toast_clone_queued', { seq: (data && data.task && data.task.seq) || '?', src: cl.info.seq }), 'success');
+      await refresh(false);
+    } catch (e) {
+      toast(t('codex.toast_action_failed', { error: e.message }), 'error');
+      $('cx-cl-go').disabled = false;
     }
   }
 
@@ -2175,5 +2276,6 @@ const CODEX = (() => {
     confirmNote, confirmDelete, doDelete, copyResult, planTask,
     openNewTask, submitNewTask, queueVideo, setNewKind, onVideoPreset, onVideoAgent, onVideoContent, onVideoLength, onVideoScript, onVideoKeepTheme, onVideoInstructions, planFromModal, closeModal, onBackdrop,
     onVideoDrive, onVideoDriveToken, onVideoDriveShare, laneChoice, onVideoSplit, openDriveSync, startDriveSync, syncThenDelete, resumeLane,
+    openClone, onCloneLang, startClone,
   };
 })();

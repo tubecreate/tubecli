@@ -176,6 +176,45 @@ class DriveSyncRequest(BaseModel):
     delete_after: bool = False
 
 
+class CloneRequest(BaseModel):
+    language: str
+    tts_engine: str = ""
+    tts_voice: str = ""
+    capcut_email: str = ""
+
+
+@router.get("/tasks/{task_id}/clone")
+async def clone_probe(task_id: str, request: Request):
+    """Task này clone sang ngôn ngữ khác được không + ngôn ngữ gốc — hộp «Clone» trên Codex hỏi trước."""
+    _deny_guests(request)
+    from tubecli.extensions.content_video.pipeline import clone_info
+
+    return await asyncio.to_thread(clone_info, task_id)
+
+
+@router.post("/tasks/{task_id}/clone")
+async def clone_start(task_id: str, req: CloneRequest, request: Request):
+    """Xếp task «Clone (<ngôn ngữ>): …» — cùng nhịp + ảnh, chữ dịch, giọng đã chọn (25/9/2026)."""
+    _deny_guests(request)
+    from tubecli.extensions.content_video.pipeline import create_clone_task
+
+    try:
+        task = await asyncio.to_thread(create_clone_task, task_id, req.language, req.tts_engine, req.tts_voice,
+                                       req.capcut_email, "user")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"status": "queued", "task": task}
+
+
+@router.get("/voices")
+async def clone_voice_list(language: str, request: Request):
+    """Giọng đọc được một ngôn ngữ trên máy này (Edge mặc định đứng đầu) — ô chọn giọng của hộp Clone."""
+    _deny_guests(request)
+    from tubecli.extensions.content_video.pipeline import clone_voices
+
+    return {"language": language, "voices": await asyncio.to_thread(clone_voices, language)}
+
+
 @router.get("/tasks/{task_id}/drive-sync")
 async def drive_sync_probe(task_id: str, request: Request):
     """Task này đồng bộ được không, đã từng đồng bộ chưa — hộp trên Codex hỏi trước khi hiện form."""

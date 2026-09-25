@@ -256,5 +256,20 @@
   "codex.toast_video_backlog": "Video task #{seq} added to the queue",
   "codex.created_backlog_title": "Video task #{seq} is in the queue — #{pos} in line",
   "codex.created_backlog_desc_review": "Codex starts it on its own once no other video is being made. When its turn comes, the AI writes the script and stops at Review for you to read — the next video keeps going meanwhile.",
-  "codex.created_backlog_desc_auto": "Codex starts it on its own once no other video is being made. When its turn comes, the AI writes the script and renders the video in one go."
+  "codex.created_backlog_desc_auto": "Codex starts it on its own once no other video is being made. When its turn comes, the AI writes the script and renders the video in one go.",
+  "codex.action_clone": "Clone",
+  "codex.clone_title": "Clone task #{seq} into another language",
+  "codex.clone_hint": "«{title}» ({lang}). Same shots and pictures; the narration and on-screen text are translated, diagrams with words are redrawn, and the voice you pick reads it.",
+  "codex.clone_drive_note": "Saved to Google Drive like the original.",
+  "codex.clone_field_lang": "Language",
+  "codex.clone_field_voice": "Voice",
+  "codex.clone_voices_loading": "Loading voices…",
+  "codex.clone_voices_none": "No voice on this machine reads this language — install TTS VibeVoice or pick another language.",
+  "codex.clone_voice_hint": "Only voices that read this language are listed.",
+  "codex.clone_go": "Clone",
+  "codex.clone_reason_script_only": "This task only wrote the script — clone the render task created when it was accepted.",
+  "codex.clone_reason_busy": "Clone it once the task has finished.",
+  "codex.clone_reason_not_video": "Only video tasks can be cloned.",
+  "codex.clone_reason_no_episode": "This task has no Content Studio storyboard on this machine — nothing to clone.",
+  "codex.toast_clone_queued": "Clone of #{src} queued as #{seq}"
 }

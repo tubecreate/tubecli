@@ -256,5 +256,20 @@
   "codex.toast_video_backlog": "Video task #{seq} added to the queue",
   "codex.created_backlog_title": "Video task #{seq} is in the queue — #{pos} in line",
   "codex.created_backlog_desc_review": "Codex starts it on its own once no other video is being made. When its turn comes, the AI writes the script and stops at Review for you to read — the next video keeps going meanwhile.",
-  "codex.created_backlog_desc_auto": "Codex starts it on its own once no other video is being made. When its turn comes, the AI writes the script and renders the video in one go."
+  "codex.created_backlog_desc_auto": "Codex starts it on its own once no other video is being made. When its turn comes, the AI writes the script and renders the video in one go.",
+  "codex.action_clone": "クローン",
+  "codex.clone_title": "タスク #{seq} を別の言語に複製",
+  "codex.clone_hint": "«{title}»（{lang}）。場面と画像はそのまま。ナレーションと画面の文字を翻訳し、文字入りの図は描き直して、選んだ声で読み上げます。",
+  "codex.clone_drive_note": "元の動画と同じく Google ドライブに保存します。",
+  "codex.clone_field_lang": "言語",
+  "codex.clone_field_voice": "声",
+  "codex.clone_voices_loading": "声を読み込み中…",
+  "codex.clone_voices_none": "この機器にはこの言語を読める声がありません。TTS VibeVoice を入れるか、別の言語を選んでください。",
+  "codex.clone_voice_hint": "この言語を読める声だけを表示しています。",
+  "codex.clone_go": "複製する",
+  "codex.clone_reason_script_only": "このタスクは台本だけです。承認時に作られたレンダリングのタスクを複製してください。",
+  "codex.clone_reason_busy": "タスクが終わってから複製してください。",
+  "codex.clone_reason_not_video": "複製できるのは動画のタスクだけです。",
+  "codex.clone_reason_no_episode": "この機器にはこのタスクの Content Studio の絵コンテがありません。複製できません。",
+  "codex.toast_clone_queued": "#{src} の複製を #{seq} として追加しました"
 }

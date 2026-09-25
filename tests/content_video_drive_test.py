@@ -648,7 +648,8 @@ ok("named after the video title inside «tuan89tk-vps-k7m2qx» on the Google acc
 ok("Save to Google Drive:" not in P.describe_plan({}), "không bật → không có dòng lưu Drive")
 src = Path(P.__file__).read_text(encoding="utf-8")
 ok(src.count('options["_drive_hard"] = bool(options.get("drive")) and not options.get("autopublish")') == 2
-   and src.count('if s not in ("publish", "drive")]') == 2, "run_render + run_auto: drive không bắt buộc, người dùng tick thì hỏng thật")
+   and src.count('if s not in ("publish", "drive")]') == 3,     # + run_clone (25/9/2026)
+   "run_render + run_auto (+ run_clone): drive không bắt buộc, người dùng tick thì hỏng thật")
 AG.agent_manager.get = lambda aid: Agent()
 made = {}
 CM.codex_manager.create_task = lambda **k: made.update(task=k) or {"id": "x9", "seq": 9}

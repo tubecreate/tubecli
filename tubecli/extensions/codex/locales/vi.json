@@ -256,5 +256,20 @@
   "codex.toast_video_backlog": "Đã đưa việc video #{seq} vào hàng đợi",
   "codex.created_backlog_title": "Việc video #{seq} đã vào hàng đợi — thứ {pos}",
   "codex.created_backlog_desc_review": "Codex tự bắt đầu khi không còn video nào đang làm. Tới lượt, AI viết kịch bản rồi dừng ở bước Duyệt để bạn đọc — trong lúc chờ bạn, video kế tiếp vẫn chạy.",
-  "codex.created_backlog_desc_auto": "Codex tự bắt đầu khi không còn video nào đang làm. Tới lượt, AI viết kịch bản và dựng video một mạch."
+  "codex.created_backlog_desc_auto": "Codex tự bắt đầu khi không còn video nào đang làm. Tới lượt, AI viết kịch bản và dựng video một mạch.",
+  "codex.action_clone": "Clone",
+  "codex.clone_title": "Clone task #{seq} sang ngôn ngữ khác",
+  "codex.clone_hint": "«{title}» ({lang}). Giữ nguyên các nhịp và hình ảnh; lời đọc và chữ trên hình được dịch, sơ đồ có chữ được vẽ lại, giọng bạn chọn sẽ đọc.",
+  "codex.clone_drive_note": "Lưu lên Google Drive như bản gốc.",
+  "codex.clone_field_lang": "Ngôn ngữ",
+  "codex.clone_field_voice": "Giọng đọc",
+  "codex.clone_voices_loading": "Đang tải danh sách giọng…",
+  "codex.clone_voices_none": "Máy này chưa có giọng nào đọc được ngôn ngữ này — cài TTS VibeVoice hoặc chọn ngôn ngữ khác.",
+  "codex.clone_voice_hint": "Chỉ liệt kê giọng đọc được ngôn ngữ này.",
+  "codex.clone_go": "Clone",
+  "codex.clone_reason_script_only": "Task này chỉ viết kịch bản — hãy clone task dựng video được tạo khi bạn duyệt kịch bản.",
+  "codex.clone_reason_busy": "Đợi task chạy xong rồi hãy clone.",
+  "codex.clone_reason_not_video": "Chỉ task video mới clone được.",
+  "codex.clone_reason_no_episode": "Task này không còn storyboard trong Content Studio trên máy này — không có gì để clone.",
+  "codex.toast_clone_queued": "Đã xếp bản clone của #{src} thành #{seq}"
 }

@@ -429,6 +429,38 @@
   </div>
 </div>
 
+<!-- Clone task video sang ngôn ngữ khác: chọn ngôn ngữ + giọng (25/9/2026). -->
+<div class="cx-modal hidden" id="cx-modal-clone" onclick="CODEX.onBackdrop(event,'cx-modal-clone')">
+  <div class="cx-modal-box cx-modal-sm">
+    <div class="cx-modal-head">
+      <h2 id="cx-cl-title"></h2>
+      <button type="button" class="cx-icon-btn" onclick="CODEX.closeModal('cx-modal-clone')" data-i18n-title="codex.btn_close" title="Close">
+        <span class="material-symbols-outlined">close</span>
+      </button>
+    </div>
+    <div class="cx-modal-body">
+      <p class="cx-hint" id="cx-cl-hint"></p>
+      <div id="cx-cl-form" class="hidden">
+        <div class="cx-field">
+          <label for="cx-cl-lang" data-i18n="codex.clone_field_lang">Language</label>
+          <select id="cx-cl-lang" onchange="CODEX.onCloneLang()"></select>
+        </div>
+        <div class="cx-field">
+          <label for="cx-cl-voice" data-i18n="codex.clone_field_voice">Voice</label>
+          <select id="cx-cl-voice"></select>
+          <div class="cx-field-meta cx-len-hint" id="cx-cl-voice-hint" aria-live="polite"></div>
+        </div>
+      </div>
+    </div>
+    <div class="cx-modal-foot cx-modal-foot-wrap">
+      <button type="button" class="cx-btn cx-btn-ghost" onclick="CODEX.closeModal('cx-modal-clone')"
+              data-i18n="codex.btn_cancel">Cancel</button>
+      <button type="button" class="cx-btn cx-btn-primary" id="cx-cl-go" onclick="CODEX.startClone()" disabled
+              data-i18n="codex.clone_go">Clone</button>
+    </div>
+  </div>
+</div>
+
 <script src="/static/i18n.js"></script>
 <script src="/codex/codex.js"></script>
 </body>

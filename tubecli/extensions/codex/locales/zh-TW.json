@@ -256,5 +256,20 @@
   "codex.toast_video_backlog": "Video task #{seq} added to the queue",
   "codex.created_backlog_title": "Video task #{seq} is in the queue — #{pos} in line",
   "codex.created_backlog_desc_review": "Codex starts it on its own once no other video is being made. When its turn comes, the AI writes the script and stops at Review for you to read — the next video keeps going meanwhile.",
-  "codex.created_backlog_desc_auto": "Codex starts it on its own once no other video is being made. When its turn comes, the AI writes the script and renders the video in one go."
+  "codex.created_backlog_desc_auto": "Codex starts it on its own once no other video is being made. When its turn comes, the AI writes the script and renders the video in one go.",
+  "codex.action_clone": "複製",
+  "codex.clone_title": "將任務 #{seq} 複製成其他語言",
+  "codex.clone_hint": "«{title}»（{lang}）。鏡頭與圖片不變；旁白與畫面文字會翻譯，含文字的圖表會重畫，並由你選的聲音朗讀。",
+  "codex.clone_drive_note": "與原片一樣存到 Google 雲端硬碟。",
+  "codex.clone_field_lang": "語言",
+  "codex.clone_field_voice": "聲音",
+  "codex.clone_voices_loading": "正在載入聲音…",
+  "codex.clone_voices_none": "本機沒有能唸這個語言的聲音——請安裝 TTS VibeVoice 或改選其他語言。",
+  "codex.clone_voice_hint": "只列出能唸這個語言的聲音。",
+  "codex.clone_go": "複製",
+  "codex.clone_reason_script_only": "這個任務只寫了腳本——請複製核准後建立的算圖任務。",
+  "codex.clone_reason_busy": "等任務完成後再複製。",
+  "codex.clone_reason_not_video": "只有影片任務可以複製。",
+  "codex.clone_reason_no_episode": "本機沒有這個任務的 Content Studio 分鏡——沒有可複製的內容。",
+  "codex.toast_clone_queued": "#{src} 的複製已排入 #{seq}"
 }

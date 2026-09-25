@@ -256,5 +256,20 @@
   "codex.toast_video_backlog": "Video task #{seq} added to the queue",
   "codex.created_backlog_title": "Video task #{seq} is in the queue — #{pos} in line",
   "codex.created_backlog_desc_review": "Codex starts it on its own once no other video is being made. When its turn comes, the AI writes the script and stops at Review for you to read — the next video keeps going meanwhile.",
-  "codex.created_backlog_desc_auto": "Codex starts it on its own once no other video is being made. When its turn comes, the AI writes the script and renders the video in one go."
+  "codex.created_backlog_desc_auto": "Codex starts it on its own once no other video is being made. When its turn comes, the AI writes the script and renders the video in one go.",
+  "codex.action_clone": "Klonla",
+  "codex.clone_title": "#{seq} görevini başka bir dile klonla",
+  "codex.clone_hint": "«{title}» ({lang}). Sahneler ve görseller aynı kalır; anlatım ve ekrandaki yazılar çevrilir, yazılı diyagramlar yeniden çizilir, seçtiğiniz ses okur.",
+  "codex.clone_drive_note": "Orijinal gibi Google Drive'a kaydedilir.",
+  "codex.clone_field_lang": "Dil",
+  "codex.clone_field_voice": "Ses",
+  "codex.clone_voices_loading": "Sesler yükleniyor…",
+  "codex.clone_voices_none": "Bu makinede bu dili okuyan ses yok — TTS VibeVoice kurun ya da başka bir dil seçin.",
+  "codex.clone_voice_hint": "Yalnızca bu dili okuyan sesler listelenir.",
+  "codex.clone_go": "Klonla",
+  "codex.clone_reason_script_only": "Bu görev yalnızca senaryoyu yazdı — onaylandığında oluşturulan işleme görevini klonlayın.",
+  "codex.clone_reason_busy": "Görev bittikten sonra klonlayın.",
+  "codex.clone_reason_not_video": "Yalnızca video görevleri klonlanabilir.",
+  "codex.clone_reason_no_episode": "Bu makinede bu görevin Content Studio film şeridi yok — klonlanacak bir şey yok.",
+  "codex.toast_clone_queued": "#{src} klonu #{seq} olarak sıraya alındı"
 }

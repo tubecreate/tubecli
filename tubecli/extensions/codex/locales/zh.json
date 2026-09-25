@@ -256,5 +256,20 @@
   "codex.toast_video_backlog": "Video task #{seq} added to the queue",
   "codex.created_backlog_title": "Video task #{seq} is in the queue — #{pos} in line",
   "codex.created_backlog_desc_review": "Codex starts it on its own once no other video is being made. When its turn comes, the AI writes the script and stops at Review for you to read — the next video keeps going meanwhile.",
-  "codex.created_backlog_desc_auto": "Codex starts it on its own once no other video is being made. When its turn comes, the AI writes the script and renders the video in one go."
+  "codex.created_backlog_desc_auto": "Codex starts it on its own once no other video is being made. When its turn comes, the AI writes the script and renders the video in one go.",
+  "codex.action_clone": "克隆",
+  "codex.clone_title": "将任务 #{seq} 克隆为其他语言",
+  "codex.clone_hint": "«{title}»（{lang}）。镜头与图片不变；旁白与画面文字会翻译，含文字的图表会重画，并由你选的声音朗读。",
+  "codex.clone_drive_note": "与原片一样保存到 Google 云端硬盘。",
+  "codex.clone_field_lang": "语言",
+  "codex.clone_field_voice": "声音",
+  "codex.clone_voices_loading": "正在加载声音…",
+  "codex.clone_voices_none": "本机没有能读这个语言的声音——请安装 TTS VibeVoice 或改选其他语言。",
+  "codex.clone_voice_hint": "只列出能读这个语言的声音。",
+  "codex.clone_go": "克隆",
+  "codex.clone_reason_script_only": "这个任务只写了脚本——请克隆通过后创建的渲染任务。",
+  "codex.clone_reason_busy": "等任务完成后再克隆。",
+  "codex.clone_reason_not_video": "只有视频任务可以克隆。",
+  "codex.clone_reason_no_episode": "本机没有这个任务的 Content Studio 分镜——没有可克隆的内容。",
+  "codex.toast_clone_queued": "#{src} 的克隆已排入 #{seq}"
 }

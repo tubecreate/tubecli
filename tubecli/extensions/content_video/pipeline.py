@@ -51,6 +51,9 @@ KIND_RENDER = "content_video.render"
 KIND_AUTO = "content_video.auto"
 # Đồng bộ project của một task video ĐÃ XONG lên Google Drive — nút trên thẻ Codex (16/9/2026).
 KIND_DRIVE = "content_video.drive"
+# Bản CLONE ở ngôn ngữ khác của một video đã xong: dùng lại nhịp + ảnh, dịch chữ, đọc giọng mới — nút trên thẻ
+# Codex (25/9/2026). Xem clone.py và _step_clone.
+KIND_CLONE = "content_video.clone"
 KIND = KIND_PLAN          # what the entry points queue
 ACTOR = "content_video"
 # Làn trên Codex của MỌI task video (kịch bản, tự động, dựng). Hàng đợi của Codex
@@ -88,6 +91,12 @@ STEPS = PLAN_STEPS + RENDER_STEPS[1:]      # the full chain, for plan()/describe
 # Cùng dãy đó, nhưng để CHẠY: "capabilities" chỉ cần một lần cho cả lượt.
 AUTO_STEPS = PLAN_STEPS + RENDER_STEPS[1:]
 LABELS = {sid: label for sid, label, _, _ in STEPS}
+# Lượt clone: bước «clone» thay cho «studio» (tập mới = nhịp + ảnh của bản gốc, chữ đã dịch); không đăng YouTube —
+# bản ngôn ngữ khác thường lên kênh khác, người dùng tự đăng.
+CLONE_STEPS = ([s for s in RENDER_STEPS if s[0] == "capabilities"]
+               + [("clone", "Clone into the new language", "studio", False)]
+               + [s for s in RENDER_STEPS if s[0] not in ("capabilities", "studio", "publish")])
+LABELS["clone"] = "Clone into the new language"
 
 DEFAULTS: Dict[str, Any] = {
     "day": "today",            # today | yesterday | all — ignored when high_water_prev is set
@@ -6599,6 +6608,7 @@ _HANDLERS: Dict[str, Callable[[Dict, Dict], None]] = {
     "thumbnail": _step_thumbnail,
     "publish": _step_publish,
     "drive": _step_drive,
+    "clone": lambda state, options: _step_clone(state, options),
 }
 
 
@@ -7253,6 +7263,313 @@ def run_drive_sync(payload: Dict[str, Any], report: Optional[Callable[..., None]
     return "\n".join(lines)
 
 
+# ── Clone sang ngôn ngữ khác (nút trên thẻ Codex, 25/9/2026) ──────────────────────────────────────────────────────
+# User: «tôi làm xong một bài bằng tiếng việt, tôi muốn sử dụng lại hình ảnh và nội dung của nó nhưng dùng ngôn ngữ
+# khác, tôi muốn bấm clone và chọn ngôn ngữ». Chốt: ảnh không chữ dùng lại, sơ đồ có nhãn vẽ lại; giọng chọn trong hộp.
+CLONE_SOURCE_KINDS = (KIND_RENDER, KIND_AUTO, KIND_CLONE)
+
+
+def _source_payload(task_id: str) -> Dict[str, Any]:
+    """Payload (event có `kind`) mới nhất của một task video — nguồn options của bản clone."""
+    from tubecli.extensions.codex.manager import codex_manager
+
+    try:
+        for ev in reversed(codex_manager.get_events(str(task_id), limit=1000)):
+            data = ev.get("data") or {}
+            if str(data.get("kind") or "").startswith("content_video."):
+                return dict(data)
+    except Exception as e:      # noqa: BLE001
+        logger.warning(f"[ContentVideo] could not read the payload of {task_id}: {e}")
+    return {}
+
+
+def clone_info(task_id: str) -> Dict[str, Any]:
+    """Task này clone sang ngôn ngữ khác được không — hộp «Clone» hỏi trước khi mở form.
+
+    reason: not_found | script_only | not_video | busy | no_episode."""
+    from tubecli.extensions.codex.manager import codex_manager
+
+    task = codex_manager.get_task(str(task_id or ""))
+    if not task:
+        return {"ok": False, "reason": "not_found", "message": "Task not found."}
+    kind = codex_manager.kind_of(str(task["id"])) or ""
+    base = {"task_id": task["id"], "seq": task.get("seq"), "kind": kind, "status": task.get("status"),
+            "agent_id": str(task.get("assignee_id") or "")}
+    if kind in (KIND_PLAN, "content_video.digest"):
+        return {**base, "ok": False, "reason": "script_only",
+                "message": "This task only wrote the script — clone the render task created when it was accepted."}
+    if kind not in CLONE_SOURCE_KINDS:
+        return {**base, "ok": False, "reason": "not_video", "message": "Only video tasks can be cloned."}
+    if task.get("status") in _BUSY_STATES:
+        return {**base, "ok": False, "reason": "busy", "message": "Clone it once the task has finished."}
+    ck = _read_checkpoint(str(task["id"])) or {}
+    if not ck.get("episode_id"):
+        return {**base, "ok": False, "reason": "no_episode",
+                "message": "This task has no Content Studio storyboard on this machine — nothing to clone."}
+    src_lang = str(ck.get("language") or "") or detect_language(str(ck.get("script") or "")) or ""
+    opts = _source_payload(str(task["id"])).get("options") or {}
+    return {**base, "ok": True, "title": str(ck.get("title") or task.get("title") or ""), "language": src_lang,
+            "languages": [{"code": c, "name": n} for c, n in _LANGUAGE_NAMES.items() if c != src_lang],
+            "drive": bool(opts.get("drive"))}
+
+
+def clone_voices(language: str) -> List[Dict[str, str]]:
+    """Giọng đọc được `language` trên máy này, giọng Edge mặc định đứng đầu: [{engine, id, name}].
+
+    Edge luôn có (tts_vibevoice); EverAI khi có khoá; OmniVoice khi app đang mở; CapCut khi có tài khoản."""
+    code = str(language or "").strip()
+    base = _lang_base(code).lower()
+    out: List[Dict[str, str]] = []
+    default = _EDGE_VOICES.get(code) or _EDGE_VOICES.get(base) or ""
+    if default:
+        out.append({"engine": "edge", "id": default, "name": f"{default} (Edge)"})
+    try:
+        data = _get("/api/v1/tts/voices", timeout=40) or {}
+    except Exception as e:      # noqa: BLE001
+        logger.info(f"[ContentVideo] tts voices unavailable: {e}")
+        data = {}
+    everai, omni = None, None
+    for v in (data.get("voices") if isinstance(data, dict) else None) or []:
+        if not isinstance(v, dict) or not v.get("id"):
+            continue
+        eng = str(v.get("engine") or "").lower()
+        vl = str(v.get("language") or v.get("locale") or "").lower()
+        if eng == "edge":
+            if not vl.startswith(base) or v["id"] == default:
+                continue
+        elif eng == "everai":
+            everai = _everai_key() if everai is None else everai
+            if not everai or (vl and not vl.startswith(base)):
+                continue
+        elif eng == "omnivoice":
+            omni = _omnivoice_up() if omni is None else omni
+            if not omni or (vl and vl not in ("multi", "auto") and not vl.startswith(base)):
+                continue
+        else:
+            continue
+        out.append({"engine": eng, "id": str(v["id"]), "name": f"{v.get('name') or v['id']} ({eng.capitalize()})"})
+    if installed_extensions().get("capcut_tts"):
+        email = _capcut_account("")
+        if email:
+            from urllib.parse import quote
+            try:
+                sp = _get(f"/api/v1/capcut-tts/speakers?email={quote(email)}&language={base}", timeout=30)
+            except Exception as e:      # noqa: BLE001
+                logger.info(f"[ContentVideo] capcut speakers unavailable: {e}")
+                sp = []
+            items = sp if isinstance(sp, list) else ((sp or {}).get("speakers") or (sp or {}).get("items") or [])
+            for it in items:
+                if isinstance(it, dict) and it.get("id"):
+                    sl = str(it.get("language") or "").lower()
+                    if sl and not sl.startswith(base):
+                        continue
+                    out.append({"engine": "capcut", "id": str(it["id"]),
+                                "name": f"{it.get('name') or it['id']} (CapCut)", "email": email})
+    return out
+
+
+def create_clone_task(source_task_id: str, language: str, tts_engine: str = "", tts_voice: str = "",
+                      capcut_email: str = "", created_by: str = "user") -> Dict[str, Any]:
+    """Xếp task «Clone (<ngôn ngữ>): <tiêu đề>» vào làn video. ValueError khi task gốc không clone được."""
+    from tubecli.extensions.codex.manager import codex_manager
+
+    info = clone_info(source_task_id)
+    if not info.get("ok"):
+        raise ValueError(info.get("message") or "This task cannot be cloned.")
+    lang = str(language or "").strip()
+    if lang not in _LANGUAGE_NAMES:
+        raise ValueError(f"Unknown language {lang!r}.")
+    if lang == str(info.get("language") or ""):
+        raise ValueError("The video is already in this language — pick another one.")
+    engine = str(tts_engine or "").strip().lower()
+    if engine not in ("", "edge", "everai", "omnivoice", "capcut", "vibevoice"):
+        raise ValueError(f"Unknown voice engine {engine!r}.")
+    src = codex_manager.get_task(str(info["task_id"])) or {}
+    payload = _source_payload(str(info["task_id"]))
+    ck = _read_checkpoint(str(info["task_id"])) or {}
+    options = {k: v for k, v in (payload.get("options") or {}).items()
+               if k not in ("source_text", "sources", "high_water", "high_water_prev", "title", "tts_voice",
+                            "tts_engine", "capcut_speaker", "capcut_email", "language")}
+    options.update({"language": lang, "publish": False, "autopublish": False, "job_label": "Clone",
+                    "tts_engine": engine or "edge",
+                    "tts_voice": str(tts_voice or "") or _EDGE_VOICES.get(lang) or _EDGE_VOICES.get(_lang_base(lang), "")})
+    if engine == "capcut" and capcut_email:
+        options["capcut_email"] = str(capcut_email)
+    name = language_name(lang)
+    seq, title = src.get("seq"), str(info.get("title") or f"#{src.get('seq')}")
+    goal = [f"Clone the video of task #{seq} into {name}", "",
+            f"- Source: «{title[:80]}» ({language_name(str(info.get('language') or ''))})",
+            "- Same shots and pictures; narration and on-screen text translated shot by shot; lettered diagrams "
+            "are redrawn with translated labels",
+            f"- Voice: {options['tts_voice']} ({options['tts_engine']})"]
+    if options.get("drive"):
+        goal.append("- Save to Google Drive like the original")
+    task = codex_manager.create_task(
+        goal="\n".join(goal), title=f"Clone ({name}): {title[:48]}", created_by=created_by,
+        origin=dict(src.get("origin") or {}), assignee_type="agent",
+        assignee_id=str(src.get("assignee_id") or ""), assignee_name=str(src.get("assignee_name") or ""),
+        approval_required=False, lane=CODEX_LANE, hold=True, priority=int(src.get("priority") or 0))
+    codex_manager.append_event(
+        task["id"], "log", f"Clone of task #{seq} into {name} queued", actor=ACTOR,
+        data={"kind": KIND_CLONE, "task_id": task["id"], "agent_id": str(src.get("assignee_id") or ""),
+              "source_task_id": str(info["task_id"]), "source_seq": seq, "language": lang,
+              "preset": str(ck.get("preset") or ""), "options": options})
+    return task
+
+
+def _step_clone(state: Dict, options: Dict) -> None:
+    """Tập MỚI ở ngôn ngữ đích từ tập của task gốc: dịch từng nhịp một-một (clone.py), Studio chép nhịp + ảnh
+    (route clone-shots; sơ đồ có nhãn thì vẽ lại). Retry: tập đã tạo thì dùng lại, tập đã có nhịp thì không dịch lại."""
+    from tubecli.extensions.content_video import clone as C
+
+    say = state["_say"]
+    ck = state.get("checkpoint") or {}
+    src_ck = state.get("clone_source") or {}
+    src_seq = state.get("clone_source_seq") or "?"
+    src_ep, src_drama = src_ck.get("episode_id"), src_ck.get("drama_id")
+    if not src_ep:
+        raise RuntimeError(f"Task #{src_seq} has no Content Studio episode on this machine — nothing to clone.")
+    lang = str(state.get("language") or "")
+    src_lang = str(src_ck.get("language") or "") or detect_language(str(src_ck.get("script") or "")) or "vi"
+    src_name, tgt_name = language_name(src_lang), language_name(lang)
+    src_shots = _storyboards(int(src_ep))
+    if not src_shots:
+        raise RuntimeError(f"The episode of task #{src_seq} has no shots — nothing to clone.")
+    drama_id, ep_id, title = ck.get("drama_id"), ck.get("episode_id"), str(ck.get("title") or "")
+    if not ep_id:
+        src_title = str(src_ck.get("title") or "")
+        try:
+            if src_title:
+                sp, up = C.title_prompt(src_title, src_name, tgt_name)
+                title = C.clean_title(_ask_model(state["agent"], sp, up, 200), src_title)
+        except RuntimeError as e:
+            state.setdefault("warnings", []).append(f"The title was not translated ({str(e)[:120]}) — kept the original.")
+            title = src_title
+        title = title or f"{tgt_name} · task #{src_seq}"
+        try:
+            src_drama_d = _get(f"/api/v1/studio/dramas/{int(src_drama)}", timeout=60) if src_drama else {}
+        except Exception as e:      # noqa: BLE001
+            logger.info(f"[ContentVideo] clone: source drama {src_drama} unreadable: {e}")
+            src_drama_d = {}
+        src_drama_d = src_drama_d if isinstance(src_drama_d, dict) else {}
+        meta = src_drama_d.get("metadata")
+        if isinstance(meta, str):
+            try:
+                meta = json.loads(meta or "{}")
+            except ValueError:
+                meta = {}
+        meta = dict(meta) if isinstance(meta, dict) else {}
+        engine, voice, email = _preset_voice(state, options)
+        meta.update({"source": ACTOR, "agent_id": str(state["agent"].id), "cloned_from_episode": int(src_ep),
+                     "tts_engine": engine if engine not in ("", "auto") else "edge",
+                     "tts_voice": voice or _edge_voice(lang)})
+        if email:
+            meta["tts_email"] = email
+        else:
+            meta.pop("tts_email", None)
+        body = {"title": title, "style": src_drama_d.get("style") or options.get("style") or DEFAULTS["style"],
+                "language": lang, "description": f"{tgt_name} version of task #{src_seq}.", "metadata": meta}
+        drama = _post("/api/v1/studio/dramas", body, timeout=60)
+        drama_id = drama.get("id")
+        if drama_id is None:
+            raise RuntimeError(f"Content Studio did not return a drama id: {str(drama)[:200]}")
+        ep = _post(f"/api/v1/studio/dramas/{drama_id}/episodes",
+                   {"title": title, "episode_number": 1, "script_content": "", "content": ""}, timeout=60)
+        ep_id = ep.get("id")
+        if ep_id is None:
+            raise RuntimeError(f"Content Studio did not return an episode id: {str(ep)[:200]}")
+        _checkpoint_merge(state, {"drama_id": drama_id, "episode_id": ep_id, "title": title, "language": lang,
+                                  "preset": state.get("preset_name", "")})
+    state["drama_id"], state["episode_id"], state["title"] = drama_id, ep_id, title
+
+    shots = _storyboards(int(ep_id))
+    if not shots:
+        items = C.work_items(src_shots)
+        scenes = {str(s.get("id")): C.shot_meta(s).get("scene") for s in src_shots}
+        sp = C.system_prompt(src_name, tgt_name)
+        got: Dict[str, Dict] = {}
+        groups = C.batches(items)
+        for i, b in enumerate(groups, 1):
+            if state["_cancelled"]():
+                raise _cancel_exc()
+            say("clone", "running", f"translating shots {min(i * C.BATCH, len(items))}/{len(items)} into {tgt_name}",
+                i / max(1, len(groups)))
+            words = sum(len(x["narration"].split()) + sum(len(str(t).split()) for t in (x.get("texts") or {}).values())
+                        + sum(len(str(t).split()) for t in (x.get("labels") or [])) for x in b)
+            part = C.parse_reply(_ask_model(state["agent"], sp, C.user_prompt(b), max(400, words * 3)))
+            lost = C.missing(b, part)
+            if lost:
+                # Một lần hỏi lại riêng các nhịp thiếu (model hay bỏ sót khi lô dài) — như chế độ nguyên văn.
+                part.update(C.parse_reply(_ask_model(state["agent"], sp, C.user_prompt(lost), max(400, words * 3))))
+                lost = C.missing(b, part)
+            if lost:
+                raise RuntimeError(f"The model did not translate {len(lost)} shot(s) into {tgt_name} "
+                                   f"(shot id {', '.join(x['id'] for x in lost[:6])}) — press Retry.")
+            got.update(part)
+        texts = C.to_studio(items, got, scenes)
+        say("clone", "running", f"copying {len(src_shots)} shots and their pictures", 0.95)
+        try:
+            res = _post(f"/api/v1/studio/episodes/{int(src_ep)}/clone-shots",
+                        {"episode_id": int(ep_id), "texts": texts, "redraw_diagrams": True}, timeout=900)
+        except RuntimeError as e:
+            if "404" in str(e) and "not found" in str(e).lower() and "episode" not in str(e).lower():
+                raise RuntimeError("Content Studio on this machine is too old to clone videos — update it from "
+                                   "the Market, then press Retry.")
+            raise
+        state["clone_report"] = res
+        if int((res or {}).get("missing") or 0):
+            state.setdefault("warnings", []).append(
+                f"{res['missing']} picture(s) of the original were missing on disk — they are drawn again.")
+        shots = _storyboards(int(ep_id))
+    if not shots:
+        raise RuntimeError("Content Studio did not create the cloned shots.")
+    script = "\n\n".join(" ".join(str(s.get("narration_text") or "").split()) for s in shots
+                         if str(s.get("narration_text") or "").strip())
+    state["script"] = script
+    state["shot_count"] = len(shots)
+    _checkpoint_merge(state, {"script": script})
+    try:
+        _put(f"/api/v1/studio/episodes/{int(ep_id)}", {"script_content": script, "content": script}, timeout=60)
+    except Exception as e:      # noqa: BLE001 — chỉ để tab Kịch bản của Studio có chữ
+        logger.info(f"[ContentVideo] clone: episode script not saved: {e}")
+    got_lang = detect_language_sure(script) if script else ""
+    if got_lang and _lang_base(got_lang) != _lang_base(lang):
+        state.setdefault("warnings", []).append(
+            f"The cloned narration looks like {language_name(got_lang)}, not {tgt_name} — check it before publishing.")
+
+
+def run_clone(payload: Dict[str, Any], report: Optional[Callable[..., None]] = None,
+              is_cancelled: Optional[Callable[[], bool]] = None) -> str:
+    """Bản clone ở ngôn ngữ khác: clone → ảnh (chỉ sơ đồ vẽ lại) → giọng → dựng → (ảnh đại diện) → Drive."""
+    src_id = str(payload.get("source_task_id") or "")
+    ctx = _prepare({**payload, "options": payload.get("options") or {}, "preset": payload.get("preset") or ""},
+                   report, is_cancelled, needs=("text", "image", "assembly"))
+    options, state, say, cancelled = ctx["options"], ctx["state"], ctx["say"], ctx["cancelled"]
+    state["language"] = str(payload.get("language") or options.get("language") or "")
+    if not state["language"]:
+        raise RuntimeError("No target language for this clone.")
+    state["clone_source"] = _read_checkpoint(src_id) or {}
+    state["clone_source_seq"] = payload.get("source_seq") or "?"
+    state["title"] = str((state.get("checkpoint") or {}).get("title") or "")
+    state["script"] = str((state.get("checkpoint") or {}).get("script") or "")
+    state["plan_task_id"] = str(payload.get("task_id") or "")
+    options["required_steps"] = [s for s in (options.get("required_steps") or ()) if s not in ("publish", "drive")]
+    options["_drive_hard"] = bool(options.get("drive"))
+    notes: List[str] = []
+    skipped_jobs: List[str] = []
+    started = time.time()
+    outcome, error_text = "completed", ""
+    try:
+        _run_steps(CLONE_STEPS, state, options, say, cancelled, notes, skipped_jobs)
+    except Exception as e:
+        outcome = "failed" if _is_cancel(e) else "error"
+        error_text = str(e)[:500]
+        raise
+    finally:
+        _bulletin(state, outcome, time.time() - started, error_text, stage="render")
+    return _render_result(state, options, notes, skipped_jobs, time.time() - started)
+
+
 def run_kind(kind: str, payload: Dict[str, Any], report=None, is_cancelled=None) -> str:
     """Executor entry: one branch in codex covers every content_video kind."""
     if kind == KIND_PLAN or kind == "content_video.digest":     # .digest = pre-review name
@@ -7263,6 +7580,8 @@ def run_kind(kind: str, payload: Dict[str, Any], report=None, is_cancelled=None)
         return run_auto(payload, report, is_cancelled)
     if kind == KIND_DRIVE:
         return run_drive_sync(payload, report, is_cancelled)
+    if kind == KIND_CLONE:
+        return run_clone(payload, report, is_cancelled)
     raise RuntimeError(f"Unknown content_video kind {kind!r}")
 
 

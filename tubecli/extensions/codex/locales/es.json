@@ -256,5 +256,20 @@
   "codex.toast_video_backlog": "Video task #{seq} added to the queue",
   "codex.created_backlog_title": "Video task #{seq} is in the queue — #{pos} in line",
   "codex.created_backlog_desc_review": "Codex starts it on its own once no other video is being made. When its turn comes, the AI writes the script and stops at Review for you to read — the next video keeps going meanwhile.",
-  "codex.created_backlog_desc_auto": "Codex starts it on its own once no other video is being made. When its turn comes, the AI writes the script and renders the video in one go."
+  "codex.created_backlog_desc_auto": "Codex starts it on its own once no other video is being made. When its turn comes, the AI writes the script and renders the video in one go.",
+  "codex.action_clone": "Clonar",
+  "codex.clone_title": "Clonar la tarea #{seq} a otro idioma",
+  "codex.clone_hint": "«{title}» ({lang}). Mismas escenas e imágenes; se traducen la narración y el texto en pantalla, los diagramas con texto se vuelven a dibujar y lee la voz que elijas.",
+  "codex.clone_drive_note": "Se guarda en Google Drive como el original.",
+  "codex.clone_field_lang": "Idioma",
+  "codex.clone_field_voice": "Voz",
+  "codex.clone_voices_loading": "Cargando voces…",
+  "codex.clone_voices_none": "Ninguna voz de esta máquina lee este idioma: instala TTS VibeVoice o elige otro idioma.",
+  "codex.clone_voice_hint": "Solo se muestran voces que leen este idioma.",
+  "codex.clone_go": "Clonar",
+  "codex.clone_reason_script_only": "Esta tarea solo escribió el guion: clona la tarea de render creada al aceptarlo.",
+  "codex.clone_reason_busy": "Clónala cuando la tarea termine.",
+  "codex.clone_reason_not_video": "Solo se pueden clonar tareas de vídeo.",
+  "codex.clone_reason_no_episode": "Esta tarea no tiene guion gráfico de Content Studio en esta máquina: no hay nada que clonar.",
+  "codex.toast_clone_queued": "Clon de #{src} en cola como #{seq}"
 }

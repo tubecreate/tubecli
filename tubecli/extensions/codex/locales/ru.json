@@ -256,5 +256,20 @@
   "codex.toast_video_backlog": "Video task #{seq} added to the queue",
   "codex.created_backlog_title": "Video task #{seq} is in the queue — #{pos} in line",
   "codex.created_backlog_desc_review": "Codex starts it on its own once no other video is being made. When its turn comes, the AI writes the script and stops at Review for you to read — the next video keeps going meanwhile.",
-  "codex.created_backlog_desc_auto": "Codex starts it on its own once no other video is being made. When its turn comes, the AI writes the script and renders the video in one go."
+  "codex.created_backlog_desc_auto": "Codex starts it on its own once no other video is being made. When its turn comes, the AI writes the script and renders the video in one go.",
+  "codex.action_clone": "Клон",
+  "codex.clone_title": "Клонировать задачу #{seq} на другой язык",
+  "codex.clone_hint": "«{title}» ({lang}). Те же сцены и картинки; озвучка и текст на экране переводятся, схемы с надписями перерисовываются, читает выбранный голос.",
+  "codex.clone_drive_note": "Сохраняется в Google Диск, как оригинал.",
+  "codex.clone_field_lang": "Язык",
+  "codex.clone_field_voice": "Голос",
+  "codex.clone_voices_loading": "Загрузка голосов…",
+  "codex.clone_voices_none": "На этой машине нет голоса для этого языка — установите TTS VibeVoice или выберите другой язык.",
+  "codex.clone_voice_hint": "Показаны только голоса для этого языка.",
+  "codex.clone_go": "Клонировать",
+  "codex.clone_reason_script_only": "Эта задача только написала сценарий — клонируйте задачу рендера, созданную после одобрения.",
+  "codex.clone_reason_busy": "Клонируйте после завершения задачи.",
+  "codex.clone_reason_not_video": "Клонировать можно только видеозадачи.",
+  "codex.clone_reason_no_episode": "На этой машине нет раскадровки Content Studio для этой задачи — клонировать нечего.",
+  "codex.toast_clone_queued": "Клон #{src} поставлен в очередь как #{seq}"
 }
