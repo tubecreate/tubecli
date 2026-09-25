@@ -2313,6 +2313,18 @@ def _step_studio(state: Dict, options: Dict) -> None:
         scenes = [sc for sc in scenes_of(script) if sc[1]]
         # Lời phải theo ngôn ngữ THẬT của kịch bản (nếu dò chắc được), rồi mới tới
         # ngôn ngữ đã chọn: kịch bản lỡ sai ngôn ngữ đã có cảnh báo ở bước viết.
+        # Nhịp ÔM lời của nhiều cảnh (bản trước 25/9/2026 dồn cảnh bị storyboard bỏ vào nhịp cuối cảnh trước — #119:
+        # nhịp 430 chữ, giọng 2 phút trên một khung chữ). Độ phủ bên dưới coi lời dồn là "đủ" nên phải tách TRƯỚC:
+        # lời của các cảnh dồn sang nhịp mới ngay sau nó, nhịp cũ giữ phần lời riêng (và tranh, chữ bảng của nó).
+        glued = glued_scenes(shots, scenes)
+        if glued:
+            n_new = _split_glued_shots(ep_id, state, shots, scenes, glued)
+            if n_new:
+                shots = _storyboards(ep_id)
+                state["storyboard_split"] = n_new
+                state["_say"]("studio", "running",
+                              f"{len(glued)} shot(s) carried the narration of {sum(len(c) for _, _, c in glued)} "
+                              f"skipped scene(s) — moved it into {n_new} new shot(s) of their own")
         lang_code = detect_language_sure(" ".join(n for _, n in scenes)) or str(state.get("language") or "")
         foreign = foreign_shots(shots, lang_code)
         missing = missing_scenes(shots, script)
@@ -2340,9 +2352,17 @@ def _step_studio(state: Dict, options: Dict) -> None:
                               f"{language_name(lang_code)} — restoring the script's narration")
             elif missing and len(missing) <= len(scenes) // 2:
                 state["storyboard_missing"] = [j + 1 for j in missing]
+                # Cảnh bị rơi → CHÈN nhịp mới đúng chỗ (mỗi câu một nhịp) để AI viết chữ bảng riêng cho chúng. Bản
+                # trước dồn lời cảnh rơi vào nhịp cuối cảnh trước: #119 (25/9/2026) 6 cảnh rơi liên tiếp → một nhịp
+                # 430 chữ, giọng 2 phút trên một khung chữ đứng yên. Studio cũ (không có route) → chia khối như cũ.
+                added = _insert_missing_scene_shots(ep_id, state, shots, scenes, missing)
+                if added:
+                    shots = _storyboards(ep_id)
+                    state["storyboard_inserted"] = added
                 state["_say"]("studio", "running",
-                              f"storyboard skipped scene(s) {_scene_list(missing)} of {len(scenes)} "
-                              "— restoring the script's narration")
+                              f"storyboard skipped scene(s) {_scene_list(missing)} of {len(scenes)} — "
+                              + (f"added {added} shot(s) for them, then " if added else "")
+                              + "restoring the script's narration")
             else:
                 state["_say"]("studio", "running",
                               f"storyboard kept only {int(cov * 100)}% of the script "
@@ -2648,19 +2668,58 @@ def restore_narration(shots: List[Dict], script: str) -> List[Tuple[Any, str]]:
     groups: Dict[int, List[int]] = {}
     for i, j in enumerate(owner):
         groups.setdefault(j, []).append(i)
-    text = [""] * len(shots)
-    covered = sorted(groups)
-    for j, (_, narr) in enumerate(scenes):
+    # KHỐI = cảnh có shot + các cảnh KHÔNG có shot đứng ngay sau nó (cảnh rơi trước cảnh đầu → vào khối đầu). Lời
+    # của cả khối chia đều theo câu cho các shot của khối. Bản trước dồn cả cảnh bị bỏ vào MỘT shot cuối khối: task
+    # #119 (25/9/2026) storyboard bỏ sót 6 cảnh liên tiếp → một shot 430 chữ, giọng đọc 2 phút trên một khung chữ
+    # đứng yên. Khối nào vẫn quá nặng (chữ/shot gấp nhiều lần trung bình) thì gộp với khối bên cạnh rồi chia lại.
+    blocks: List[Tuple[List[int], List[int]]] = []
+    lead: List[int] = []
+    for j in range(len(scenes)):
         if j in groups:
-            idxs = groups[j]
-            for i, piece in zip(idxs, _split_even(narr, len(idxs))):
-                text[i] = (text[i] + " " + piece).strip()
-            continue
-        prev = [k for k in covered if k < j]
-        nxt = [k for k in covered if k > j]
-        i = groups[prev[-1]][-1] if prev else groups[nxt[0]][0]
-        text[i] = (text[i] + " " + narr).strip()
+            blocks.append(([j], list(groups[j])))
+        elif blocks:
+            blocks[-1][0].append(j)
+        else:
+            lead.append(j)
+    if lead and blocks:
+        blocks[0][0][:0] = lead
+    blocks = _balance_blocks(blocks, [narr for _, narr in scenes])
+    text = [""] * len(shots)
+    for js, idxs in blocks:
+        narr = " ".join(str(scenes[j][1]).strip() for j in js if str(scenes[j][1]).strip())
+        for i, piece in zip(idxs, _split_even(narr, len(idxs))):
+            text[i] = (text[i] + " " + piece).strip()
     return [(sh.get("id"), text[i]) for i, sh in enumerate(shots)]
+
+
+_BLOCK_HEAVY = 2.5          # khối có chữ/shot gấp hơn chừng này lần trung bình thì gộp với khối bên cạnh
+
+
+def _balance_blocks(blocks: List[Tuple[List[int], List[int]]], narrs: List[str]) -> List[Tuple[List[int], List[int]]]:
+    """Gộp khối quá nặng (một shot phải đọc nhiều cảnh) với khối kề có ít chữ/shot hơn, cho tới khi không khối nào
+    nặng gấp _BLOCK_HEAVY lần trung bình — thứ tự shot/cảnh giữ nguyên, tổng chữ giữ nguyên."""
+    blocks = [(list(js), list(idxs)) for js, idxs in blocks if idxs]
+    total_w = sum(len(narrs[j].split()) for js, _ in blocks for j in js)
+    total_s = sum(len(idxs) for _, idxs in blocks)
+    if not blocks or not total_s:
+        return blocks
+    avg = total_w / total_s
+
+    def ratio(b):
+        return sum(len(narrs[j].split()) for j in b[0]) / max(1, len(b[1]))
+
+    for _ in range(len(blocks) * 2):
+        if len(blocks) < 2:
+            break
+        k = max(range(len(blocks)), key=lambda x: ratio(blocks[x]))
+        if ratio(blocks[k]) <= _BLOCK_HEAVY * avg:
+            break
+        nb = [x for x in (k - 1, k + 1) if 0 <= x < len(blocks)]
+        m = min(nb, key=lambda x: ratio(blocks[x]))
+        a, b = sorted((k, m))
+        merged = (blocks[a][0] + blocks[b][0], blocks[a][1] + blocks[b][1])
+        blocks[a:b + 1] = [merged]
+    return blocks
 
 
 # ── Gióng lời đọc theo CHỮ TRÊN BẢNG (25/9/2026) ─────────────────────────────────────────────────────────────────
@@ -2776,7 +2835,10 @@ def realign_to_captions(shots: List[Dict]) -> List[Tuple[Any, str]]:
             suspect.append(i)
     windows: List[List[int]] = []
     for i in suspect:
-        a, b = max(0, i - 1), min(n - 1, i + 1)
+        # Nhịp không có chữ bảng (vừa chèn cho cảnh bị rơi, chưa viết cảnh) không vào cửa sổ: lời của nó là nguyên
+        # văn kịch bản, và chữ bảng rỗng thì bộ chia sẽ dồn hết lời của nó sang nhịp bên cạnh.
+        a = i - 1 if i > 0 and caps[i - 1] else i
+        b = i + 1 if i + 1 < n and caps[i + 1] else i
         if windows and a <= windows[-1][1] + 1:
             windows[-1][1] = max(windows[-1][1], b)
         else:
@@ -2800,6 +2862,163 @@ def realign_to_captions(shots: List[Dict]) -> List[Tuple[Any, str]]:
             if text != narr[i]:
                 out.append((ss[i].get("id"), text))
     return out
+
+
+# Nhịp chèn cho cảnh bị rơi dài tối đa chừng này chữ: nhịp Studio tự cắt cho tập #119 có trung vị 20 chữ, p90 30
+# (bộ cảnh chữ/phấn cũng cắt nhịp ≤ 26 chữ — scene_plan.split_beats).
+_INSERT_BEAT_WORDS = 26
+
+
+def _insert_beats(narr: str, per: int = _INSERT_BEAT_WORDS) -> List[str]:
+    """Cắt lời một cảnh thành nhịp ≤ `per` chữ, không cắt giữa câu (câu dài quá 2×per mới cắt theo khoảng trắng).
+    Khác verbatim_scenes: nhịp KHÔNG được vượt `per` — verbatim_scenes gom tới ≥ per rồi mới ngắt (tới 1,5×per)."""
+    units: List[str] = []
+    for u in (split_sentences(" ".join(str(narr or "").split())) or []):
+        units.extend(_chop_long(u, per))
+    out: List[str] = []
+    cur: List[str] = []
+    cur_w = 0
+    for u in units:
+        w = content_words(u)
+        if cur and cur_w + w > per:
+            out.append(_join_units(cur))
+            cur, cur_w = [], 0
+        cur.append(u)
+        cur_w += w
+    if cur:
+        out.append(_join_units(cur))
+    return [x for x in out if x.strip()]
+
+
+def _insert_missing_scene_shots(ep_id: int, state: Dict, shots: List[Dict], scenes: List[tuple],
+                                missing: List[int]) -> int:
+    """Chèn nhịp mới cho các cảnh storyboard bỏ sót, ngay sau nhịp cuối của cảnh liền trước còn shot (đầu tập → trước
+    nhịp đầu của cảnh sau). Mỗi cảnh cắt thành nhịp ≤ _INSERT_BEAT_WORDS chữ theo câu. Trả số nhịp đã chèn; 0 khi
+    Studio cũ chưa có route (lõi rơi về chia khối trong restore_narration)."""
+    if not missing or not shots or not scenes:
+        return 0
+    order = sorted(shots, key=lambda sh: (sh.get("storyboard_number") is None, sh.get("storyboard_number") or 0,
+                                          sh.get("id") or 0))
+    owner = align_shots_to_scenes(order, scenes)
+    groups: Dict[int, List[int]] = {}
+    for i, j in enumerate(owner):
+        if j not in missing:
+            groups.setdefault(j, []).append(i)
+    num = [int(sh.get("storyboard_number") or (i + 1)) for i, sh in enumerate(order)]
+    runs: List[List[int]] = []
+    for j in sorted(set(missing)):
+        if runs and j == runs[-1][-1] + 1:
+            runs[-1].append(j)
+        else:
+            runs.append([j])
+    added = 0
+    # Chèn từ cụm CUỐI về đầu: số của các nhịp đứng trước không đổi trong lúc chèn.
+    for run in reversed(runs):
+        prev = [k for k in groups if k < run[0]]
+        nxt = [k for k in groups if k > run[-1]]
+        if prev:
+            after = num[groups[prev[-1]][-1]]
+        elif nxt:
+            after = num[groups[nxt[0]][0]] - 1
+        else:
+            after = 0
+        beats = [b for j in run for b in _beat_items(str(scenes[j][1]))]
+        if not beats:
+            continue
+        n_ins = _insert_shots(ep_id, after, beats)
+        if n_ins is None:
+            return 0
+        added += n_ins
+    return added
+
+
+def _insert_shots(ep_id: int, after: int, beats: List[Dict]) -> Optional[int]:
+    """POST chèn nhịp vào Studio; None khi Studio cũ chưa có route (bên gọi rơi về cách cũ)."""
+    try:
+        res = _post(f"/api/v1/studio/episodes/{ep_id}/storyboards/insert",
+                    {"after_number": max(0, int(after)), "shots": beats}, timeout=120)
+    except RuntimeError as e:
+        if "404" in str(e):
+            logger.info("[ContentVideo] Studio has no storyboards/insert route — keeping the shots as they are")
+            return None
+        raise
+    return int((res or {}).get("count") or 0)
+
+
+def _beat_items(narr: str) -> List[Dict]:
+    return [{"narration_text": b, "title": "", "image_prompt": "", "description": b[:200]} for b in _insert_beats(narr)]
+
+
+# Nhịp ngắn hơn chừng này chữ thì không xét "ôm nhiều cảnh" (nhịp thường 20–30 chữ; hai cảnh dồn vào đã > 100).
+_GLUED_MIN_WORDS = 2 * _INSERT_BEAT_WORDS
+_PLAIN_RE = re.compile(r"[^\w\s]+")
+
+
+def _plain_words(text: str) -> List[str]:
+    """Chữ trơn để so lời với kịch bản: bỏ ngoặc vuông [chỉ dẫn], dấu câu, hoa/thường — «B.E. F.A.S.T.» → b e f a s t."""
+    return _PLAIN_RE.sub(" ", _CUE_RE.sub(" ", str(text or "")).lower()).split()
+
+
+def glued_scenes(shots: List[Dict], scenes: List[tuple]) -> List[Tuple[int, str, List[int]]]:
+    """[(vị trí nhịp, lời RIÊNG của nhịp, [chỉ số cảnh bị dồn vào đuôi nhịp])] — nhịp dài mà đuôi lời là nguyên văn
+    một chuỗi cảnh liên tiếp của kịch bản (bản cũ dồn cảnh storyboard bỏ vào nhịp cuối cảnh trước; hoặc chia khối khi
+    Studio chưa chèn được). Phần lời riêng phải còn (nhịp = đúng một cảnh thì không phải dồn). Vị trí theo thứ tự số nhịp."""
+    ss = sorted(shots, key=lambda sh: (sh.get("storyboard_number") is None, sh.get("storyboard_number") or 0,
+                                       sh.get("id") or 0))
+    sc_w = [_plain_words(n) for _, n in scenes]
+    out: List[Tuple[int, str, List[int]]] = []
+    for i, sh in enumerate(ss):
+        raw = str(sh.get("narration_text") or "")
+        w = _plain_words(raw)
+        if len(w) < _GLUED_MIN_WORDS:
+            continue
+        best: Optional[Tuple[int, List[int]]] = None
+        for k in range(len(sc_w)):
+            n = len(sc_w[k])
+            if not n or n >= len(w) or w[-n:] != sc_w[k]:
+                continue
+            rest, chain, kk = w[:-n], [k], k - 1
+            while kk >= 0 and sc_w[kk] and len(sc_w[kk]) < len(rest) and rest[-len(sc_w[kk]):] == sc_w[kk]:
+                rest = rest[:-len(sc_w[kk])]
+                chain.insert(0, kk)
+                kk -= 1
+            if rest and (best is None or len(chain) > len(best[1])):
+                best = (len(rest), chain)
+        if not best:
+            continue
+        tail = [x for k in best[1] for x in sc_w[k]]
+        own = _cut_before_tail(raw, tail)
+        if own:
+            out.append((i, own, best[1]))
+    return out
+
+
+def _cut_before_tail(raw: str, tail: List[str]) -> str:
+    """Phần đầu của `raw` đứng trước đoạn có chữ trơn đúng bằng `tail` (giữ nguyên dấu câu của phần đầu)."""
+    # Lấy vị trí TRÁI NHẤT khớp: các vị trí khớp chỉ khác nhau ở chỉ dẫn [trong ngoặc] / dấu câu đứng đầu đoạn dồn
+    # — chúng thuộc cảnh dồn (tiêu đề «[PHẦN 2 – …]» mở đầu cảnh), không phải lời riêng của nhịp.
+    hits = [m.start() for m in re.finditer(r"\S+", raw) if _plain_words(raw[m.start():]) == tail]
+    return raw[:min(hits)].rstrip() if hits and min(hits) > 0 else ""
+
+
+def _split_glued_shots(ep_id: int, state: Dict, shots: List[Dict], scenes: List[tuple],
+                       glued: List[Tuple[int, str, List[int]]]) -> int:
+    """Với mỗi nhịp ôm nhiều cảnh: chèn nhịp mới (≤ _INSERT_BEAT_WORDS chữ) cho các cảnh bị dồn NGAY SAU nó, rồi cắt
+    lời nhịp cũ còn phần riêng (mất giọng cũ, đọc lại ở bước giọng). Từ nhịp cuối về đầu để số nhịp trước không đổi.
+    Trả số nhịp đã chèn; Studio cũ (không có route) → 0 và không đụng gì."""
+    ss = sorted(shots, key=lambda sh: (sh.get("storyboard_number") is None, sh.get("storyboard_number") or 0,
+                                       sh.get("id") or 0))
+    added = 0
+    for i, own, chain in sorted(glued, key=lambda g: g[0], reverse=True):
+        beats = [b for k in chain for b in _beat_items(str(scenes[k][1]))]
+        if not beats:
+            continue
+        n_ins = _insert_shots(ep_id, int(ss[i].get("storyboard_number") or (i + 1)), beats)
+        if n_ins is None:
+            return added
+        added += n_ins
+        _put_narration([(ss[i].get("id"), own)], state, "trimming the narration of")
+    return added
 
 
 def _is_empty_shot(sh: Dict) -> bool:
