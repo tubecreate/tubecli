@@ -272,5 +272,18 @@
   "codex.clone_reason_no_episode": "This task has no Content Studio storyboard on this machine — nothing to clone.",
   "codex.toast_clone_queued": "Clone of #{src} queued as #{seq}",
   "codex.clone_field_drive": "Save to Google Drive",
-  "codex.clone_field_drive_hint": "Same Google account and sharing as the original"
+  "codex.clone_field_drive_hint": "Same Google account and sharing as the original",
+  "codex.retry_title": "Retry task #{seq}",
+  "codex.retry_hint": "Choose what this run uses. It only applies to this task — the template stays as it is.",
+  "codex.retry_field_text": "Script model",
+  "codex.retry_text_hint": "Used for any writing still to do (script, storyboard, scenes). A script that is already written is kept.",
+  "codex.retry_field_image": "Image model",
+  "codex.retry_redraw": "Redraw every picture",
+  "codex.retry_redraw_hint": "Off: only missing pictures are drawn. On: every picture is drawn again with the chosen model — uses many draws.",
+  "codex.retry_field_voice": "Voice",
+  "codex.retry_voice_hint": "Only scenes without a voice are read; scenes that already have one keep it.",
+  "codex.retry_keep": "As before — {name}",
+  "codex.retry_machine": "machine: {name}",
+  "codex.retry_go": "Retry",
+  "codex.retry_reason_not_retryable": "Only a failed or cancelled task can be retried."
 }

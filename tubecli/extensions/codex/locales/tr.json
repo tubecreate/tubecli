@@ -272,5 +272,18 @@
   "codex.clone_reason_no_episode": "Bu makinede bu görevin Content Studio film şeridi yok — klonlanacak bir şey yok.",
   "codex.toast_clone_queued": "#{src} klonu #{seq} olarak sıraya alındı",
   "codex.clone_field_drive": "Google Drive'a kaydet",
-  "codex.clone_field_drive_hint": "Orijinalle aynı Google hesabı ve paylaşım"
+  "codex.clone_field_drive_hint": "Orijinalle aynı Google hesabı ve paylaşım",
+  "codex.retry_title": "#{seq} görevini yeniden çalıştır",
+  "codex.retry_hint": "Bu çalıştırmada kullanılacakları seçin. Yalnızca bu göreve uygulanır — şablon aynı kalır.",
+  "codex.retry_field_text": "Senaryo modeli",
+  "codex.retry_text_hint": "Hâlâ yazılacak kısımlar için kullanılır (senaryo, film şeridi, sahneler). Yazılmış senaryo korunur.",
+  "codex.retry_field_image": "Görsel modeli",
+  "codex.retry_redraw": "Tüm görselleri yeniden çiz",
+  "codex.retry_redraw_hint": "Kapalı: yalnızca eksik görseller çizilir. Açık: tüm görseller seçilen modelle yeniden çizilir — çok çizim harcar.",
+  "codex.retry_field_voice": "Ses",
+  "codex.retry_voice_hint": "Yalnızca sesi olmayan sahneler okunur; sesi olanlar korunur.",
+  "codex.retry_keep": "Önceki gibi — {name}",
+  "codex.retry_machine": "makine: {name}",
+  "codex.retry_go": "Yeniden çalıştır",
+  "codex.retry_reason_not_retryable": "Yalnızca başarısız ya da iptal edilmiş bir görev yeniden çalıştırılabilir."
 }

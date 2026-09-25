@@ -469,6 +469,52 @@
   </div>
 </div>
 
+<!-- Retry task video: model viết / model ảnh / giọng cho riêng lần chạy lại (25/9/2026). -->
+<div class="cx-modal hidden" id="cx-modal-retry" onclick="CODEX.onBackdrop(event,'cx-modal-retry')">
+  <div class="cx-modal-box cx-modal-sm">
+    <div class="cx-modal-head">
+      <h2 id="cx-rt-title"></h2>
+      <button type="button" class="cx-icon-btn" onclick="CODEX.closeModal('cx-modal-retry')" data-i18n-title="codex.btn_close" title="Close">
+        <span class="material-symbols-outlined">close</span>
+      </button>
+    </div>
+    <div class="cx-modal-body">
+      <p class="cx-hint" id="cx-rt-hint"></p>
+      <div id="cx-rt-form" class="hidden">
+        <div class="cx-field">
+          <label for="cx-rt-text" data-i18n="codex.retry_field_text">Script model</label>
+          <select id="cx-rt-text"></select>
+          <div class="cx-field-meta cx-len-hint" data-i18n="codex.retry_text_hint">Used for any writing still to do (script, storyboard, scenes). A script that is already written is kept.</div>
+        </div>
+        <div id="cx-rt-image-wrap">
+          <div class="cx-field">
+            <label for="cx-rt-image" data-i18n="codex.retry_field_image">Image model</label>
+            <select id="cx-rt-image"></select>
+          </div>
+          <label class="cx-check">
+            <input type="checkbox" id="cx-rt-redraw">
+            <span>
+              <strong data-i18n="codex.retry_redraw">Redraw every picture</strong>
+              <em data-i18n="codex.retry_redraw_hint">Off: only missing pictures are drawn. On: every picture is drawn again with the chosen model — uses many draws.</em>
+            </span>
+          </label>
+        </div>
+        <div class="cx-field" id="cx-rt-voice-wrap">
+          <label for="cx-rt-voice" data-i18n="codex.retry_field_voice">Voice</label>
+          <select id="cx-rt-voice"></select>
+          <div class="cx-field-meta cx-len-hint" data-i18n="codex.retry_voice_hint">Only scenes without a voice are read; scenes that already have one keep it.</div>
+        </div>
+      </div>
+    </div>
+    <div class="cx-modal-foot cx-modal-foot-wrap">
+      <button type="button" class="cx-btn cx-btn-ghost" onclick="CODEX.closeModal('cx-modal-retry')"
+              data-i18n="codex.btn_cancel">Cancel</button>
+      <button type="button" class="cx-btn cx-btn-primary" id="cx-rt-go" onclick="CODEX.startRetry()" disabled
+              data-i18n="codex.retry_go">Retry</button>
+    </div>
+  </div>
+</div>
+
 <script src="/static/i18n.js"></script>
 <script src="/codex/codex.js"></script>
 </body>

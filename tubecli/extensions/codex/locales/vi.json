@@ -272,5 +272,18 @@
   "codex.clone_reason_no_episode": "Task này không còn storyboard trong Content Studio trên máy này — không có gì để clone.",
   "codex.toast_clone_queued": "Đã xếp bản clone của #{src} thành #{seq}",
   "codex.clone_field_drive": "Lưu lên Google Drive",
-  "codex.clone_field_drive_hint": "Cùng tài khoản Google và quyền chia sẻ như bản gốc"
+  "codex.clone_field_drive_hint": "Cùng tài khoản Google và quyền chia sẻ như bản gốc",
+  "codex.retry_title": "Chạy lại task #{seq}",
+  "codex.retry_hint": "Chọn model và giọng cho lần chạy lại này. Chỉ áp cho task này — mẫu giữ nguyên.",
+  "codex.retry_field_text": "Model viết kịch bản",
+  "codex.retry_text_hint": "Dùng cho phần viết còn phải chạy (kịch bản, storyboard, cảnh). Kịch bản đã viết xong thì giữ nguyên.",
+  "codex.retry_field_image": "Model vẽ ảnh",
+  "codex.retry_redraw": "Vẽ lại tất cả ảnh",
+  "codex.retry_redraw_hint": "Tắt: chỉ vẽ ảnh còn thiếu. Bật: vẽ lại toàn bộ ảnh bằng model đã chọn — tốn nhiều lượt vẽ.",
+  "codex.retry_field_voice": "Giọng đọc",
+  "codex.retry_voice_hint": "Chỉ đọc các cảnh chưa có giọng; cảnh đã có giọng giữ nguyên.",
+  "codex.retry_keep": "Như cũ — {name}",
+  "codex.retry_machine": "máy: {name}",
+  "codex.retry_go": "Chạy lại",
+  "codex.retry_reason_not_retryable": "Chỉ task bị lỗi hoặc đã huỷ mới chạy lại được."
 }

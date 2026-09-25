@@ -272,5 +272,18 @@
   "codex.clone_reason_no_episode": "この機器にはこのタスクの Content Studio の絵コンテがありません。複製できません。",
   "codex.toast_clone_queued": "#{src} の複製を #{seq} として追加しました",
   "codex.clone_field_drive": "Google ドライブに保存",
-  "codex.clone_field_drive_hint": "元と同じ Google アカウントと共有設定"
+  "codex.clone_field_drive_hint": "元と同じ Google アカウントと共有設定",
+  "codex.retry_title": "タスク #{seq} を再実行",
+  "codex.retry_hint": "今回の再実行で使うものを選びます。このタスクだけに適用され、テンプレートは変わりません。",
+  "codex.retry_field_text": "台本のモデル",
+  "codex.retry_text_hint": "まだ残っている執筆（台本・絵コンテ・場面）に使います。書き終えた台本はそのままです。",
+  "codex.retry_field_image": "画像のモデル",
+  "codex.retry_redraw": "すべての画像を描き直す",
+  "codex.retry_redraw_hint": "オフ：足りない画像だけ描きます。オン：選んだモデルで全画像を描き直します（回数を多く使います）。",
+  "codex.retry_field_voice": "声",
+  "codex.retry_voice_hint": "声がない場面だけ読み上げます。すでに声がある場面はそのままです。",
+  "codex.retry_keep": "前と同じ — {name}",
+  "codex.retry_machine": "本機: {name}",
+  "codex.retry_go": "再実行",
+  "codex.retry_reason_not_retryable": "再実行できるのは失敗またはキャンセルしたタスクだけです。"
 }

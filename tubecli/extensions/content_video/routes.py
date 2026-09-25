@@ -216,6 +216,47 @@ async def clone_voice_list(language: str, request: Request):
     return {"language": language, "voices": await asyncio.to_thread(clone_voices, language)}
 
 
+class RetryWithRequest(BaseModel):
+    text_model: str = ""           # "nhà|model"; rỗng = model của agent
+    image_model: str = ""          # "nhà|model"; rỗng = model của mẫu / máy
+    redraw_images: bool = False
+    tts_engine: str = ""
+    tts_voice: str = ""            # rỗng = giọng của mẫu / task
+    capcut_email: str = ""
+
+
+@router.get("/tasks/{task_id}/retry")
+async def retry_probe(task_id: str, request: Request):
+    """Hộp Retry hỏi trước: chạy lại được không + lượt tới SẼ dùng model viết / model vẽ / giọng nào (25/9/2026)."""
+    _deny_guests(request)
+    from tubecli.extensions.content_video.pipeline import retry_info
+
+    return await asyncio.to_thread(retry_info, task_id)
+
+
+@router.get("/models")
+async def retry_models(request: Request):
+    """Model viết + model vẽ dùng được trên máy này — ô chọn của hộp Retry."""
+    _deny_guests(request)
+    from tubecli.extensions.content_video.pipeline import retry_model_choices
+
+    return await asyncio.to_thread(retry_model_choices)
+
+
+@router.post("/tasks/{task_id}/retry")
+async def retry_start(task_id: str, req: RetryWithRequest, request: Request):
+    """Chạy lại task với model / giọng chọn trong hộp Retry — chỉ áp cho task này."""
+    _deny_guests(request)
+    from tubecli.extensions.content_video.pipeline import retry_with
+
+    try:
+        task = await asyncio.to_thread(retry_with, task_id, req.text_model, req.image_model, req.redraw_images,
+                                       req.tts_engine, req.tts_voice, req.capcut_email, "user:web")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"status": "queued", "task": task}
+
+
 @router.get("/tasks/{task_id}/drive-sync")
 async def drive_sync_probe(task_id: str, request: Request):
     """Task này đồng bộ được không, đã từng đồng bộ chưa — hộp trên Codex hỏi trước khi hiện form."""

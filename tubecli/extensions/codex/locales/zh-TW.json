@@ -272,5 +272,18 @@
   "codex.clone_reason_no_episode": "本機沒有這個任務的 Content Studio 分鏡——沒有可複製的內容。",
   "codex.toast_clone_queued": "#{src} 的複製已排入 #{seq}",
   "codex.clone_field_drive": "存到 Google 雲端硬碟",
-  "codex.clone_field_drive_hint": "與原片相同的 Google 帳戶與共用設定"
+  "codex.clone_field_drive_hint": "與原片相同的 Google 帳戶與共用設定",
+  "codex.retry_title": "重新執行任務 #{seq}",
+  "codex.retry_hint": "選擇這次重跑要用的設定。只套用在這個任務，範本保持不變。",
+  "codex.retry_field_text": "腳本模型",
+  "codex.retry_text_hint": "用於還沒寫完的部分（腳本、分鏡、場景）。已寫好的腳本保持不變。",
+  "codex.retry_field_image": "圖片模型",
+  "codex.retry_redraw": "重畫全部圖片",
+  "codex.retry_redraw_hint": "關閉：只畫缺少的圖片。開啟：用選定模型重畫全部圖片——會用掉很多次數。",
+  "codex.retry_field_voice": "聲音",
+  "codex.retry_voice_hint": "只朗讀還沒有聲音的場景；已有聲音的場景保持不變。",
+  "codex.retry_keep": "照舊 — {name}",
+  "codex.retry_machine": "本機：{name}",
+  "codex.retry_go": "重新執行",
+  "codex.retry_reason_not_retryable": "只有失敗或已取消的任務可以重新執行。"
 }

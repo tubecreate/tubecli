@@ -1142,9 +1142,13 @@ def _step_capabilities(state: Dict, options: Dict) -> None:
     text = (caps.get("text") or {}).get("detail", "")
     if agent_text or "text" not in state["_needs"]:
         # Nói đúng model sẽ viết: của agent, không phải của Studio.
-        text = f"{getattr(state.get('agent'), 'model', '') or 'agent model'} (agent)"
-    state["_say"]("capabilities", "running",
-                  " · ".join(x[:60] for x in (text, (caps.get("image") or {}).get("detail", ""))))
+        text = f"{getattr(state.get('agent'), 'model', '') or 'agent model'} " + (
+            "(chosen for this retry)" if getattr(state.get("agent"), "retry_override", False) else "(agent)")
+    img_detail = (caps.get("image") or {}).get("detail", "")
+    _ip, _im = _model_ref((state.get("retry_overrides") or {}).get("image_model"))
+    if _im:
+        img_detail = f"images: {_im} (chosen for this retry)"
+    state["_say"]("capabilities", "running", " · ".join(x[:60] for x in (text, img_detail)))
 
 
 def _corpus_note(state: Dict) -> str:
@@ -2164,8 +2168,11 @@ def _stream_storyboard(ep_id: int, state: Dict, append: bool = False) -> None:
     # agent_id: Studio (≥ 2026.09.11.170000) vẽ storyboard bằng model của CHÍNH
     # agent viết kịch bản; Studio cũ bỏ qua khoá này và dùng model của nó như trước.
     agent_id = str(getattr(state.get("agent"), "id", "") or "")
+    body = {"append": append, "agent_id": agent_id}
+    if state.get("text_model_ref"):
+        body["ai_model"] = state["text_model_ref"]     # hộp Retry (Studio ≥ 2026.09.25.19; bản cũ bỏ qua)
     with requests.post(f"{_base_url()}/api/v1/studio/episodes/{ep_id}/storyboard",
-                       json={"append": append, "agent_id": agent_id}, stream=True,
+                       json=body, stream=True,
                        timeout=(30, TIMEOUTS["storyboard"])) as r:
         if r.status_code >= 400:
             raise RuntimeError(f"storyboard → HTTP {r.status_code}: {r.text[:300]}")
@@ -3062,7 +3069,10 @@ def _step_images(state: Dict, options: Dict) -> None:
         # cần vẽ, nên sau bước này chỉ nhịp thật sự cần tranh mới còn `image_prompt`. Không «bịa prompt» cho
         # nhịp trống — nhịp trống ở đây là câu trơn hoặc hình kho, cố ý.
         state["_say"]("images", "running", "choosing pictures from the library before drawing anything")
-        rep = _post(f"/api/v1/studio/episodes/{ep_id}/scenes/generate", {"overwrite": False},
+        sg = {"overwrite": False}
+        if state.get("text_model_ref"):
+            sg.update(agent_id=str(getattr(state.get("agent"), "id", "") or ""), ai_model=state["text_model_ref"])
+        rep = _post(f"/api/v1/studio/episodes/{ep_id}/scenes/generate", sg,
                     timeout=TIMEOUTS["storyboard"] * 2) or {}
         if rep.get("ai_error"):
             raise RuntimeError(f"scene writer: {str(rep['ai_error'])[:200]}")
@@ -3082,6 +3092,16 @@ def _step_images(state: Dict, options: Dict) -> None:
         # match the frame the template asked for.
         "aspect_ratio": state.get("aspect_ratio") or options.get("aspect_ratio") or DEFAULTS["aspect_ratio"],
     }
+    # Hộp Retry: model vẽ chọn cho lượt này ĐÈ cả model riêng từng nhịp (hook/sơ đồ theo mẫu) — trường hợp hay gặp
+    # là gpt-image-2 hỏng 401 mà nhịp hook/sơ đồ vẫn đòi nó. «Vẽ lại tất cả» chỉ một lần (mã ghi vào checkpoint).
+    _ov = state.get("retry_overrides") or {}
+    _ip, _im = _model_ref(_ov.get("image_model"))
+    if _im:
+        body.update(image_provider=_ip or None, image_model=_im, force_model=True)
+    redraw = str(_ov.get("redraw_images") or "")
+    if redraw and (state.get("checkpoint") or {}).get("redraw_done") != redraw:
+        body["overwrite"] = True
+        state["_say"]("images", "running", "drawing every picture again" + (f" with {_im}" if _im else ""))
     res = _post(f"/api/v1/studio/episodes/{ep_id}/gen-images", body, timeout=60)
     if not res.get("task_id"):
         raise RuntimeError(f"gen-images did not start: {str(res)[:200]}")
@@ -3117,6 +3137,8 @@ def _step_images(state: Dict, options: Dict) -> None:
     try:
         data = _poll_studio(f"/api/v1/studio/gen-images/status/{res['task_id']}",
                             TIMEOUTS["images"], state, "images", done_statuses=("completed",))
+        if body.get("overwrite"):
+            _checkpoint_merge(state, {"redraw_done": redraw})
     except RuntimeError as e:
         if not _lost_job(e):
             raise
@@ -3126,7 +3148,10 @@ def _step_images(state: Dict, options: Dict) -> None:
         state["_say"]("images", "running",
                       "the Studio forgot this job (extension reloaded or restarted) — waiting for it to settle, then continuing")
         _settle_images(state, ep_id)
-        res = _post(f"/api/v1/studio/episodes/{ep_id}/gen-images", body, timeout=60)
+        if body.get("overwrite"):
+            # Lượt vẽ lại tất cả đã chạy (một phần) — xin tiếp thì chỉ vẽ nhịp còn thiếu, không vẽ lại lần hai.
+            _checkpoint_merge(state, {"redraw_done": redraw})
+        res = _post(f"/api/v1/studio/episodes/{ep_id}/gen-images", {**body, "overwrite": False}, timeout=60)
         if not res.get("task_id"):
             raise RuntimeError(f"gen-images did not restart: {str(res)[:200]}")
         if res.get("total"):
@@ -7029,6 +7054,8 @@ def _prepare(payload: Dict[str, Any], report, is_cancelled, needs: tuple) -> Dic
         # crawl thêm". Đây là tiêu đề các trang ĐÃ gom, nguyên liệu viết SEO.
         "seo_sources": [r for r in (payload.get("seo_sources") or []) if isinstance(r, dict)],
     }
+    # Hộp Retry: model viết / giọng chọn cho riêng lượt này (retry_with) — model vẽ đọc ở _step_images.
+    state["agent"] = _apply_retry_overrides(payload, agent, options, state)
     # Which wizard preset this run follows: the run's option → the render
     # payload (create_render_task copies it from the plan) → the checkpoint →
     # the agent's setting. The checkpoint outranks the agent so a render keeps
@@ -7462,6 +7489,15 @@ def clone_info(task_id: str) -> Dict[str, Any]:
             "drive": bool(opts.get("drive"))}
 
 
+_ENGINE_LABELS = {"edge": "Edge", "everai": "EverAI", "omnivoice": "OmniVoice", "capcut": "CapCut", "vibevoice": "VibeVoice"}
+
+
+def _voice_label(name: str, engine: str) -> str:
+    """«Huyền Anh (EverAI)» — không lặp tên engine khi tên giọng đã có nó (EverAI đặt tên «Huyền Anh (EverAI)»)."""
+    label = _ENGINE_LABELS.get(engine, engine.capitalize())
+    return name if label.lower() in name.lower() else f"{name} ({label})"
+
+
 def clone_voices(language: str) -> List[Dict[str, str]]:
     """Giọng đọc được `language` trên máy này, giọng Edge mặc định đứng đầu: [{engine, id, name}].
 
@@ -7496,7 +7532,7 @@ def clone_voices(language: str) -> List[Dict[str, str]]:
                 continue
         else:
             continue
-        out.append({"engine": eng, "id": str(v["id"]), "name": f"{v.get('name') or v['id']} ({eng.capitalize()})"})
+        out.append({"engine": eng, "id": str(v["id"]), "name": _voice_label(str(v.get("name") or v["id"]), eng)})
     if installed_extensions().get("capcut_tts"):
         email = _capcut_account("")
         if email:
@@ -7513,7 +7549,7 @@ def clone_voices(language: str) -> List[Dict[str, str]]:
                     if sl and not sl.startswith(base):
                         continue
                     out.append({"engine": "capcut", "id": str(it["id"]),
-                                "name": f"{it.get('name') or it['id']} (CapCut)", "email": email})
+                                "name": _voice_label(str(it.get("name") or it["id"]), "capcut"), "email": email})
     return out
 
 
@@ -7732,6 +7768,207 @@ def run_clone(payload: Dict[str, Any], report: Optional[Callable[..., None]] = N
     finally:
         _bulletin(state, outcome, time.time() - started, error_text, stage="render")
     return _render_result(state, options, notes, skipped_jobs, time.time() - started)
+
+
+# ── Hộp Retry: đổi model viết / model vẽ / giọng CHO RIÊNG lượt chạy lại (25/9/2026) ────────────────────────────────
+# User: «khi retry tôi nghĩ nên thêm dialog hiển thị model script, image, voice» — chốt: đổi được cả ba; đổi giọng thì
+# chỉ đọc nhịp còn thiếu; đổi model ảnh thì chỉ vẽ ảnh thiếu, có ô «Vẽ lại tất cả». Lựa chọn nằm ở KHOÁ RIÊNG
+# `retry_overrides` của payload (không trong `options`) — không lây sang task dựng / bản clone tạo từ task này.
+RETRY_STATES = ("failed", "cancelled", "rejected")
+_RETRY_KINDS = (KIND_PLAN, "content_video.digest", KIND_RENDER, KIND_AUTO, KIND_CLONE)
+_VOICE_ENGINES = ("edge", "everai", "omnivoice", "capcut", "vibevoice")
+
+
+def _model_ref(value: Any) -> Tuple[str, str]:
+    """"nhà|model" → (nhà, model); "model" trơn → ("", model); rỗng → ("", "")."""
+    s = str(value or "").strip()
+    if "|" in s:
+        prov, model = s.split("|", 1)
+        return prov.strip().lower(), model.strip()
+    return "", s
+
+
+class _AgentModelOverride:
+    """Agent với model VIẾT đổi cho riêng lượt này (hộp Retry); mọi thứ khác đọc thẳng từ agent thật.
+
+    `to_dict()` mang theo `provider` — Agent.to_dict() thật không có khoá ấy, nên bản sao chép thường không đổi được
+    nhà cung cấp (cùng cách với chat/pipeline._apply_override)."""
+
+    def __init__(self, agent, provider: str, model: str):
+        self._agent, self._provider, self.model = agent, provider, model
+        self.retry_override = True
+
+    def __getattr__(self, name):
+        return getattr(self._agent, name)
+
+    def to_dict(self) -> Dict[str, Any]:
+        d = dict(self._agent.to_dict())
+        d["model"] = self.model
+        d["provider"] = self._provider          # "" = lõi tự định tuyến theo tên model
+        return d
+
+
+def _apply_retry_overrides(payload: Dict[str, Any], agent, options: Dict[str, Any], state: Dict[str, Any]):
+    """Áp lựa chọn của hộp Retry lên lượt chạy này. Trả agent (có thể đã bọc model mới)."""
+    ov = payload.get("retry_overrides")
+    ov = ov if isinstance(ov, dict) else {}
+    state["retry_overrides"] = ov
+    prov, model = _model_ref(ov.get("text_model"))
+    if model:
+        agent = _AgentModelOverride(agent, prov, model)
+        state["text_model_ref"] = f"{prov}|{model}" if prov else model
+    engine = str(ov.get("tts_engine") or "").strip().lower()
+    voice = str(ov.get("tts_voice") or "").strip()
+    if voice:
+        options["tts_engine"] = engine or "edge"
+        options["tts_voice"] = voice
+        options["capcut_email"] = str(ov.get("capcut_email") or "")
+        # CapCut đọc `capcut_speaker` TRƯỚC tts_voice — không đặt lại là giọng cũ thắng.
+        options["capcut_speaker"] = voice if options["tts_engine"] == "capcut" else ""
+    return agent
+
+
+def _retry_voice_now(options: Dict[str, Any], preset_meta: Dict[str, Any]) -> Dict[str, str]:
+    engine = str(options.get("tts_engine") or "").lower()
+    if engine and engine != "auto":
+        return {"engine": engine, "id": str(options.get("tts_voice") or ""), "source": "task"}
+    return {"engine": str(preset_meta.get("tts_engine") or "auto"), "id": str(preset_meta.get("tts_voice") or ""),
+            "source": "template"}
+
+
+def retry_info(task_id: str) -> Dict[str, Any]:
+    """Hộp Retry hỏi trước: task này chạy lại được không, và lượt tới SẼ dùng model viết / model vẽ / giọng nào.
+
+    reason: not_found | not_video | not_retryable (đang chạy / đang duyệt / xong)."""
+    from tubecli.core.agent import agent_manager
+    from tubecli.extensions.codex.manager import codex_manager
+
+    task = codex_manager.get_task(str(task_id or ""))
+    if not task:
+        return {"ok": False, "reason": "not_found", "message": "Task not found."}
+    kind = codex_manager.kind_of(str(task["id"])) or ""
+    base = {"task_id": task["id"], "seq": task.get("seq"), "kind": kind, "status": task.get("status"),
+            "title": str(task.get("title") or "")}
+    if kind not in _RETRY_KINDS:
+        return {**base, "ok": False, "reason": "not_video", "message": "Not a video task."}
+    if task.get("status") not in RETRY_STATES:
+        return {**base, "ok": False, "reason": "not_retryable",
+                "message": "Only a failed or cancelled task can be retried."}
+    payload = _source_payload(str(task["id"]))
+    ov = payload.get("retry_overrides") if isinstance(payload.get("retry_overrides"), dict) else {}
+    options = {**DEFAULTS, **(payload.get("options") or {})}
+    ck = _read_checkpoint(str(task["id"])) or {}
+    agent = agent_manager.get(str(payload.get("agent_id") or task.get("assignee_id") or ""))
+    preset_name = str(options.get("preset") or payload.get("preset") or ck.get("preset")
+                      or getattr(agent, "content_video_preset", "") or "").strip()
+    fields: Dict[str, Any] = {}
+    if preset_name:
+        try:
+            fields = _load_preset(preset_name) or {}
+        except Exception as e:      # noqa: BLE001 — hộp vẫn mở được, chỉ thiếu phần «của mẫu»
+            logger.info(f"[ContentVideo] retry_info: template {preset_name!r} unreadable: {e}")
+    pmeta = fields.get("metadata") if isinstance(fields.get("metadata"), dict) else {}
+    language = str(ck.get("language") or payload.get("language") or "").strip()
+    if not language or language == "auto":
+        language = next((c for c in (str(options.get("language") or ""), str(fields.get("language") or ""))
+                         if c and c != "auto"), "") or detect_language(str(ck.get("script") or "")) or "vi"
+    try:
+        from tubecli.core import image_gen as _ig
+        r = _ig.resolve_provider(None, None)
+        machine_img = f"{r.get('provider')}|{r.get('model')}" if r.get("ok") else ""
+    except Exception:           # noqa: BLE001
+        machine_img = ""
+    roles = pmeta.get("image_models") if isinstance(pmeta.get("image_models"), dict) else {}
+    plan_only = kind in (KIND_PLAN, "content_video.digest")
+    return {**base, "ok": True, "language": language, "plan_only": plan_only,
+            "text": {"agent": str(getattr(agent, "model", "") or ""), "override": str(ov.get("text_model") or "")},
+            "image": {"machine": machine_img, "roles": {k: str(v) for k, v in roles.items() if v},
+                      "override": str(ov.get("image_model") or "")},
+            "voice": {**_retry_voice_now(options, pmeta),
+                      "override": {k: str(ov.get(k) or "") for k in ("tts_engine", "tts_voice", "capcut_email")}
+                      if ov.get("tts_voice") else {}},
+            "drawn": bool(ck.get("episode_id"))}
+
+
+def retry_model_choices() -> Dict[str, Any]:
+    """Model viết (nhà có khoá + biết chat) và model vẽ (nhà vẽ được) trên máy này — ô chọn của hộp Retry."""
+    import asyncio
+
+    text: List[Dict[str, Any]] = []
+    try:
+        from tubecli.extensions.cloud_api.extension import key_manager
+        for p in key_manager.list_providers():
+            if not p.get("has_key") or "chat" not in (p.get("capabilities") or []):
+                continue
+            models = [str(m) for m in (p.get("models") or []) if m and "image" not in str(m).lower()]
+            if models:
+                text.append({"provider": p["id"], "label": str(p.get("name") or p["id"]), "models": models})
+    except Exception as e:      # noqa: BLE001
+        logger.info(f"[ContentVideo] text model list unavailable: {e}")
+    image: List[Dict[str, Any]] = []
+    try:
+        from tubecli.core import image_gen as _ig
+        for prov, label in (("9router", "9Router"), ("cloudflare", "Cloudflare"), ("gemini", "Gemini")):
+            try:
+                if not (_ig.resolve_provider(prov, None) or {}).get("ok"):
+                    continue
+                got = asyncio.run(_ig.list_models(prov)) or []
+            except Exception as e:      # noqa: BLE001
+                logger.info(f"[ContentVideo] image models of {prov}: {e}")
+                continue
+            models = [str(m.get("id") if isinstance(m, dict) else m) for m in got]
+            models = [m for m in dict.fromkeys(models) if m]
+            if models:
+                image.append({"provider": prov, "label": label, "models": models})
+    except Exception as e:      # noqa: BLE001
+        logger.info(f"[ContentVideo] image model list unavailable: {e}")
+    return {"text": text, "image": image}
+
+
+def retry_with(task_id: str, text_model: str = "", image_model: str = "", redraw_images: bool = False,
+               tts_engine: str = "", tts_voice: str = "", capcut_email: str = "", actor: str = "user") -> Dict[str, Any]:
+    """Chạy lại task với lựa chọn của hộp Retry. Rỗng = như mặc định (model agent / model mẫu–máy / giọng mẫu).
+
+    Ghi một event payload MỚI (bản sao đầy đủ của payload cũ + `retry_overrides`) TRƯỚC khi retry — executor đọc
+    event có `kind` mới nhất. «Vẽ lại tất cả» mang mã một lần: bước ảnh ghi mã đã dùng vào checkpoint nên các lần
+    Retry sau không vẽ lại lần nữa. ValueError khi task không chạy lại được."""
+    import uuid
+
+    from tubecli.extensions.codex.manager import codex_manager
+
+    info = retry_info(task_id)
+    if not info.get("ok"):
+        raise ValueError(info.get("message") or "This task cannot be retried.")
+    engine = str(tts_engine or "").strip().lower()
+    if tts_voice and engine not in _VOICE_ENGINES:
+        raise ValueError(f"Unknown voice engine {engine!r}.")
+    for v in (text_model, image_model, tts_voice):
+        if len(str(v or "")) > 200:
+            raise ValueError("Value too long.")
+    payload = dict(_source_payload(str(info["task_id"])))
+    if not payload.get("kind"):
+        raise ValueError("This task has no pipeline payload to run again.")
+    old = payload.get("retry_overrides") if isinstance(payload.get("retry_overrides"), dict) else {}
+    ov: Dict[str, str] = {}
+    if str(text_model or "").strip():
+        ov["text_model"] = str(text_model).strip()
+    if str(image_model or "").strip() and not info.get("plan_only"):
+        ov["image_model"] = str(image_model).strip()
+    if str(tts_voice or "").strip() and not info.get("plan_only"):
+        ov.update({"tts_engine": engine, "tts_voice": str(tts_voice).strip(), "capcut_email": str(capcut_email or "")})
+    if redraw_images and not info.get("plan_only"):
+        ov["redraw_images"] = uuid.uuid4().hex[:12]
+    elif old.get("redraw_images"):
+        ov["redraw_images"] = old["redraw_images"]      # mã cũ đã dùng rồi — giữ để lượt này không vẽ lại lần nữa
+    if ov != old:
+        payload["retry_overrides"] = ov
+        payload["task_id"] = str(info["task_id"])
+        said = ", ".join(f"{k}={v}" for k, v in ov.items() if k not in ("capcut_email", "redraw_images"))
+        if ov.get("redraw_images") and ov.get("redraw_images") != old.get("redraw_images"):
+            said = (said + ", " if said else "") + "redraw every picture"
+        codex_manager.append_event(str(info["task_id"]), "log",
+                                   f"Retry with: {said or 'the defaults again'}", actor=actor, data=payload)
+    return codex_manager.retry(str(info["task_id"]), actor=actor)
 
 
 def run_kind(kind: str, payload: Dict[str, Any], report=None, is_cancelled=None) -> str:

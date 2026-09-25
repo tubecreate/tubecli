@@ -272,5 +272,18 @@
   "codex.clone_reason_no_episode": "이 기기에 이 작업의 Content Studio 스토리보드가 없어 복제할 수 없습니다.",
   "codex.toast_clone_queued": "#{src}의 복제를 #{seq}(으)로 대기열에 넣었습니다",
   "codex.clone_field_drive": "Google 드라이브에 저장",
-  "codex.clone_field_drive_hint": "원본과 같은 Google 계정과 공유 설정"
+  "codex.clone_field_drive_hint": "원본과 같은 Google 계정과 공유 설정",
+  "codex.retry_title": "작업 #{seq} 다시 실행",
+  "codex.retry_hint": "이번 실행에 쓸 것을 고르세요. 이 작업에만 적용되며 템플릿은 그대로입니다.",
+  "codex.retry_field_text": "대본 모델",
+  "codex.retry_text_hint": "아직 남은 작성(대본, 스토리보드, 장면)에 쓰입니다. 이미 쓴 대본은 그대로 둡니다.",
+  "codex.retry_field_image": "이미지 모델",
+  "codex.retry_redraw": "모든 그림 다시 그리기",
+  "codex.retry_redraw_hint": "끄면 빠진 그림만 그립니다. 켜면 고른 모델로 모든 그림을 다시 그립니다 — 그리기 횟수를 많이 씁니다.",
+  "codex.retry_field_voice": "목소리",
+  "codex.retry_voice_hint": "목소리가 없는 장면만 읽고, 이미 있는 장면은 그대로 둡니다.",
+  "codex.retry_keep": "이전과 같이 — {name}",
+  "codex.retry_machine": "기기: {name}",
+  "codex.retry_go": "다시 실행",
+  "codex.retry_reason_not_retryable": "실패했거나 취소한 작업만 다시 실행할 수 있습니다."
 }

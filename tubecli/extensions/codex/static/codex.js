@@ -683,8 +683,9 @@ const CODEX = (() => {
       case 'failed':
       case 'rejected':
       case 'cancelled':
-        // Huỷ xong vẫn Chạy lại được: pipeline tiếp từ bước đã dừng (checkpoint).
-        return b('cx-btn-ghost', 'retry', 'replay', 'codex.action_retry') + del;
+        // Huỷ xong vẫn Chạy lại được: pipeline tiếp từ bước đã dừng (checkpoint). Task video: mở hộp Retry để xem
+        // / đổi model viết, model ảnh, giọng cho riêng lần chạy lại (25/9/2026).
+        return b('cx-btn-ghost', task.lane === 'video' ? 'openRetry' : 'retry', 'replay', 'codex.action_retry') + del;
       case 'done':
         return sync + clone + del;
       default:
@@ -1342,6 +1343,153 @@ const CODEX = (() => {
     } catch (e) {
       toast(t('codex.toast_action_failed', { error: e.message }), 'error');
       $('cx-cl-go').disabled = false;
+    }
+  }
+
+  // ── Hộp Retry của task video (25/9/2026) ──────────────────────────────────────────────────────────────────────────
+  // User: «khi retry tôi nghĩ nên thêm dialog hiển thị model script, image, voice» — đổi được cả ba cho RIÊNG lần chạy
+  // lại; đổi giọng chỉ đọc nhịp còn thiếu; model ảnh chỉ vẽ ảnh thiếu, trừ khi tick «Vẽ lại tất cả».
+  const RETRY_ENGINE_NAMES = { edge: 'Edge', everai: 'EverAI', omnivoice: 'OmniVoice', capcut: 'CapCut', vibevoice: 'VibeVoice' };
+
+  /** Thêm vào danh sách các model ĐANG dùng (của mẫu / máy / lần chọn trước) mà nhà cung cấp không liệt kê —
+   *  9Router không đưa model ảnh vào /models, nên `cx/gpt-image-2` của mẫu không có trong danh sách nó trả. */
+  function withKnown(groups, refs) {
+    const out = (groups || []).map(g => ({ provider: g.provider, label: g.label, models: (g.models || []).slice() }));
+    (refs || []).forEach(ref => {
+      const s = String(ref || '');
+      const i = s.indexOf('|');
+      if (i <= 0 || i === s.length - 1) return;
+      const prov = s.slice(0, i), model = s.slice(i + 1);
+      let g = out.find(x => x.provider === prov);
+      if (!g) out.push(g = { provider: prov, label: prov, models: [] });
+      if (!g.models.includes(model)) g.models.unshift(model);
+    });
+    return out;
+  }
+
+  function optGroups(groups, current) {
+    return (groups || []).map(g => `<optgroup label="${esc(g.label || g.provider)}">`
+      + (g.models || []).map(m => {
+        const v = g.provider + '|' + m;
+        return `<option value="${esc(v)}"${v === current ? ' selected' : ''}>${esc(m)}</option>`;
+      }).join('') + '</optgroup>').join('');
+  }
+
+  async function openRetry(id) {
+    const task = (state.tasks || []).find(x => x.id === id);
+    if (!task) return;
+    state.retryBox = { id: id, info: null, voices: [] };
+    $('cx-rt-title').textContent = t('codex.retry_title', { seq: task.seq });
+    $('cx-rt-hint').textContent = t('codex.cv_drive_loading');
+    $('cx-rt-form').classList.add('hidden');
+    $('cx-rt-go').disabled = true;
+    $('cx-modal-retry').classList.remove('hidden');
+    let info, models;
+    try {
+      const res = await Promise.all([
+        request('/api/v1/content-video/tasks/' + encodeURIComponent(id) + '/retry'),
+        request('/api/v1/content-video/models'),
+      ]);
+      info = res[0] || {};
+      models = res[1] || {};
+    } catch (e) {
+      $('cx-rt-hint').textContent = t('codex.toast_action_failed', { error: e.message });
+      return;
+    }
+    if (!state.retryBox || state.retryBox.id !== id) return;
+    if (!info.ok) {
+      if (info.reason === 'not_video') {          // task làn video nhưng không phải dây chuyền video → Retry thường
+        closeModal('cx-modal-retry');
+        state.retryBox = null;
+        retry(id);
+        return;
+      }
+      $('cx-rt-hint').textContent = info.reason === 'not_retryable' ? t('codex.retry_reason_not_retryable') : (info.message || '');
+      return;
+    }
+    state.retryBox.info = info;
+    $('cx-rt-hint').textContent = t('codex.retry_hint');
+    // Model viết: «như cũ» = model của agent.
+    const txt = info.text || {};
+    $('cx-rt-text').innerHTML = `<option value="">${esc(t('codex.retry_keep', { name: (txt.agent || '?') + ' (agent)' }))}</option>`
+      + optGroups(withKnown(models.text, [txt.override]), txt.override || '');
+    // Model ảnh: «như cũ» = model của mẫu cho hook/sơ đồ + model chung của máy.
+    const img = info.image || {};
+    // Gom vai cùng model: «hook, precise: cx/gpt-image-2» thay vì lặp tên model cho từng vai.
+    const byModel = {};
+    Object.keys(img.roles || {}).forEach(k => {
+      const m = String(img.roles[k]).split('|').pop();
+      (byModel[m] = byModel[m] || []).push(k);
+    });
+    const roles = Object.keys(byModel).map(m => byModel[m].join(', ') + ': ' + m).join(' · ');
+    const imgNow = [roles, img.machine ? t('codex.retry_machine', { name: String(img.machine).split('|').pop() }) : '']
+      .filter(Boolean).join(' · ');
+    $('cx-rt-image').innerHTML = `<option value="">${esc(t('codex.retry_keep', { name: imgNow || '?' }))}</option>`
+      + optGroups(withKnown(models.image, [img.machine, img.override].concat(Object.values(img.roles || {}))),
+                  img.override || '');
+    $('cx-rt-redraw').checked = false;
+    $('cx-rt-image-wrap').classList.toggle('hidden', !!info.plan_only);
+    $('cx-rt-voice-wrap').classList.toggle('hidden', !!info.plan_only);
+    $('cx-rt-form').classList.remove('hidden');
+    $('cx-rt-go').disabled = false;
+    if (!info.plan_only) await loadRetryVoices();
+  }
+
+  /** Giọng đọc được ngôn ngữ của task (Edge mặc định đứng đầu), gom theo engine như hộp Clone. */
+  async function loadRetryVoices() {
+    const rb = state.retryBox;
+    if (!rb || !rb.info) return;
+    const v = rb.info.voice || {};
+    const sel = $('cx-rt-voice');
+    const nowLabel = id => {
+      const hit = (rb.voices || []).find(x => x.id === id);
+      return hit ? hit.name : ((RETRY_ENGINE_NAMES[v.engine] || v.engine || '') + ' ' + (id || '')).trim();
+    };
+    sel.innerHTML = `<option value="">${esc(t('codex.retry_keep', { name: nowLabel(v.id) || '?' }))}</option>`;
+    sel.disabled = true;
+    try {
+      const data = await request('/api/v1/content-video/voices?language=' + encodeURIComponent(rb.info.language || 'vi'));
+      rb.voices = (data && data.voices) || [];
+    } catch (e) {
+      rb.voices = [];
+    }
+    if (!state.retryBox || state.retryBox !== rb) return;
+    const over = (v.override || {}).tts_voice || '';
+    const groups = [];
+    rb.voices.forEach((x, i) => {
+      let g = groups.find(y => y.eng === x.engine);
+      if (!g) groups.push(g = { eng: x.engine, items: [] });
+      g.items.push(`<option value="${i}"${x.id === over ? ' selected' : ''}>${esc(x.name || x.id)}</option>`);
+    });
+    sel.innerHTML = `<option value="">${esc(t('codex.retry_keep', { name: nowLabel(v.id) || '?' }))}</option>`
+      + groups.map(g => `<optgroup label="${esc(RETRY_ENGINE_NAMES[g.eng] || g.eng)}">${g.items.join('')}</optgroup>`).join('');
+    sel.disabled = false;
+  }
+
+  async function startRetry() {
+    const rb = state.retryBox;
+    if (!rb || !rb.info || !rb.info.ok) return;
+    const vi = $('cx-rt-voice').value;
+    const v = vi === '' ? {} : (rb.voices[Number(vi)] || {});
+    const body = {
+      text_model: $('cx-rt-text').value || '',
+      image_model: rb.info.plan_only ? '' : ($('cx-rt-image').value || ''),
+      redraw_images: !rb.info.plan_only && $('cx-rt-redraw').checked,
+      tts_engine: v.engine || '', tts_voice: v.id || '', capcut_email: v.email || '',
+    };
+    $('cx-rt-go').disabled = true;
+    try {
+      await request('/api/v1/content-video/tasks/' + encodeURIComponent(rb.id) + '/retry', {
+        method: 'POST', body: JSON.stringify(body),
+      });
+      closeModal('cx-modal-retry');
+      state.retryBox = null;
+      const task = (state.tasks || []).find(x => x.id === rb.id);
+      toast(t('codex.toast_retried', { seq: task ? task.seq : '?' }), 'success');
+      await refresh(false);
+    } catch (e) {
+      toast(t('codex.toast_action_failed', { error: e.message }), 'error');
+      $('cx-rt-go').disabled = false;
     }
   }
 
@@ -2300,6 +2448,6 @@ const CODEX = (() => {
     confirmNote, confirmDelete, doDelete, copyResult, planTask,
     openNewTask, submitNewTask, queueVideo, setNewKind, onVideoPreset, onVideoAgent, onVideoContent, onVideoLength, onVideoScript, onVideoKeepTheme, onVideoInstructions, planFromModal, closeModal, onBackdrop,
     onVideoDrive, onVideoDriveToken, onVideoDriveShare, laneChoice, onVideoSplit, openDriveSync, startDriveSync, syncThenDelete, resumeLane,
-    openClone, onCloneLang, startClone,
+    openClone, onCloneLang, startClone, openRetry, startRetry,
   };
 })();

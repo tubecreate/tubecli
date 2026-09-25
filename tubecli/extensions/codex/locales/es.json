@@ -272,5 +272,18 @@
   "codex.clone_reason_no_episode": "Esta tarea no tiene guion gráfico de Content Studio en esta máquina: no hay nada que clonar.",
   "codex.toast_clone_queued": "Clon de #{src} en cola como #{seq}",
   "codex.clone_field_drive": "Guardar en Google Drive",
-  "codex.clone_field_drive_hint": "Misma cuenta de Google y mismo uso compartido que el original"
+  "codex.clone_field_drive_hint": "Misma cuenta de Google y mismo uso compartido que el original",
+  "codex.retry_title": "Reintentar la tarea #{seq}",
+  "codex.retry_hint": "Elige lo que usa esta ejecución. Solo se aplica a esta tarea; la plantilla no cambia.",
+  "codex.retry_field_text": "Modelo del guion",
+  "codex.retry_text_hint": "Se usa para lo que aún falte escribir (guion, storyboard, escenas). Un guion ya escrito se conserva.",
+  "codex.retry_field_image": "Modelo de imagen",
+  "codex.retry_redraw": "Volver a dibujar todas las imágenes",
+  "codex.retry_redraw_hint": "Desactivado: solo se dibujan las que faltan. Activado: se vuelven a dibujar todas con el modelo elegido; gasta muchos dibujos.",
+  "codex.retry_field_voice": "Voz",
+  "codex.retry_voice_hint": "Solo se leen las escenas sin voz; las que ya tienen voz la conservan.",
+  "codex.retry_keep": "Como antes — {name}",
+  "codex.retry_machine": "equipo: {name}",
+  "codex.retry_go": "Reintentar",
+  "codex.retry_reason_not_retryable": "Solo se puede reintentar una tarea fallida o cancelada."
 }

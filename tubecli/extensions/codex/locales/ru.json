@@ -272,5 +272,18 @@
   "codex.clone_reason_no_episode": "На этой машине нет раскадровки Content Studio для этой задачи — клонировать нечего.",
   "codex.toast_clone_queued": "Клон #{src} поставлен в очередь как #{seq}",
   "codex.clone_field_drive": "Сохранить в Google Диск",
-  "codex.clone_field_drive_hint": "Тот же аккаунт Google и доступ, что у оригинала"
+  "codex.clone_field_drive_hint": "Тот же аккаунт Google и доступ, что у оригинала",
+  "codex.retry_title": "Повторить задачу #{seq}",
+  "codex.retry_hint": "Выберите, что использовать в этом запуске. Действует только для этой задачи — шаблон не меняется.",
+  "codex.retry_field_text": "Модель сценария",
+  "codex.retry_text_hint": "Для всего, что ещё нужно написать (сценарий, раскадровка, сцены). Готовый сценарий сохраняется.",
+  "codex.retry_field_image": "Модель изображений",
+  "codex.retry_redraw": "Перерисовать все картинки",
+  "codex.retry_redraw_hint": "Выкл.: рисуются только недостающие. Вкл.: все картинки заново выбранной моделью — это много генераций.",
+  "codex.retry_field_voice": "Голос",
+  "codex.retry_voice_hint": "Озвучиваются только сцены без голоса; уже озвученные остаются как есть.",
+  "codex.retry_keep": "Как раньше — {name}",
+  "codex.retry_machine": "машина: {name}",
+  "codex.retry_go": "Повторить",
+  "codex.retry_reason_not_retryable": "Повторить можно только упавшую или отменённую задачу."
 }
