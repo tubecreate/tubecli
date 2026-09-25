@@ -197,8 +197,11 @@ def to_studio(items: List[Dict], got: Dict[str, Dict], scenes: Dict[str, Dict]) 
 
 
 def title_prompt(title: str, src_name: str, tgt_name: str) -> Tuple[str, str]:
+    # Tiêu đề gốc hay mang ghi chú giọng («… (giọng Huyền Anh)») — bản clone đọc bằng giọng KHÁC, dịch theo là sai
+    # (lượt thử 25/9/2026 ra «… (Narrated by Huyen Anh)»).
     return (f"Translate this YouTube video title from {src_name} into {tgt_name}. Keep it natural and catchy for "
-            f"{tgt_name} viewers, same meaning, similar length. Reply with the title only, no quotes.",
+            f"{tgt_name} viewers, same meaning, similar length. Leave out any note about the narrator or the voice "
+            f"(such as a voice name in brackets). Reply with the title only, no quotes.",
             str(title or ""))
 
 

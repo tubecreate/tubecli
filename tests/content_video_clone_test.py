@@ -224,6 +224,9 @@ for bad, why in ((("src", "vi"), "cùng ngôn ngữ"), (("src", "xx"), "ngôn ng
     except ValueError:
         ok(True, f"{why} → từ chối")
 
+ok("narrator or the voice" in C.title_prompt("Sau 60 tuổi (giọng Huyền Anh)", "Vietnamese", "English")[0],
+   "dịch tiêu đề: dặn bỏ ghi chú giọng đọc của bản gốc")
+
 # ── 5: danh sách bước ────────────────────────────────────────────────────────
 ids = [s[0] for s in P.CLONE_STEPS]
 ok(ids == ["capabilities", "clone", "images", "tts", "render", "thumbnail", "drive"],
