@@ -1669,6 +1669,48 @@ _VERBATIM_RETRY = ("\nIMPORTANT: the previous answer was incomplete. Every passa
                    "the [SHOW: …] line, then the FULL translation of that passage — every sentence.")
 
 
+# Bài dán thường là KỊCH BẢN SOẠN THẢO chứ không chỉ lời đọc: tiêu đề markdown, mốc «## [2:40 SỰ THẬT 1 – …]», dòng
+# «**Thời lượng dự kiến: …**», «**Giọng: …**», đường kẻ «---», phần «### Ghi chú sản xuất» ở cuối. 25/9/2026 user dán
+# nguyên kịch bản bác sĩ vào chế độ nguyên văn → giọng đọc «thăng thăng Bác sĩ cảnh báo…», «Thời lượng dự kiến 22–26
+# phút», cả ghi chú sản xuất. Lọc ra lời đọc, giữ nguyên từng chữ của phần đọc (chỉ bỏ dấu ** / * / gạch đầu dòng).
+_MD_HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s+(.*)$")
+_MD_RULE_RE = re.compile(r"^\s*(?:[-*_=]\s*){3,}$")
+_STAGE_LINE_RE = re.compile(r"^\s*[\[(（【][^\])）】]{0,80}[\])）】]\s*$")
+_META_LINE_RE = re.compile(r"^\s*(?:\*\*|__)([^*_]{1,60}?)[:：](?:\*\*|__)?.*?(?:\*\*|__)?\s*$")
+_NOTES_HEAD_RE = re.compile(r"ghi\s*chú|production\s*notes?|notes?\s+for|director|制作|演出|メモ|备注|備註|注释|注釋|"
+                            r"제작|notas?\s+de\s+producción|заметк|yapım\s+not", re.I)
+_BULLET_RE = re.compile(r"^\s*[-*•+]\s+")
+_EMPH_RE = re.compile(r"(\*\*|__)(.+?)\1|(?<![*\w])\*(?!\s)([^*\n]+?)(?<!\s)\*(?![*\w])")
+
+
+def spoken_text(text: str) -> str:
+    """Chỉ phần ĐỌC của một kịch bản soạn thảo: bỏ tiêu đề markdown, đường kẻ, dòng chỉ dẫn [..], dòng thông số
+    «**Nhãn: …**» cả dòng in đậm, và mọi thứ dưới tiêu đề ghi chú sản xuất. Bài không có markdown thì trả nguyên."""
+    lines = str(text or "").splitlines()
+    if not any(_MD_HEADING_RE.match(l) or _MD_RULE_RE.match(l) or "**" in l for l in lines):
+        return text or ""
+    out, skip_level = [], 0
+    for line in lines:
+        h = _MD_HEADING_RE.match(line)
+        if h:
+            level = len(line.strip()) - len(line.strip().lstrip("#"))
+            if skip_level and level > skip_level:
+                continue
+            skip_level = level if _NOTES_HEAD_RE.search(h.group(1)) else 0
+            continue
+        if skip_level or _MD_RULE_RE.match(line) or _STAGE_LINE_RE.match(line):
+            continue
+        st = line.strip()
+        # Cả dòng in đậm dạng «Nhãn: …» là thông số cho người dựng — «**Năm vùng…:** mặt; nách…» thì còn lời sau.
+        if st.startswith(("**", "__")) and st.endswith(("**", "__")) and _META_LINE_RE.match(st) \
+                and st.count("**") + st.count("__") <= 2:
+            continue
+        line = _BULLET_RE.sub("", line)
+        line = _EMPH_RE.sub(lambda m: m.group(2) or m.group(3) or "", line)
+        out.append(line)
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(out)).strip()
+
+
 def split_sentences(para: str) -> List[str]:
     """Các câu của một đoạn, giữ nguyên chữ (chỉ cắt sau dấu kết câu)."""
     out, start = [], 0
@@ -1812,7 +1854,7 @@ def write_script_verbatim(state: Dict, agent, text: str, lang_code: str, lang: s
         translate, src_name = False, ""
         title = str(state.get("title") or (state.get("checkpoint") or {}).get("title") or "")
     else:
-        narr = verbatim_scenes(text)
+        narr = verbatim_scenes(spoken_text(text))
     if not narr:
         raise RuntimeError("Verbatim mode: the pasted content has no sentences to read.")
     state["verbatim"] = {"scenes": len(narr), "translated_from": src_name}
@@ -1903,7 +1945,7 @@ def _step_script(state: Dict, options: Dict) -> None:
     # Nguyên văn: độ dài là của CHÍNH bài dán — không kẹp trần 4000 chữ, không "rút gọn".
     verbatim = pasted and str(options.get("script_mode") or "").strip().lower() == "verbatim"
     if verbatim:
-        words, words_from = max(1, content_words(opts_len.get("source_text"))), "verbatim"
+        words, words_from = max(1, content_words(spoken_text(opts_len.get("source_text")))), "verbatim"
     else:
         words, words_from = resolve_words(opts_len, state.get("preset"))
     scenes_n, sent_lo, sent_hi = scene_budget(words)

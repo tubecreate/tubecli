@@ -198,6 +198,35 @@ ok(any("could not translate the content sentence by sentence" in w for w in st6[
 P._ask_model = fake_ask
 ok(P.DEFAULTS["script_mode"] == "rewrite" and P._LEN_FROM["verbatim"], "mặc định vẫn là viết lại")
 
+# Kịch bản soạn thảo dán nguyên (25/9/2026): tiêu đề, mốc giờ, thông số in đậm, ghi chú sản xuất KHÔNG được đọc.
+DRAFT = """# Bác sĩ cảnh báo: Người trên 60 nên tắm bao nhiêu lần một tuần?
+
+**Thời lượng dự kiến: 22–26 phút (~4.200 từ) / kịch bản đọc**
+**Giọng: bác sĩ điềm đạm, không nêu tên. Nhịp chậm.**
+
+---
+
+## [0:00 MỞ ĐẦU]
+
+Cô chú thử hình dung.
+Hiện giờ, cô chú có tắm **mỗi ngày** không?
+
+## [22:00 SỰ THẬT 7 – VỆ SINH SAU 60]
+
+**Năm vùng cần rửa mỗi ngày:** mặt; nách; bàn chân.
+- Rửa tay trước khi ăn.
+
+### Ghi chú sản xuất
+- Giọng bác sĩ, **không nêu tên**.
+- Mốc comment: "có/không" → "2".
+"""
+sp = P.spoken_text(DRAFT)
+ok(sp == ("Cô chú thử hình dung.\nHiện giờ, cô chú có tắm mỗi ngày không?\n\n"
+          "Năm vùng cần rửa mỗi ngày: mặt; nách; bàn chân.\nRửa tay trước khi ăn."),
+   "kịch bản soạn thảo → chỉ còn lời đọc, giữ nguyên chữ", sp)
+ok(P.spoken_text(VI) == VI, "bài không markdown giữ nguyên từng ký tự")
+ok(" ".join(P.verbatim_scenes(P.spoken_text(DRAFT))).count("Thời lượng") == 0, "cảnh nguyên văn không còn thông số")
+
 print()
 print("=" * 62)
 print(f"{PASS}/{PASS + FAIL} PASS" if not FAIL else f"{PASS}/{PASS + FAIL} PASS — {FAIL} HỎNG")
