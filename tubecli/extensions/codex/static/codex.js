@@ -1231,6 +1231,16 @@ const CODEX = (() => {
     not_video: 'codex.clone_reason_not_video', no_episode: 'codex.clone_reason_no_episode',
   };
 
+  /** Tên ngôn ngữ theo ngôn ngữ GIAO DIỆN («Tiếng Nhật» khi dashboard tiếng Việt); trình duyệt cũ → tên máy chủ gửi. */
+  function langName(code, fallback) {
+    try {
+      const ui = document.documentElement.lang || 'en';
+      const n = new Intl.DisplayNames([ui], { type: 'language' }).of(code);
+      if (n && n !== code) return n.charAt(0).toUpperCase() + n.slice(1);
+    } catch (e) { /* Intl.DisplayNames không có */ }
+    return fallback || code;
+  }
+
   async function openClone(id) {
     const task = (state.tasks || []).find(x => x.id === id);
     if (!task) return;
@@ -1254,11 +1264,12 @@ const CODEX = (() => {
       return;
     }
     const langs = info.languages || [];
-    $('cx-cl-hint').textContent = t('codex.clone_hint', { title: info.title || ('#' + task.seq), lang: info.language || '?' });
+    $('cx-cl-hint').textContent = t('codex.clone_hint', { title: info.title || ('#' + task.seq),
+                                                          lang: info.language ? langName(info.language) : '?' });
     $('cx-cl-drive-wrap').classList.toggle('hidden', !info.drive);
     $('cx-cl-drive').checked = !!info.drive;
     const sel = $('cx-cl-lang');
-    sel.innerHTML = langs.map(l => `<option value="${esc(l.code)}">${esc(l.name)} (${esc(l.code)})</option>`).join('');
+    sel.innerHTML = langs.map(l => `<option value="${esc(l.code)}">${esc(langName(l.code, l.name))}</option>`).join('');
     const last = lsGet(CLONE_LANG_KEY);
     if (last && langs.some(l => l.code === last)) sel.value = last;
     $('cx-cl-form').classList.remove('hidden');
