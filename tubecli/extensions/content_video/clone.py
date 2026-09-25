@@ -180,10 +180,9 @@ def to_studio(items: List[Dict], got: Dict[str, Dict], scenes: Dict[str, Dict]) 
         tr = got.get(it["id"])
         if not tr:
             continue
-        row: Dict[str, Any] = {}
+        # Luôn gửi lời: rỗng khi lời gốc rỗng — Studio đặt đúng như vậy thay vì giữ lời tiếng gốc của nhịp ấy.
         narration = " ".join(str(tr.get("narration") or "").split())
-        if it.get("narration") and _wordy(narration):
-            row["narration_text"] = narration
+        row: Dict[str, Any] = {"narration_text": narration if it.get("narration") and _wordy(narration) else ""}
         if it.get("title") and _wordy(tr.get("title")):
             row["title"] = str(tr["title"]).strip()
         scene = scenes.get(it["id"])

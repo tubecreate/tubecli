@@ -2350,6 +2350,16 @@ def _step_studio(state: Dict, options: Dict) -> None:
             state["storyboard_restored"] = len(fixed)
             if not shots or cov < STORYBOARD_COVERAGE_MIN:
                 raise RuntimeError(coverage_error(shots, script, cov))
+    # Lời lệch khỏi chữ trên bảng (restore_narration chia theo câu của kịch bản, không nhìn chữ Studio viết cho từng
+    # nhịp) ⇒ gióng lại trong các cụm lệch. Retry của video cũ cũng đi qua đây nên được sửa luôn — nhịp đổi lời thì
+    # mất giọng cũ và được đọc lại ở bước giọng, bước dựng thấy giọng mới hơn video nên dựng lại.
+    moved = realign_to_captions(shots) if shots else []
+    if moved:
+        state["_say"]("studio", "running", f"{len(moved)} shot(s) read the sentence of a neighbouring shot — "
+                      "re-splitting their narration by the on-screen text")
+        _put_narration(moved, state, "re-aligning the narration of")
+        shots = _storyboards(ep_id)
+        state["storyboard_realigned"] = len(moved)
     state["shot_count"] = len(shots)
     if judged:
         state["storyboard_coverage"] = cov
@@ -2641,6 +2651,145 @@ def restore_narration(shots: List[Dict], script: str) -> List[Tuple[Any, str]]:
         i = groups[prev[-1]][-1] if prev else groups[nxt[0]][0]
         text[i] = (text[i] + " " + narr).strip()
     return [(sh.get("id"), text[i]) for i, sh in enumerate(shots)]
+
+
+# ── Gióng lời đọc theo CHỮ TRÊN BẢNG (25/9/2026) ─────────────────────────────────────────────────────────────────
+# Task #115 (máy local): 9 nhịp đọc SỚM hơn chữ một câu, thành 3 cụm, cuối cụm là nhịp lời rỗng (im 5 giây). Chữ
+# trên bảng (`metadata.scene`) do Studio viết theo nhịp CỦA NÓ; restore_narration chia lại lời theo câu của kịch bản
+# mà không nhìn chữ ấy — kịch bản có ít câu hơn số nhịp Studio cắt là lệch (cả bản .152 vẫn lệch, đo 25/9). Chữ trên
+# bảng là mốc đáng tin nhất về «nhịp này nói câu nào» ⇒ trong cụm lệch, chia lại các câu sao cho mỗi nhịp đọc đúng
+# câu mà chữ của nó nói. Chỉ đụng cụm có dấu hiệu lệch, không thêm/bớt chữ nào.
+_CAPTION_KEYS = ("head", "question", "answer", "title", "kick", "sub", "body", "caption", "note", "stamp")
+_REALIGN_MARGIN = 0.15          # chữ của nhịp giống lời nhịp bên cạnh hơn lời của chính nó ít nhất chừng này
+_REALIGN_GAIN = 0.25            # cách chia mới phải khớp hơn cách cũ ít nhất chừng này (cộng cả cụm) mới nhận
+_REALIGN_MAX_WINDOW = 24        # cụm dài hơn thì bỏ — lệch cả đoạn dài là chuyện khác, không đoán
+
+
+def _cap_words(sh: Dict) -> set:
+    sc = _shot_scene(sh)
+    parts = [str(sc.get(k)) for k in _CAPTION_KEYS if isinstance(sc.get(k), str)]
+    for k in ("items", "lines"):
+        for it in sc.get(k) or []:
+            if isinstance(it, str):
+                parts.append(it)
+            elif isinstance(it, (list, tuple)) and len(it) > 1 and isinstance(it[1], str):
+                parts.append(it[1])
+    return _toks(" ".join(parts))
+
+
+# Chữ viết liền không dấu cách (Hán, kana, Hangul, Thái): «từ» theo \w+ là cả câu ⇒ «浅くする» không bao giờ khớp
+# «浅くします». So theo CẶP KÝ TỰ liền nhau cho các chữ ấy, theo từ cho chữ Latinh/Việt.
+_DENSE_SCRIPT_RE = re.compile(r"[぀-ヿ㐀-䶿一-鿿豈-﫿가-힯฀-๿]")
+
+
+def _toks(text: str) -> set:
+    t = str(text or "").lower()
+    if _DENSE_SCRIPT_RE.search(t):
+        s = re.sub(r"[\W_]+", "", t)
+        return {s[i:i + 2] for i in range(len(s) - 1)} or ({s} if s else set())
+    return set(re.findall(r"\w+", t))
+
+
+def _dice(cap: set, text: str) -> float:
+    tw = _toks(text)
+    if not cap or not tw:
+        return 0.0
+    return 2 * len(cap & tw) / (len(cap) + len(tw))
+
+
+_REALIGN_MIDCUT = 0.12          # phạt mỗi chỗ cắt GIỮA câu — chỉ cắt khi khớp chữ hơn hẳn
+
+
+def _fragments(text: str) -> List[Tuple[str, bool]]:
+    """Các mảnh (tới dấu phẩy/chấm phẩy) của lời đọc, kèm «mảnh này kết thúc một câu»."""
+    out: List[Tuple[str, bool]] = []
+    for sent in split_sentences(text):
+        parts = [p.strip() for p in re.split(r"(?<=[,;:])\s+|(?<=[，；、：])", sent) if p.strip()]
+        for i, p in enumerate(parts):
+            out.append((p, i == len(parts) - 1))
+    return out
+
+
+def _best_split(caps: List[set], frags: List[Tuple[str, bool]]) -> Tuple[float, List[List[str]]]:
+    """Chia các mảnh (liền, theo thứ tự) cho len(caps) nhịp, tối đa tổng độ khớp với chữ trên bảng; mỗi nhịp ≥ 1
+    mảnh khi đủ mảnh; mỗi lần một nhịp dừng GIỮA câu bị trừ _REALIGN_MIDCUT."""
+    n, m = len(caps), len(frags)
+    need_one = m >= n
+    NEG = float("-inf")
+    best = [[NEG] * (m + 1) for _ in range(n + 1)]
+    back = [[0] * (m + 1) for _ in range(n + 1)]
+    best[0][0] = 0.0
+    for i in range(1, n + 1):
+        for j in range(0, m + 1):
+            for k in range(max(0, j - 8), j + 1):              # một nhịp tối đa 8 mảnh
+                if best[i - 1][k] == NEG:
+                    continue
+                if k == j:
+                    if need_one:
+                        continue
+                    v = best[i - 1][k]
+                else:
+                    v = best[i - 1][k] + _dice(caps[i - 1], _join_units([f for f, _ in frags[k:j]]))
+                    if j < m and not frags[j - 1][1]:
+                        v -= _REALIGN_MIDCUT
+                if v > best[i][j]:
+                    best[i][j], back[i][j] = v, k
+    if best[n][m] == NEG:
+        return NEG, []
+    parts, j = [], m
+    for i in range(n, 0, -1):
+        k = back[i][j]
+        parts.append([f for f, _ in frags[k:j]])
+        j = k
+    return best[n][m], list(reversed(parts))
+
+
+def realign_to_captions(shots: List[Dict]) -> List[Tuple[Any, str]]:
+    """[(id nhịp, lời mới)] cho các nhịp mà lời đọc lệch khỏi chữ trên bảng; [] khi không có gì lệch rõ ràng.
+
+    Không có chữ trên bảng (dự án không dựng canvas) ⇒ []. Ghép lời mới của cả tập vẫn đúng từng chữ như cũ."""
+    ss = sorted(shots, key=lambda sh: (sh.get("storyboard_number") is None, sh.get("storyboard_number") or 0,
+                                       sh.get("id") or 0))
+    caps = [_cap_words(sh) for sh in ss]
+    if not any(caps):
+        return []
+    narr = [" ".join(str(sh.get("narration_text") or "").split()) for sh in ss]
+    n = len(ss)
+    suspect = []
+    for i in range(n):
+        if not caps[i]:
+            continue
+        own = _dice(caps[i], narr[i])
+        prev = _dice(caps[i], narr[i - 1]) if i > 0 else 0.0
+        nxt = _dice(caps[i], narr[i + 1]) if i + 1 < n else 0.0
+        if not narr[i] or prev > own + _REALIGN_MARGIN or nxt > own + _REALIGN_MARGIN:
+            suspect.append(i)
+    windows: List[List[int]] = []
+    for i in suspect:
+        a, b = max(0, i - 1), min(n - 1, i + 1)
+        if windows and a <= windows[-1][1] + 1:
+            windows[-1][1] = max(windows[-1][1], b)
+        else:
+            windows.append([a, b])
+    out: List[Tuple[Any, str]] = []
+    for a, b in windows:
+        if b - a + 1 > _REALIGN_MAX_WINDOW:
+            continue
+        frags: List[Tuple[str, bool]] = []
+        for i in range(a, b + 1):
+            frags.extend(_fragments(narr[i]) if narr[i] else [])
+        w_caps = caps[a:b + 1]
+        if not frags:
+            continue
+        old = sum(_dice(w_caps[i - a], narr[i]) for i in range(a, b + 1))
+        score, parts = _best_split(w_caps, frags)
+        if not parts or score < old + _REALIGN_GAIN:
+            continue
+        for i, part in zip(range(a, b + 1), parts):
+            text = _join_units(part) if part else ""
+            if text != narr[i]:
+                out.append((ss[i].get("id"), text))
+    return out
 
 
 def _is_empty_shot(sh: Dict) -> bool:
@@ -7490,6 +7639,15 @@ def _step_clone(state: Dict, options: Dict) -> None:
 
     shots = _storyboards(int(ep_id))
     if not shots:
+        # Bản gốc làm trước khi có realign_to_captions có thể đọc lệch chữ trên bảng một câu (task #115: 3 cụm, cuối
+        # cụm im 5 giây). Dịch theo lời ĐÃ gióng — bản gốc giữ nguyên, chỉ bản clone đúng.
+        fixes = dict(realign_to_captions(src_shots))
+        if fixes:
+            src_shots = [{**sh, "narration_text": fixes[sh.get("id")]} if sh.get("id") in fixes else sh
+                         for sh in src_shots]
+            state["clone_realigned"] = len(fixes)
+            say("clone", "running", f"{len(fixes)} shot(s) of the original read a neighbouring sentence — the clone "
+                                    f"uses the narration re-split by the on-screen text")
         items = C.work_items(src_shots)
         scenes = {str(s.get("id")): C.shot_meta(s).get("scene") for s in src_shots}
         sp = C.system_prompt(src_name, tgt_name)

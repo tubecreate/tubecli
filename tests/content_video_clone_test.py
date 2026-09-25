@@ -72,7 +72,7 @@ got_e = C.parse_reply('{"shots":[{"id":"5","narration":"","texts":{"head":"Late-
 ok("5" in got_e and C.missing(wi, got_e) == [] and C.missing(wi, {}) == wi,
    "trả lời chỉ có chữ bảng vẫn nhận; thiếu hẳn thì hỏi lại", got_e)
 row5 = C.to_studio(wi, got_e, {"5": json.loads(EMPTY[0]["metadata"])["scene"]})["5"]
-ok("narration_text" not in row5 and row5["scene"]["head"] == "Late-night baths",
+ok(row5["narration_text"] == "" and row5["scene"]["head"] == "Late-night baths",
    "lời rỗng giữ rỗng, chữ trên bảng lấy bản dịch", row5)
 lost_narr = C.missing([{"id": "9", "narration": "Có lời."}], {"9": {"id": "9", "narration": "", "texts": {}}})
 ok(len(lost_narr) == 1, "bản gốc có lời mà bản dịch trả lời rỗng → coi như thiếu, hỏi lại", lost_narr)
