@@ -219,6 +219,25 @@ def is_local_url(url: str) -> bool:
     return host in _LOCAL_HOSTS or host.startswith("127.")
 
 
+
+_INVISIBLE = dict.fromkeys(map(ord, "\u200b\u200c\u200d\u2060\ufeff\u00a0"), None)
+
+
+def clean_key(value) -> tuple:
+    """(khoá đã làm sạch, lỗi). Bỏ khoảng trắng/ký tự vô hình/ngoặc bao; còn ký tự ngoài ASCII in được ⇒ lỗi.
+
+    Khoá API chỉ gồm chữ Latin không dấu, số và vài dấu (-_.). Chữ có dấu gần như luôn là bộ gõ tiếng Việt ghép vào
+    lúc gõ/dán (máy khách 25/9/2026: EverAI lưu khoá có «ú», mọi lời gọi hỏng «'ascii' codec can't encode»)."""
+    v = str(value or "").translate(_INVISIBLE).strip().strip('"').strip("'").strip()
+    bad = sorted({c for c in v if not (32 < ord(c) < 127)})
+    if bad:
+        shown = " ".join(f"«{c}»" if c.isprintable() and not c.isspace() else f"U+{ord(c):04X}" for c in bad[:5])
+        return v, (f"The key contains {shown}, which an API key never has — usually a Vietnamese keyboard (Telex/VNI) "
+                   f"changed a letter while you typed or pasted it. Switch the keyboard to English (E) and paste the "
+                   f"key again.")
+    return v, ""
+
+
 class KeyManager:
     """Manages API keys for cloud providers."""
 
@@ -274,6 +293,11 @@ class KeyManager:
         """Add or update an API key for a provider."""
         if provider not in PROVIDERS:
             return {"status": "error", "message": f"Unknown provider: {provider}. Available: {list(PROVIDERS.keys())}"}
+        api_key, err = clean_key(api_key)
+        if err:
+            return {"status": "error", "message": err}
+        if not api_key:
+            return {"status": "error", "message": "The key is empty."}
 
         # Reload first so a key added here does not clobber a disable written by
         # another path (brain failover, another process) between our load and save.
@@ -595,9 +619,26 @@ class KeyManager:
         if isinstance(entries, dict):
             if self._revive_transient(entries, provider):
                 self._save()
+            changed = False
             for label, entry in entries.items():
                 if isinstance(entry, dict) and entry.get("active"):
-                    return entry["key"]
+                    # Khoá lưu từ trước khi có clean_key mà lẫn chữ có dấu: KHÔNG đưa ra (mọi lời gọi sẽ hỏng với lỗi
+                    # mã hoá khó hiểu) — tắt nó và ghi lý do cho bảng «Stored Keys».
+                    fixed, err = clean_key(entry.get("key"))
+                    if err:
+                        entry["active"] = False
+                        entry["disable_reason"] = err
+                        changed = True
+                        logger.warning("cloud_api: key '%s' for %s disabled — %s", label, provider, err[:80])
+                        continue
+                    if fixed != entry.get("key"):
+                        entry["key"] = fixed
+                        changed = True
+                    if changed:
+                        self._save()
+                    return fixed
+            if changed:
+                self._save()
         # Fallback: env var
         env_var = PROVIDERS.get(provider, {}).get("env_var", "")
         return os.environ.get(env_var) if env_var else None
@@ -840,6 +881,10 @@ class KeyManager:
         - Nếu không có email → API Token (Authorization: Bearer).
         """
         import datetime as _dt
+        api_token, err = clean_key(api_token)
+        account_id, err2 = clean_key(account_id)
+        if err or err2:
+            return {"status": "error", "message": err or err2}
         self._keys.setdefault("cloudflare", {})[label] = {
             "key": api_token,
             "account_id": account_id,
