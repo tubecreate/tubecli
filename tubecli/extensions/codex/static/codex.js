@@ -1293,7 +1293,18 @@ const CODEX = (() => {
       hint.classList.add('warn');
       return;
     }
-    vsel.innerHTML = voices.map((v, i) => `<option value="${i}">${esc(v.name || v.id)}</option>`).join('');
+    // Gom theo engine (CapCut có hơn 200 giọng tiếng Anh — một danh sách liền là không dò nổi). Thứ tự nhóm theo lần
+    // xuất hiện: máy chủ để Edge mặc định đứng đầu. Giá trị option vẫn là chỉ số trong `voices`.
+    const ENGINE_NAMES = { edge: 'Edge', everai: 'EverAI', omnivoice: 'OmniVoice', capcut: 'CapCut' };
+    const groups = [];
+    voices.forEach((v, i) => {
+      const eng = String(v.engine || '');
+      let g = groups.find(x => x.eng === eng);
+      if (!g) groups.push(g = { eng: eng, items: [] });
+      g.items.push(`<option value="${i}">${esc(v.name || v.id)}</option>`);
+    });
+    vsel.innerHTML = groups.map(g => `<optgroup label="${esc(ENGINE_NAMES[g.eng] || g.eng)}">${g.items.join('')}</optgroup>`).join('');
+    vsel.value = '0';
     vsel.disabled = false;
     hint.textContent = t('codex.clone_voice_hint');
     $('cx-cl-go').disabled = false;

@@ -107,7 +107,10 @@ def work_items(shots: List[Dict]) -> List[Dict]:
         labels = diagram_labels(scene)
         if labels:
             item["labels"] = labels
-        out.append(item)
+        # Nhịp không có chữ nào (lời rỗng, bảng trống) thì khỏi gửi — Studio chép nguyên. Lời rỗng mà bảng CÓ chữ vẫn
+        # phải dịch: bỏ qua là chữ tiếng gốc nằm lại trên hình bản clone (nhịp lời rỗng có thật — lỗi chia lời .151).
+        if item["narration"] or len(item) > 2:
+            out.append(item)
     return out
 
 
@@ -149,14 +152,25 @@ def parse_reply(text: str) -> Dict[str, Dict]:
     shots = obj.get("shots") if isinstance(obj, dict) else None
     out: Dict[str, Dict] = {}
     for it in shots if isinstance(shots, list) else []:
-        if isinstance(it, dict) and it.get("id") is not None and _wordy(it.get("narration")):
+        if isinstance(it, dict) and it.get("id") is not None and (
+                _wordy(it.get("narration")) or isinstance(it.get("texts"), dict)
+                or isinstance(it.get("labels"), list) or _wordy(it.get("title"))):
             out[str(it["id"])] = it
     return out
 
 
 def missing(batch: List[Dict], got: Dict[str, Dict]) -> List[Dict]:
-    """Mục chưa có bản dịch dùng được — lời đọc rỗng khi bản gốc có chữ."""
-    return [it for it in batch if it["id"] not in got and _wordy(it.get("narration"))]
+    """Mục chưa có bản dịch dùng được: bản gốc có lời mà bản dịch không có lời, hay bản gốc chỉ có chữ trên
+    bảng / tiêu đề / nhãn mà không có mục trả về nào."""
+    out = []
+    for it in batch:
+        tr = got.get(it["id"])
+        if _wordy(it.get("narration")):
+            if not (tr and _wordy(tr.get("narration"))):
+                out.append(it)
+        elif not tr:
+            out.append(it)
+    return out
 
 
 def to_studio(items: List[Dict], got: Dict[str, Dict], scenes: Dict[str, Dict]) -> Dict[str, Dict]:
@@ -166,7 +180,10 @@ def to_studio(items: List[Dict], got: Dict[str, Dict], scenes: Dict[str, Dict]) 
         tr = got.get(it["id"])
         if not tr:
             continue
-        row: Dict[str, Any] = {"narration_text": " ".join(str(tr.get("narration") or "").split())}
+        row: Dict[str, Any] = {}
+        narration = " ".join(str(tr.get("narration") or "").split())
+        if it.get("narration") and _wordy(narration):
+            row["narration_text"] = narration
         if it.get("title") and _wordy(tr.get("title")):
             row["title"] = str(tr["title"]).strip()
         scene = scenes.get(it["id"])

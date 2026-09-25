@@ -62,6 +62,21 @@ ok(set(C.parse_reply('```json\n{"shots":[{"id":1,"narration":"Hi."},{"id":"2","n
    "bóc JSON trong ```json, bỏ mục lời rỗng")
 ok(C.parse_reply("sorry, no") == {} and C.parse_reply('{"shots": "x"}') == {}, "trả lời hỏng → {}")
 
+# Nhịp lời RỖNG mà bảng có chữ (lỗi chia lời .151 để lại) — vẫn phải dịch chữ, lời giữ rỗng.
+EMPTY = [{"id": 5, "storyboard_number": 5, "narration_text": "", "metadata": json.dumps({"scene": {"type": "board",
+          "head": "Tắm khuya", "hot": ""}})},
+         {"id": 6, "storyboard_number": 6, "narration_text": "", "metadata": "{}"}]
+wi = C.work_items(EMPTY)
+ok([x["id"] for x in wi] == ["5"], "nhịp không có chữ nào không gửi model; lời rỗng mà bảng có chữ thì gửi", wi)
+got_e = C.parse_reply('{"shots":[{"id":"5","narration":"","texts":{"head":"Late-night baths"}}]}')
+ok("5" in got_e and C.missing(wi, got_e) == [] and C.missing(wi, {}) == wi,
+   "trả lời chỉ có chữ bảng vẫn nhận; thiếu hẳn thì hỏi lại", got_e)
+row5 = C.to_studio(wi, got_e, {"5": json.loads(EMPTY[0]["metadata"])["scene"]})["5"]
+ok("narration_text" not in row5 and row5["scene"]["head"] == "Late-night baths",
+   "lời rỗng giữ rỗng, chữ trên bảng lấy bản dịch", row5)
+lost_narr = C.missing([{"id": "9", "narration": "Có lời."}], {"9": {"id": "9", "narration": "", "texts": {}}})
+ok(len(lost_narr) == 1, "bản gốc có lời mà bản dịch trả lời rỗng → coi như thiếu, hỏi lại", lost_narr)
+
 # ── 3–4: bước clone với model + Studio giả ────────────────────────────────────
 SRC = [{"id": i, "storyboard_number": i, "narration_text": f"Câu số {i} của bài.", "title": "",
         "metadata": json.dumps({"scene": {"type": "board", "head": f"Ý {i}", "hot": "", "sprite": "lib:k"}})}
