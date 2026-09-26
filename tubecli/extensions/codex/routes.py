@@ -54,8 +54,24 @@ ui_router = APIRouter(tags=["codex-ui"])
 
 @ui_router.get("/codex")
 async def serve_codex_ui(request: Request):
-    """Serve the task board page."""
-    return _static(os.path.join(_STATIC_DIR, "codex.html"), "text/html", request)
+    """Serve the task board page — JS/CSS gắn `?v=<bản lõi>` để mọi lớp đệm (trình duyệt, biên tunnel) lấy bản mới
+    ngay sau khi cập nhật lõi. User 26/9/2026: đã lên .159 mà bảng vẫn mở ở tab cũ vì còn giữ codex.js cũ."""
+    return _stamped_html(os.path.join(_STATIC_DIR, "codex.html"), request)
+
+
+def _stamped_html(path: str, request: Request):
+    """HTML của bảng với `src="/codex/codex.js?v=<bản>"`, `href="/codex/codex.css?v=<bản>"`; ETag kể cả bản lõi."""
+    from tubecli import __version__ as _ver
+    st = os.stat(path)
+    etag = f'W/"{int(st.st_mtime)}-{st.st_size}-{_ver}"'
+    headers = {"ETag": etag, "Cache-Control": "no-cache"}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    with open(path, "r", encoding="utf-8") as f:
+        html = f.read()
+    html = (html.replace('src="/codex/codex.js"', f'src="/codex/codex.js?v={_ver}"')
+                .replace('href="/codex/codex.css"', f'href="/codex/codex.css?v={_ver}"'))
+    return Response(html, media_type="text/html", headers=headers)
 
 
 @ui_router.get("/codex/{filename:path}")

@@ -50,7 +50,8 @@ const CODEX = (() => {
     progress: 'arrow_right',
   };
   // Bảng việc (25/9/2026): nhóm trạng thái của thanh lọc — máy chủ đếm (get_stats) và lọc (query_tasks) theo cùng tên.
-  const GROUPS = ['needs_you', 'working', 'backlog', 'done', 'stopped', 'all'];
+  // «Tất cả» đứng ĐẦU (user 26/9/2026): tab mặc định thì phải ở chỗ mắt nhìn trước.
+  const GROUPS = ['all', 'needs_you', 'working', 'backlog', 'done', 'stopped'];
   const PAGE = 50;
   // Bước «đang chạy» của thẻ: chỉ hỏi lại chi tiết thẻ đang mở khi task còn chạy.
   const LIVE_STATES = new Set(['queued', 'running']);
@@ -361,8 +362,10 @@ const CODEX = (() => {
   }
 
   async function refresh(manual) {
+    // Xoay ICON, không xoay cả nút (user 26/9/2026: «nó xoay luôn cái button chứ không phải xoay icon»).
     const btn = $('cx-refresh-btn');
-    if (manual && btn) btn.classList.add('cx-spin');
+    const spinEl = btn && (btn.querySelector('.material-symbols-outlined') || btn);
+    if (manual && spinEl) spinEl.classList.add('cx-spin');
     const results = await Promise.allSettled([
       fetchBoard(0, manual ? '' : state.etag),
       api('/worker'),
@@ -393,7 +396,7 @@ const CODEX = (() => {
     renderList(changed);
     renderMore();
     refreshOpenDetails();
-    if (manual && btn) setTimeout(() => btn.classList.remove('cx-spin'), 400);
+    if (manual && spinEl) setTimeout(() => spinEl.classList.remove('cx-spin'), 400);
   }
 
   async function loadMore() {

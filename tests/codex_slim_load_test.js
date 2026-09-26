@@ -72,6 +72,12 @@ check('sau hành động: bỏ chi tiết cũ, tải bảng không ETag, thẻ m
   /delete state\.detail\[taskId\];\s*state\.etag = '';/.test(after) && /loadDetail\(taskId, true\)/.test(after)
   && /delete state\.busy\[taskId\];\s*await afterAction\(taskId\);/.test(js) && /toast_retried[\s\S]{0,120}await afterAction\(rb\.id\);/.test(js));
 check('không có gì chạy thì hỏi thưa hơn', /state\.tick % 4 !== 0\) return;/.test(js));
+check('«Tất cả» đứng đầu thanh nhóm và là tab mặc định (26/9/2026)', /const GROUPS = \['all', 'needs_you'/.test(js) && /filter: 'all',/.test(js));
+check('nút làm mới xoay ICON, không xoay cả nút', /const spinEl = btn && \(btn\.querySelector\('\.material-symbols-outlined'\) \|\| btn\);/.test(js)
+  && /spinEl\.classList\.add\('cx-spin'\)/.test(js) && !/btn\.classList\.add\('cx-spin'\)/.test(js));
+check('codex.html gắn ?v=<bản lõi> vào JS/CSS — đệm trình duyệt/biên không giữ bản cũ sau cập nhật',
+  /def _stamped_html\(path: str, request: Request\)/.test(py) && /codex\.js\?v=\{_ver\}/.test(py) && /codex\.css\?v=\{_ver\}/.test(py)
+  && /return _stamped_html\(os\.path\.join\(_STATIC_DIR, "codex\.html"\), request\)/.test(py));
 
 console.log('── 3. Mở thẻ mới tải chi tiết ──────────────────────────────');
 const detail = slice('async function loadDetail(taskId, withEvents)', 'async function toggle(taskId)');
