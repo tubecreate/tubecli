@@ -61,7 +61,7 @@ const CODEX = (() => {
     tasks: [],            // last good snapshot, newest first
     stats: {},
     worker: null,
-    filter: 'needs_you',  // nhóm trạng thái (GROUPS) — máy chủ lọc
+    filter: 'all',        // nhóm trạng thái (GROUPS) — máy chủ lọc; mở ra đứng ở «Tất cả» (user 26/9/2026)
     kind: '',             // '' | 'video' | 'general'
     agent: '',            // assignee_id
     language: '',         // meta.language
@@ -335,14 +335,21 @@ const CODEX = (() => {
     pruneState();
   }
 
-  /** Lần mở đầu: đứng ở «Cần bạn» nếu có việc chờ, không thì «Đang chạy», không thì «Tất cả». */
+  /** Lần mở đầu đứng ở «Tất cả». Bản trước tự nhảy sang «Cần bạn» khi có việc chờ duyệt — user 26/9/2026: mở bảng
+      ra không biết task vừa thêm có đang chạy không (nó nằm ở tab khác). Giữ tên hàm: test cắt mã theo mốc này. */
   function pickFirstFilter() {
-    if (state.firstFilterPicked) return false;
     state.firstFilterPicked = true;
-    const s = state.stats || {};
-    const want = Number(s.needs_you || 0) > 0 ? 'needs_you' : (Number(s.working || 0) > 0 ? 'working' : 'all');
-    if (want !== state.filter) { state.filter = want; return true; }
     return false;
+  }
+
+  /** Vừa thêm việc: về «Tất cả», bỏ ô tìm và các bộ lọc, xếp mới nhất — thấy ngay task mới đang chạy ở đầu bảng. */
+  function showAllAfterCreate() {
+    state.filter = 'all';
+    state.kind = ''; state.agent = ''; state.language = ''; state.sort = 'newest';
+    state.search = '';
+    const inp = $('cx-search');
+    if (inp) inp.value = '';
+    state.etag = '';
   }
 
   async function refresh(manual) {
@@ -1818,6 +1825,7 @@ const CODEX = (() => {
       $('cx-new-step-done').classList.remove('hidden');
       const planBtn = $('cx-plan-btn');
       planBtn.disabled = false;
+      showAllAfterCreate();
       await refresh(false);
     } catch (e) {
       toast(t('codex.toast_action_failed', { error: e.message }), 'error');
@@ -2490,6 +2498,7 @@ const CODEX = (() => {
       $('cx-plan-btn').classList.add('hidden');
       $('cx-new-step-form').classList.add('hidden');
       $('cx-new-step-done').classList.remove('hidden');
+      showAllAfterCreate();
       await refresh(false);
     } catch (e) {
       // Loạt nhiều link đứt giữa đường: nói rõ đã tạo được mấy cái, kẻo bấm lại là có task trùng.
@@ -2501,6 +2510,7 @@ const CODEX = (() => {
         $('cx-plan-btn').classList.add('hidden');
         $('cx-new-step-form').classList.add('hidden');
         $('cx-new-step-done').classList.remove('hidden');
+        showAllAfterCreate();
         await refresh(false);
       }
     } finally {
