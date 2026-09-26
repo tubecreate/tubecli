@@ -328,8 +328,16 @@ const CODEX = (() => {
     if (data.stats) state.stats = data.stats;
     state.lanePauses = data.lane_pauses || {};
     if (data.now) state.clock = { iso: data.now, at: Date.now() };
-    // Thẻ đang mở đã tải chi tiết (goal, các bước, kết quả) → gắn lại, kẻo mỗi nhịp làm mới lại trắng.
-    state.tasks.forEach((x) => { const d = state.detail[x.id]; if (d) Object.assign(x, d); });
+    // Thẻ đang mở đã tải chi tiết (goal, các bước, kết quả) → gắn lại, kẻo mỗi nhịp làm mới lại trắng. Nhưng dòng bảng
+    // là bản MỚI hơn về trạng thái: user 26/9/2026 bấm Chạy lại xong thẻ vẫn «failed» tới khi F5 — chi tiết cũ (status,
+    // steps, error) đè lên dòng vừa tải, và vì status cũ không phải «đang chạy» nên không ai tải lại. Trạng thái khác
+    // nhau ⇒ chi tiết đã lỗi thời: bỏ nó (refreshOpenDetails/loadDetail tải lại), và trạng thái luôn lấy của dòng bảng.
+    state.tasks.forEach((x) => {
+      const d = state.detail[x.id];
+      if (!d) return;
+      if (d.status && x.status && d.status !== x.status) { delete state.detail[x.id]; return; }
+      Object.assign(x, d, x.status ? { status: x.status } : {});
+    });
     state.languages = Array.from(new Set(state.tasks.map(x => (x.meta && x.meta.language) || '').filter(Boolean))).sort();
     state.loaded = true;
     pruneState();
@@ -1219,9 +1227,20 @@ const CODEX = (() => {
       toast(t('codex.toast_action_failed', { error: e.message }), 'error');
     } finally {
       delete state.busy[taskId];
-      await refresh(false);
-      renderList(true);
+      await afterAction(taskId);
     }
+  }
+
+  /** Sau một hành động (chạy lại, huỷ, duyệt…): chi tiết đã tải của thẻ ấy lỗi thời → bỏ, tải bảng KHÔNG dùng ETag cũ,
+      thẻ đang mở thì tải lại chi tiết ngay — không phải F5 (user 26/9/2026). */
+  async function afterAction(taskId) {
+    delete state.detail[taskId];
+    state.etag = '';
+    try { await refresh(false); } catch (e) { /* nhịp sau */ }
+    if (state.expanded.has(taskId)) {
+      try { await loadDetail(taskId, true); } catch (e) { /* nhịp sau thử lại */ }
+    }
+    renderList(true);
   }
 
   function approve(id) { act(id, '/approve', { actor: ACTOR, note: '' }, 'codex.toast_approved'); }
@@ -1654,7 +1673,7 @@ const CODEX = (() => {
       state.retryBox = null;
       const task = (state.tasks || []).find(x => x.id === rb.id);
       toast(t('codex.toast_retried', { seq: task ? task.seq : '?' }), 'success');
-      await refresh(false);
+      await afterAction(rb.id);
     } catch (e) {
       toast(t('codex.toast_action_failed', { error: e.message }), 'error');
       $('cx-rt-go').disabled = false;

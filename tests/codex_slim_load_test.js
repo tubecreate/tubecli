@@ -64,7 +64,13 @@ const fb = slice('async function fetchBoard(offset, etag)', 'function applyBoard
 check('trang gửi If-None-Match và hiểu 304', /headers\['If-None-Match'\] = etag/.test(fb) && /resp\.status === 304\) return \{ unchanged: true \}/.test(fb));
 check('boardQuery xin view=board với nhóm/lọc/phân trang', /p\.set\('view', 'board'\)/.test(js) && /p\.set\('group'/.test(js) && /p\.set\('offset'/.test(js));
 const apply = slice('function applyBoard(data, append)', 'function pickFirstFilter()');
-check('mỗi nhịp gắn LẠI chi tiết của thẻ đang mở', /state\.tasks\.forEach\(\(x\) => \{ const d = state\.detail\[x\.id\]; if \(d\) Object\.assign\(x, d\); \}\)/.test(apply));
+check('mỗi nhịp gắn LẠI chi tiết của thẻ đang mở, nhưng trạng thái lấy của DÒNG BẢNG; lệch trạng thái thì bỏ chi tiết cũ',
+  /if \(d\.status && x\.status && d\.status !== x\.status\) \{ delete state\.detail\[x\.id\]; return; \}/.test(apply)
+  && /Object\.assign\(x, d, x\.status \? \{ status: x\.status \} : \{\}\)/.test(apply));
+const after = slice('async function afterAction(taskId)', 'function approve(id)');
+check('sau hành động: bỏ chi tiết cũ, tải bảng không ETag, thẻ mở tải lại chi tiết (26/9/2026: bấm Chạy lại phải F5)',
+  /delete state\.detail\[taskId\];\s*state\.etag = '';/.test(after) && /loadDetail\(taskId, true\)/.test(after)
+  && /delete state\.busy\[taskId\];\s*await afterAction\(taskId\);/.test(js) && /toast_retried[\s\S]{0,120}await afterAction\(rb\.id\);/.test(js));
 check('không có gì chạy thì hỏi thưa hơn', /state\.tick % 4 !== 0\) return;/.test(js));
 
 console.log('── 3. Mở thẻ mới tải chi tiết ──────────────────────────────');
