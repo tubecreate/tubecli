@@ -1,8 +1,13 @@
 """Built-in node: Web Search — lightweight search via HTTP.
 No browser needed. Uses requests + HTML parsing to extract search results.
-Optimized for speed: parallel requests, short timeouts, multiple fallbacks."""
+Optimized for speed: parallel requests, short timeouts, multiple fallbacks.
+
+Supports optional You.com search via the YOUCOM_API_KEY environment variable.
+When set, You.com search is tried first (with DuckDuckGo/Google fallback).
+"""
 from typing import Dict, Any, List
 from tubecli.nodes.base_node import BaseNode, PortType
+import os
 import requests
 import re
 import concurrent.futures
@@ -12,7 +17,7 @@ import time
 class WebSearchNode(BaseNode):
     node_type = "web_search"
     display_name = "🔍 Web Search"
-    description = "Fast web search via HTTP (no browser needed). Uses DuckDuckGo + Google fallback."
+    description = "Fast web search via HTTP (no browser needed). Uses DuckDuckGo + Google fallback, with optional You.com API (set YOUCOM_API_KEY)."
     icon = "🔍"
     category = "Network"
     config_schema = {
@@ -60,19 +65,27 @@ class WebSearchNode(BaseNode):
             }
 
     def _fast_search(self, query: str, num_results: int = 6) -> str:
-        """Fast search: try DuckDuckGo first (most reliable), then Google fallback.
+        """Fast search: try You.com API if configured, then DuckDuckGo + Google fallback.
         Uses short timeouts to avoid blocking."""
         
-        # Strategy: DuckDuckGo HTML is the most reliable for programmatic access
-        # Google often returns CAPTCHAs or blocks bot requests
-        
         results = []
+        youcom_key = os.environ.get("YOUCOM_API_KEY", "")
         
-        # 1. Try DuckDuckGo first (fast, reliable, no CAPTCHA)
-        try:
-            results = self._duckduckgo_search(query)
-        except Exception as e:
-            print(f"  [WebSearch] DuckDuckGo failed: {e}")
+        # 0. If YOUCOM_API_KEY is set, try You.com search API first
+        if youcom_key:
+            try:
+                results = self._youcom_search(query, youcom_key, num_results)
+                if results:
+                    print("  [WebSearch] Got results from You.com")
+            except Exception as e:
+                print(f"  [WebSearch] You.com failed: {e}")
+        
+        # 1. Try DuckDuckGo (fast, reliable, no CAPTCHA)
+        if not results:
+            try:
+                results = self._duckduckgo_search(query)
+            except Exception as e:
+                print(f"  [WebSearch] DuckDuckGo failed: {e}")
         
         # 2. If DuckDuckGo failed, try Google
         if not results:
@@ -274,3 +287,42 @@ class WebSearchNode(BaseNode):
             return results[:8]
         except Exception:
             return []
+
+    def _youcom_search(self, query: str, api_key: str, num_results: int = 10) -> list:
+        """Search via the You.com Search API using the provided API key.
+
+        Requires YOUCOM_API_KEY env var. Returns parsed results in the same
+        {title, snippet, link} format used by the other search backends.
+        """
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Accept": "application/json",
+        }
+        params = {
+            "q": query,
+            "num_web_results": num_results,
+        }
+        try:
+            resp = requests.get(
+                "https://api.you.com/api/v1/search",
+                params=params,
+                headers=headers,
+                timeout=10,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception:
+            return []
+
+        results = []
+        for item in data.get("web", {}).get("results", []):
+            title = (item.get("title") or "").strip()
+            snippet = (item.get("description") or item.get("snippet") or "").strip()
+            link = (item.get("url") or "").strip()
+            if title or link:
+                results.append({
+                    "title": title or link,
+                    "snippet": snippet,
+                    "link": link,
+                })
+        return results[:num_results]
