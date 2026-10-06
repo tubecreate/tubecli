@@ -69,6 +69,46 @@ _TERMINAL_HTML = """<!DOCTYPE html>
 
   term.onData(function(d){ if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'input', data: d })); });
   var rt; window.addEventListener('resize', function(){ clearTimeout(rt); rt = setTimeout(function(){ fit.fit(); sendResize(); }, 80); });
+
+  // Chép / dán (user 6/10/2026 «tôi không copy được»). Trước đây xterm gửi Ctrl+V xuống máy thành ^V, nên Codex CLI
+  // hiểu là «dán từ clipboard CỦA MÁY CHỦ» (không có) → «clipboard unavailable»; và Ctrl+C luôn là ngắt lệnh, không
+  // có cách nào chép chữ ra. Giờ như terminal quen tay:
+  //   · Ctrl/Cmd+V, Ctrl+Shift+V → trình duyệt tự dán (xterm gửi chữ kiểu bracketed paste — Codex nhận đúng là dán);
+  //   · Ctrl/Cmd+C khi ĐANG bôi đen, Ctrl+Shift+C → chép vùng chọn; không bôi đen → ^C ngắt lệnh như cũ;
+  //   · bôi đen xong là tự chép; chuột phải: có vùng chọn thì chép, không thì dán.
+  function legacyCopy(s) {
+    var ta = document.createElement('textarea');
+    ta.value = s; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); } catch (e) {}
+    document.body.removeChild(ta); term.focus();
+  }
+  function copyText(s) {
+    if (!s) return;
+    if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(s).catch(function(){ legacyCopy(s); });
+    else legacyCopy(s);
+  }
+  term.attachCustomKeyEventHandler(function(e){
+    if (e.type !== 'keydown') return true;
+    var k = String(e.key || '').toLowerCase(), mod = e.ctrlKey || e.metaKey;
+    if (mod && k === 'v') return false;                       // để trình duyệt dán → sự kiện paste của xterm
+    if (mod && k === 'c' && (e.shiftKey || term.hasSelection())) {
+      copyText(term.getSelection()); term.clearSelection(); e.preventDefault(); return false;
+    }
+    return true;
+  });
+  // Bôi đen là chép — bắt lúc THẢ CHUỘT: onSelectionChange của xterm không phát khi bôi lại đúng vùng vừa bỏ chọn
+  // (đo trong Chromium 6/10/2026), nên lần bôi đen thứ hai không chép gì.
+  document.getElementById('term').addEventListener('mouseup', function(){
+    setTimeout(function(){ if (term.hasSelection()) copyText(term.getSelection()); }, 0);
+  });
+  document.getElementById('term').addEventListener('contextmenu', function(e){
+    e.preventDefault();
+    if (term.hasSelection()) { copyText(term.getSelection()); term.clearSelection(); return; }
+    if (navigator.clipboard && navigator.clipboard.readText) {
+      navigator.clipboard.readText().then(function(tx){ if (tx) term.paste(tx); }).catch(function(){});
+    }
+  });
 })();
 </script>
 </body></html>"""
