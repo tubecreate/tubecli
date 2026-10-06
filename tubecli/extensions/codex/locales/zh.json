@@ -352,5 +352,18 @@
   "codex.ext_tpl_saved": "模板「{name}」已保存 — Content Studio 也能使用",
   "codex.toast_ext_required": "请填写：{field}",
   "codex.created_ext_title": "任务 #{seq} 已排队",
-  "codex.created_ext_desc": "流水线在本服务器上运行，可在看板上跟踪每一步。"
+  "codex.created_ext_desc": "流水线在本服务器上运行，可在看板上跟踪每一步。",
+  "codex.field_video_thumb": "绘制缩略图",
+  "codex.field_video_thumb_hint": "图像模型根据缩略图提示词绘制，以视频开场画面为参考图，并与视频一起保存到 Drive。提示词总会生成——可在任务中复制。",
+  "codex.field_video_thumb_style": "缩略图风格（可选）",
+  "codex.field_video_thumb_style_placeholder": "留空 = 贴合视频的画面与氛围",
+  "codex.section_thumb_prompt": "缩略图提示词",
+  "codex.action_thumb_prompt_show": "查看提示词",
+  "codex.action_thumb_prompt_make": "生成提示词",
+  "codex.action_thumb_prompt_rewrite": "重写",
+  "codex.action_copy_thumb_prompt": "复制提示词",
+  "codex.thumb_prompt_writing": "正在生成提示词…",
+  "codex.thumb_style_placeholder": "重写用的风格——留空 = 贴合视频",
+  "codex.thumb_prompt_no_script": "此任务还没有脚本——提示词根据脚本生成。",
+  "codex.toast_thumb_prompt_wait": "正在生成缩略图提示词——约需一分钟。"
 }

@@ -144,6 +144,11 @@ DEFAULTS: Dict[str, Any] = {
     # Ảnh đại diện qua Thumbnail Studio: tắt mặc định; chat "có thumbnail" hay lượt
     # tự động đăng bật lên. thumbnail_template = id mẫu ("" = Studio tự chọn họ mẫu).
     "thumbnail": False, "thumbnail_template": "",
+    # Prompt ảnh đại diện LUÔN viết (nút copy trên thẻ Codex + dòng trong Sheet); False = bỏ hẳn. thumbnail_engine
+    # "image" = ảnh vẽ một lượt bằng model ảnh từ prompt đó, ảnh hook làm tham chiếu (thumbnail_image_model
+    # "nhà|model", trống = Muse rồi gpt-image-2); khác = Thumbnail Studio. thumbnail_style = chữ thay dòng STYLE (trống
+    # = tự theo vibe video). Mẫu khai wizThumbAuto / wizThumbEngine / wizThumbModel / wizThumbStyle.
+    "thumbnail_prompt": True, "thumbnail_engine": "", "thumbnail_image_model": "", "thumbnail_style": "",
     # ── Lưu lên Google Drive (bước "drive", sau cùng) ────────────────
     # Thư mục mang tên tiêu đề: Sheet nội dung + video, ảnh, giọng từng cảnh. drive_token_id = token_id của
     # Auth Manager (form Codex chọn); trống = tài khoản Google đã cấp cho agent ở tab Auth.
@@ -6119,17 +6124,293 @@ def _resolve_thumb_template(state: Dict, want: str) -> str:
     return ""
 
 
+# ── Prompt ảnh đại diện + ảnh từ model vẽ (user 6/10/2026) ───────────
+# «thêm logic tạo prompt để tạo ảnh thumbnail phù hợp với nội dung, có button copy prompt thumbnail trên task, thêm
+# prompt vào sheet và cấu hình tự tạo ảnh thumbnail gửi lên drive qua model tạo ảnh» + «mỗi prompt có thể mang style
+# riêng chứ không làm chung 1 mẫu, prompt nhấn mạnh phần nội dung còn chừa style người dùng tự tuỳ biến» + «tạo tự
+# động dựa vào vibe của video» + «dùng ảnh hook để làm tham chiếu khi tạo tự động».
+# ⇒ Prompt = phần NỘI DUNG (cảnh hook, con số, tiêu đề — model của agent viết từ kịch bản) + MỘT dòng STYLE riêng:
+# tự suy theo vibe của chính video (style hình của mẫu + giọng kịch bản + ảnh mở đầu), hoặc chữ của người dùng
+# (thumbnail_style / wizThumbStyle của mẫu) thay nguyên dòng. Không có công thức chung cho mọi video.
+# Ảnh (khi bật) vẽ MỘT lượt từ prompt, ảnh nhịp 1 (hook) làm tham chiếu: Muse nhận ảnh tham chiếu, gpt-image-2 qua
+# 9router thì không ⇒ có ảnh hook thì Muse vẽ trước. Không lùi về FLUX: schnell không viết nổi dòng tiêu đề.
+THUMB_MODELS_WITH_REF = (("muse", "muse-image"), ("9router", "cx/gpt-image-2"))
+THUMB_MODELS_NO_REF = (("9router", "cx/gpt-image-2"), ("muse", "muse-image"))
+THUMB_REF_PROVIDERS = ("muse", "gemini")
+THUMB_SYSTEM = (
+    "You plan the YouTube thumbnail of the video described below; your answer becomes the prompt of an AI image "
+    "model. Reply with ONE JSON object only, no markdown:\n"
+    '{{"subject": "...", "headline": [{{"text": "...", "color": "..."}}], "style": "..."}}\n'
+    "- subject (English, 40-90 words): WHAT the picture shows - the hook of this video as one concrete scene: the main "
+    "subject drawn large, what is happening or what is wrong, the key number or contrast, and where things sit in the "
+    "frame (leave one side clear for the headline). Use only facts, numbers and names from the title and the script. "
+    "Never depict or name a real, identifiable person.\n"
+    "- headline: 1 to 3 lines, at most 6 words in total, written in {lang} with exact spelling and accents - a "
+    "curiosity gap or a bold claim the video really answers, never clickbait. Give each line a colour; the key words "
+    "stand out.\n"
+    "- style (English, 20-45 words): HOW it looks - medium, palette, lighting, headline lettering and mood - matching "
+    "the VIBE of this video (its visual style, its tone and its opening picture) so the thumbnail feels like the video. "
+    "No content in the style.\n"
+    "{user_style}"
+)
+THUMB_USER_STYLE = ("The user fixed the style: «{style}». Write the subject so it works in that style and copy that "
+                    "text as the style.\n")
+THUMB_REF_NOTE = (" The attached image is the opening shot of this video: keep its look, medium and main subject, and "
+                  "recompose it as a thumbnail following the SUBJECT and the HEADLINE above.")
+
+
+def _preset_wiz(preset_name: str) -> Dict[str, Any]:
+    """Thiết lập GỐC (khoá wiz*) của mẫu Studio — đọc khoá thumbnail; không có Studio / mẫu thì {}."""
+    name = str(preset_name or "").strip()
+    if not name:
+        return {}
+    try:
+        data = (_get("/api/v1/studio/presets", timeout=30) or {}).get("presets") or {}
+    except Exception as e:      # noqa: BLE001
+        logger.info(f"[ContentVideo] presets not readable for the thumbnail config: {e}")
+        return {}
+    got = data.get(name)
+    return dict(got) if isinstance(got, dict) else {}
+
+
+def thumb_config(preset_name: str, options: Optional[Dict] = None) -> Dict[str, Any]:
+    """Cấu hình ảnh đại diện của lượt này: form/chat > mẫu (wizThumb*).
+
+    style: chữ người dùng thay dòng STYLE (thumbnail_style / wizThumbStyle); trống = tự theo vibe video.
+    image: có vẽ ảnh không (options.thumbnail hay wizThumbAuto). engine: "image" = model vẽ một lượt; khác = Thumbnail
+    Studio (đường cũ). model: "nhà|model" (thumbnail_image_model / wizThumbModel); trống = Muse/gpt-image-2."""
+    options = options or {}
+    wiz = _preset_wiz(preset_name)
+    wiz_auto = _truthy(wiz.get("wizThumbAuto"), False)
+    return {
+        "style": str(options.get("thumbnail_style") or wiz.get("wizThumbStyle") or "").strip()[:600],
+        "image": bool(options.get("thumbnail")) or wiz_auto,
+        "engine": str(options.get("thumbnail_engine") or wiz.get("wizThumbEngine")
+                      or ("image" if wiz_auto else "")).strip().lower(),
+        "model": str(options.get("thumbnail_image_model") or wiz.get("wizThumbModel") or "").strip(),
+        "aspect": str(wiz.get("wizAspectRatio") or ""),
+    }
+
+
+def _hook_shot(episode_id: Any) -> Dict[str, Any]:
+    """Nhịp mở đầu của tập: {image: file ảnh nhịp đầu có ảnh, prompt: image_prompt, text: lời đọc}; {} khi không đọc
+    được. Ảnh chỉ lấy file trong DATA_DIR (_data_file) — đây là thứ sẽ gửi đi làm ảnh tham chiếu."""
+    try:
+        ep = int(episode_id or 0)
+    except (TypeError, ValueError):
+        return {}
+    if not ep:
+        return {}
+    try:
+        shots = sorted(_storyboards(ep), key=lambda s: float(s.get("storyboard_number") or 0))
+    except Exception as e:      # noqa: BLE001
+        logger.info(f"[ContentVideo] hook shot of ep{ep} not readable: {e}")
+        return {}
+    for sh in shots[:3]:
+        img = next((_data_file(v) for v in (sh.get("composed_image"), sh.get("image_url")) if _data_file(v)), "")
+        if img:
+            return {"image": img, "prompt": str(sh.get("image_prompt") or "")[:700],
+                    "text": str(sh.get("narration_text") or "")[:400]}
+    first = shots[0] if shots else {}
+    return {"image": "", "prompt": str(first.get("image_prompt") or "")[:700],
+            "text": str(first.get("narration_text") or "")[:400]} if first else {}
+
+
+def _thumb_opening(script: str, words: int = 180) -> Tuple[str, str]:
+    """(đoạn mở đầu ~180 chữ = hook, phần còn lại) từ kịch bản — bỏ dòng [SHOW: …] và «TITLE:»."""
+    narr = [n for _, n in scenes_of(script or "") if n]
+    text = " ".join(narr) if narr else " ".join(
+        ln for ln in str(script or "").splitlines() if ln.strip() and not ln.strip().upper().startswith(("TITLE:", "[SHOW")))
+    toks = text.split()
+    return " ".join(toks[:words]), " ".join(toks[words:words + 600])
+
+
+def _thumb_json(text: str) -> Dict[str, Any]:
+    t = re.sub(r"^```[a-zA-Z]*\s*|\s*```$", "", str(text or "").strip()).strip()
+    m = re.search(r"\{.*\}", t, re.S)
+    try:
+        got = json.loads(m.group(0) if m else t)
+    except Exception:       # noqa: BLE001
+        return {}
+    return got if isinstance(got, dict) else {}
+
+
+def compose_thumbnail_prompt(parts: Dict[str, Any], aspect: str, lang: str) -> str:
+    """Ghép phần NỘI DUNG + dòng STYLE thành prompt dán được vào model ảnh nào cũng hiểu. STYLE đứng riêng một dòng
+    để người dùng thay nguyên dòng mà nội dung không đổi."""
+    lines = []
+    for ln in parts.get("headline") or []:
+        if isinstance(ln, dict) and str(ln.get("text") or "").strip():
+            color = str(ln.get("color") or "").strip()
+            lines.append(f"\"{str(ln['text']).strip()}\"" + (f" ({color})" if color else ""))
+    out = [f"YouTube thumbnail, {aspect}.", f"SUBJECT: {' '.join(str(parts.get('subject') or '').split())}"]
+    if lines:
+        out.append(f"HEADLINE in {lang}, big bold letters spelled exactly, inside the center safe area with 8% margin: "
+                   + " / ".join(lines))
+    out.append(f"STYLE: {' '.join(str(parts.get('style') or '').split())}")
+    out.append("No other text, no watermark, no logo, no real person.")
+    return "\n".join(out)
+
+
+def write_thumbnail_prompt(agent: Any, title: str, script: str, language: str, aspect: str,
+                           video_style: str = "", hook: Optional[Dict] = None,
+                           user_style: str = "") -> Tuple[str, Dict[str, Any]]:
+    """(prompt, các phần) cho ảnh đại diện của video này — model của agent viết. Ném RuntimeError khi model hỏng."""
+    lang = language_name(language) if language else "English"
+    aspect = aspect if aspect in ("16:9", "9:16", "1:1", "4:3") else "16:9"
+    hook = hook or {}
+    opening, rest = _thumb_opening(script)
+    system = THUMB_SYSTEM.format(lang=lang, user_style=THUMB_USER_STYLE.format(style=user_style) if user_style else "")
+    user = (f"VIDEO TITLE: {title or ''}\nHEADLINE LANGUAGE: {lang}\nASPECT RATIO: {aspect}\n\n"
+            f"VISUAL STYLE OF THE VIDEO: {video_style[:900] or '(not set)'}\n"
+            f"OPENING PICTURE OF THE VIDEO: {hook.get('prompt') or '(unknown)'}\n\n"
+            f"OPENING OF THE SCRIPT (the hook):\n{opening}\n\nMORE OF THE SCRIPT (facts only):\n{rest}")
+    parts = _thumb_json(_ask_model(agent, system, user, 400))
+    if user_style:
+        parts["style"] = user_style
+    if len(str(parts.get("subject") or "").split()) < 8 or not str(parts.get("style") or "").strip():
+        raise RuntimeError(f"the model wrote no usable thumbnail plan: {str(parts)[:160]!r}")
+    parts["style_source"] = "user" if user_style else "auto"
+    return compose_thumbnail_prompt(parts, aspect, lang), parts
+
+
+def draw_thumbnail(prompt: str, out_path: str, aspect: str, model: str = "", reference: str = "") -> Tuple[str, str]:
+    """Vẽ ảnh đại diện MỘT lượt từ prompt → (đường dẫn, «nhà/model» đã vẽ); ảnh hook làm tham chiếu với nhà nhận ảnh.
+    Thử lần lượt; hỏng hết thì ném. Đuôi file theo bytes thật (Muse trả JPEG)."""
+    import asyncio
+    from tubecli.core import image_gen as _ig
+
+    ref = reference if reference and os.path.isfile(reference) else ""
+    if model:
+        prov, _, mod = model.partition("|")
+        chain = [(prov.strip() or None, mod.strip())] if mod else [(None, prov.strip())]
+    else:
+        chain = list(THUMB_MODELS_WITH_REF if ref else THUMB_MODELS_NO_REF)
+    ratio = aspect if aspect in ("16:9", "9:16", "1:1") else "16:9"
+    errors = []
+    for prov, mod in chain:
+        r = _ig.resolve_provider(prov, mod)
+        if not r.get("ok"):
+            errors.append(f"{prov or 'auto'}/{mod}: {str(r.get('reason') or 'not set up')[:100]}")
+            continue
+        r.pop("fallback", None)
+        refs = [ref] if ref and r.get("provider") in THUMB_REF_PROVIDERS else None
+        try:
+            res = asyncio.run(_ig.generate_image(prompt + (THUMB_REF_NOTE if refs else ""), out_path,
+                                                 aspect_ratio=ratio, reference_images=refs, timeout=300, resolved=r))
+        except Exception as e:      # noqa: BLE001
+            res = {"status": "error", "message": str(e)}
+        if str((res or {}).get("status")) == "success" and os.path.isfile(out_path):
+            with open(out_path, "rb") as f:
+                head = f.read(4)
+            ext = ".jpg" if head[:3] == b"\xff\xd8\xff" else ".webp" if head[:4] == b"RIFF" else ".png"
+            final = os.path.splitext(out_path)[0] + ext
+            if final != out_path:
+                os.replace(out_path, final)
+            return final, f"{res.get('provider') or r.get('provider')}/{res.get('model') or mod}" + (" +hook" if refs else "")
+        errors.append(f"{r.get('provider') or prov}/{mod}: {str((res or {}).get('message') or 'failed')[:120]}")
+    raise RuntimeError("no image model could draw the thumbnail — " + "; ".join(errors))
+
+
+def thumbnail_prompt_info(task_id: str) -> Dict[str, Any]:
+    """Prompt đã viết của task (nút trên thẻ Codex hỏi trước): {prompt, parts, can_write}."""
+    ck = dict(_read_checkpoint(str(task_id or "")) or {})
+    return {"prompt": str(ck.get("thumbnail_prompt") or ""), "parts": ck.get("thumbnail_parts") or {},
+            "can_write": bool(str(ck.get("script") or "").strip())}
+
+
+def thumbnail_prompt_for_task(task_id: str, force: bool = False, style: str = "") -> Dict[str, Any]:
+    """Prompt ảnh đại diện của một task video ĐÃ chạy (nút trên thẻ Codex): có trong checkpoint thì trả, chưa có
+    (hay force / đổi style) thì viết ngay từ kịch bản + tiêu đề + style của tập + ảnh mở đầu, ghi vào checkpoint và
+    đánh dấu meta. Ném ValueError khi task chưa có kịch bản."""
+    from tubecli.core.agent import agent_manager
+    from tubecli.extensions.codex.manager import codex_manager
+
+    task_id = str(task_id or "")
+    ck = dict(_read_checkpoint(task_id) or {})
+    style = str(style or "").strip()[:600]
+    if ck.get("thumbnail_prompt") and not force and not style:
+        return {"prompt": str(ck["thumbnail_prompt"]), "parts": ck.get("thumbnail_parts") or {}}
+    if not str(ck.get("script") or "").strip():
+        raise ValueError("This task has no script yet — the thumbnail prompt is written from the script.")
+    task = codex_manager.get_task(task_id) or {}
+    agent = agent_manager.get(str(task.get("assignee_id") or ""))
+    if agent is None:
+        raise ValueError("The agent of this task no longer exists — its model writes the thumbnail prompt.")
+    cfg = thumb_config(str(ck.get("preset") or ""))
+    video_style = _template_style({"preset": {}, "drama_id": ck.get("drama_id")})
+    prompt, parts = write_thumbnail_prompt(agent, str(ck.get("title") or task.get("title") or ""), str(ck["script"]),
+                                           str(ck.get("language") or ""), cfg["aspect"] or "16:9", video_style,
+                                           _hook_shot(ck.get("episode_id")), style or cfg["style"])
+    ck = dict(_read_checkpoint(task_id) or ck)
+    ck.update({"thumbnail_prompt": prompt, "thumbnail_parts": parts})
+    _write_checkpoint(task_id, ck)
+    _task_meta(task_id, thumb_prompt=1)
+    return {"prompt": prompt, "parts": parts}
+
+
 def _step_thumbnail(state: Dict, options: Dict) -> None:
-    """Ảnh đại diện qua Thumbnail Studio (/auto): AI lên tít ngắn theo kịch bản,
-    chọn họ mẫu (hoặc mẫu chỉ định), sinh ảnh Flux vào khe, dựng PNG. Lấy phương án A."""
-    if not options.get("thumbnail"):
-        state["_say"]("thumbnail", "skipped", "off")
+    """Ảnh đại diện: luôn VIẾT prompt (nút copy trên thẻ, dòng trong Sheet); VẼ ảnh khi bật — model ảnh một lượt với
+    ảnh hook làm tham chiếu (engine "image") hay Thumbnail Studio (đường cũ). Hỏng chỉ là cảnh báo (bước tuỳ chọn)."""
+    cfg = thumb_config(str(state.get("preset_name") or ""), options)
+    want_prompt = options.get("thumbnail_prompt", True) is not False
+    say = state["_say"]
+    if not want_prompt and not cfg["image"]:
+        say("thumbnail", "skipped", "off")
         return
     ck = state.get("checkpoint") or {}
+    aspect = str(state.get("aspect_ratio") or options.get("aspect_ratio") or cfg["aspect"] or DEFAULTS["aspect_ratio"])
+    use_model = cfg["image"] and cfg["engine"] == "image"
+    hook = _hook_shot(state.get("episode_id")) if (want_prompt or use_model) else {}
+    prompt = str(ck.get("thumbnail_prompt") or "")
+    if (want_prompt or use_model) and not prompt:
+        say("thumbnail", "running", "writing the thumbnail prompt")
+        try:
+            prompt, parts = write_thumbnail_prompt(state["agent"], str(state.get("title") or ""),
+                                                   str(state.get("script") or ""), str(state.get("language") or ""),
+                                                   aspect, _template_style(state), hook, cfg["style"])
+            _checkpoint_merge(state, {"thumbnail_prompt": prompt, "thumbnail_parts": parts})
+            _task_meta(state.get("task_id"), thumb_prompt=1)
+        except Exception as e:      # noqa: BLE001
+            if _is_cancel(e):
+                raise
+            # Prompt là đồ phụ: viết hỏng KHÔNG gắn ⚠️ cho cả video — nút «Write prompt» trên thẻ viết lại được.
+            prompt = ""
+            logger.warning(f"[ContentVideo] thumbnail prompt not written for {state.get('task_id')}: {e}")
+            say("thumbnail", "running", f"thumbnail prompt not written: {str(e)[:160]}")
+    if prompt:
+        state["thumbnail_prompt"] = prompt
+    if not cfg["image"]:
+        say("thumbnail", "running", "prompt ready — image off" if prompt else "no prompt")
+        return
     if ck.get("thumbnail_path") and os.path.isfile(str(ck["thumbnail_path"])):
         state["thumbnail_path"] = str(ck["thumbnail_path"])
-        state["_say"]("thumbnail", "skipped", f"already made: {os.path.basename(state['thumbnail_path'])}")
+        say("thumbnail", "skipped", f"already made: {os.path.basename(state['thumbnail_path'])}")
         return
+    if not use_model:
+        if not check_job("thumbnail")["ready"]:
+            state.setdefault("warnings", []).append(
+                "Thumbnail image skipped: Thumbnail Studio is not installed — choose the image model instead.")
+            return
+        return _thumbnail_studio(state, options)
+    if not prompt:
+        raise RuntimeError("No thumbnail prompt — the image model has nothing to draw.")
+    from tubecli.config import DATA_DIR
+
+    out_dir = os.path.join(str(DATA_DIR), "content_video", "thumbs", f"ep{state.get('episode_id') or 'x'}")
+    os.makedirs(out_dir, exist_ok=True)
+    say("thumbnail", "running", "drawing the thumbnail" + (" from the hook image" if hook.get("image") else ""))
+    path, drew = draw_thumbnail(prompt, os.path.join(out_dir, "thumbnail.png"), aspect, cfg["model"],
+                                str(hook.get("image") or ""))
+    state["thumbnail_path"] = path
+    state["thumbnail_template_used"] = drew
+    _checkpoint_merge(state, {"thumbnail_path": path})
+    say("thumbnail", "running", f"{os.path.basename(path)} · {drew}")
+
+
+def _thumbnail_studio(state: Dict, options: Dict) -> None:
+    """Đường cũ: Thumbnail Studio (/auto) — AI lên tít ngắn theo kịch bản, chọn họ mẫu (hoặc mẫu chỉ định), sinh ảnh
+    Flux vào khe, dựng PNG. Lấy phương án A."""
     from tubecli.config import DATA_DIR
 
     agent = state["agent"]
@@ -6926,6 +7207,8 @@ def _drive_tabs(state: Dict, shots: List[Dict], links: Dict[str, str], rec: Dict
         # Lớp phủ để chồng lên các file trong scenes/ — xem cột «Scene video».
         ["Layout overlay", links.get("layout", "")],
         ["Thumbnail", links.get("thumbnail", "")],
+        # Prompt vẽ ảnh đại diện (bước thumbnail) — copy dán vào model ảnh nào cũng được.
+        ["Thumbnail prompt", state.get("thumbnail_prompt") or (state.get("checkpoint") or {}).get("thumbnail_prompt") or ""],
         ["Subtitles (.srt)", links.get("subtitles", "")],
         ["Subtitles (.srt, download)", links.get("subtitles#dl", "")],
         ["Google Drive folder", rec.get("folder_url") or ""],
@@ -7179,6 +7462,11 @@ def plan(options: Dict[str, Any]) -> List[Dict[str, Any]]:
         # định TẮT, nên một kế hoạch không nhắc đến đăng thì không hiện là sẽ đăng.
         wanted = bool(options.get(sid, DEFAULTS.get(sid, True)))
         cap = check_job(job)
+        if sid == "thumbnail":
+            # Prompt ảnh đại diện luôn viết bằng model của agent; Thumbnail Studio chỉ cần khi VẼ ảnh bằng nó.
+            wanted = wanted or options.get("thumbnail_prompt", True) is not False
+            if not (options.get("thumbnail") and str(options.get("thumbnail_engine") or "").lower() != "image"):
+                cap = {"ready": True, "missing": [], "disabled": []}
         out.append({"step": sid, "label": label, "job": job, "enabled": wanted,
                     "available": cap["ready"], "will_run": wanted and cap["ready"],
                     "blocked_by": cap["missing"] + cap["disabled"] + (cap.get("missing_tools") or []),
@@ -7242,11 +7530,14 @@ def _run_steps(steps, state: Dict, options: Dict, say, cancelled,
     for sid, label, job, optional in steps:
         if cancelled():
             raise _cancel_exc()
-        if not options.get(sid, True):
+        # Bước ảnh đại diện LUÔN chạy để viết prompt (nút copy trên thẻ + dòng Sheet): _step_thumbnail tự quyết có vẽ
+        # ảnh không và chỉ cần Thumbnail Studio khi vẽ bằng nó.
+        thumb = sid == "thumbnail"
+        if not thumb and not options.get(sid, True):
             say(sid, "skipped", "turned off")
             continue
 
-        cap = check_job(job)
+        cap = {"ready": True} if thumb else check_job(job)
         if not cap["ready"]:
             gaps = ", ".join(cap["missing"] + cap["disabled"] + (cap.get("missing_tools") or []))
             if optional:
@@ -7909,7 +8200,8 @@ def run_drive_sync(payload: Dict[str, Any], report: Optional[Callable[..., None]
     options, state, say, cancelled = ctx["options"], ctx["state"], ctx["say"], ctx["cancelled"]
     # Thư mục / Sheet ghi vào checkpoint của task GỐC (state["task_id"]); tài khoản thì hỏi người tạo task ĐỒNG BỘ.
     state["plan_task_id"] = str(payload.get("task_id") or "")
-    for key in ("title", "script", "language", "episode_id", "drama_id", "published", "thumbnail_path", "seo"):
+    for key in ("title", "script", "language", "episode_id", "drama_id", "published", "thumbnail_path", "seo",
+                "thumbnail_prompt"):
         if src_ck.get(key) not in (None, ""):
             state[key] = src_ck[key]
     state["video_path"] = video

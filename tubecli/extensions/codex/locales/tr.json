@@ -352,5 +352,18 @@
   "codex.ext_tpl_saved": "«{name}» şablonu kaydedildi — Content Studio da kullanabilir",
   "codex.toast_ext_required": "Eksik: {field}",
   "codex.created_ext_title": "Görev #{seq} kuyruğa alındı",
-  "codex.created_ext_desc": "İş hattı bu sunucuda çalışır; adımları panodan izleyin."
+  "codex.created_ext_desc": "İş hattı bu sunucuda çalışır; adımları panodan izleyin.",
+  "codex.field_video_thumb": "Küçük resmi çiz",
+  "codex.field_video_thumb_hint": "Bir görsel modeli, videonun açılış sahnesini referans alarak küçük resim isteminden çizer ve videoyla birlikte Drive'a kaydeder. İstem her zaman yazılır — görevden kopyalayabilirsiniz.",
+  "codex.field_video_thumb_style": "Küçük resim stili (isteğe bağlı)",
+  "codex.field_video_thumb_style_placeholder": "Boş = videonun görünümü ve havası",
+  "codex.section_thumb_prompt": "Küçük resim istemi",
+  "codex.action_thumb_prompt_show": "İstemi göster",
+  "codex.action_thumb_prompt_make": "İstem yaz",
+  "codex.action_thumb_prompt_rewrite": "Yeniden yaz",
+  "codex.action_copy_thumb_prompt": "İstemi kopyala",
+  "codex.thumb_prompt_writing": "İstem yazılıyor…",
+  "codex.thumb_style_placeholder": "Yeniden yazma stili — boş = videoya uygun",
+  "codex.thumb_prompt_no_script": "Bu görevin henüz senaryosu yok — istem senaryodan yazılır.",
+  "codex.toast_thumb_prompt_wait": "Küçük resim istemi yazılıyor — yaklaşık bir dakika."
 }

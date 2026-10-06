@@ -352,5 +352,18 @@
   "codex.ext_tpl_saved": "템플릿 «{name}» 저장됨 — Content Studio에서도 사용할 수 있습니다",
   "codex.toast_ext_required": "입력 필요: {field}",
   "codex.created_ext_title": "작업 #{seq} 대기열 추가됨",
-  "codex.created_ext_desc": "파이프라인은 이 서버에서 실행됩니다. 보드에서 단계를 확인하세요."
+  "codex.created_ext_desc": "파이프라인은 이 서버에서 실행됩니다. 보드에서 단계를 확인하세요.",
+  "codex.field_video_thumb": "썸네일 이미지 그리기",
+  "codex.field_video_thumb_hint": "이미지 모델이 썸네일 프롬프트로 그리며, 영상의 첫 장면을 참고 이미지로 사용하고 영상과 함께 Drive에 저장합니다. 프롬프트는 항상 작성되며 작업 카드에서 복사할 수 있습니다.",
+  "codex.field_video_thumb_style": "썸네일 스타일 (선택)",
+  "codex.field_video_thumb_style_placeholder": "비워 두면 영상의 느낌과 분위기를 따릅니다",
+  "codex.section_thumb_prompt": "썸네일 프롬프트",
+  "codex.action_thumb_prompt_show": "프롬프트 보기",
+  "codex.action_thumb_prompt_make": "프롬프트 작성",
+  "codex.action_thumb_prompt_rewrite": "다시 쓰기",
+  "codex.action_copy_thumb_prompt": "프롬프트 복사",
+  "codex.thumb_prompt_writing": "프롬프트 작성 중…",
+  "codex.thumb_style_placeholder": "다시 쓸 스타일 — 비워 두면 영상에 맞춤",
+  "codex.thumb_prompt_no_script": "이 작업에는 아직 대본이 없습니다 — 프롬프트는 대본으로 작성됩니다.",
+  "codex.toast_thumb_prompt_wait": "썸네일 프롬프트 작성 중 — 1분 정도 걸립니다."
 }

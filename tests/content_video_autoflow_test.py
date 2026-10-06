@@ -161,6 +161,8 @@ _TPL_ROWS = [{"id": "bible_epic", "display": "Bible · Epic", "builtin": True},
 
 def _get_thumb(path, timeout=60):
     gets.append(path)
+    if path.endswith("/studio/presets"):          # cấu hình ảnh đại diện của mẫu (wizThumb*) — mẫu không khai
+        return {"presets": {}}
     if path.endswith("/thumbnail/templates"):     # tra tên mẫu người dùng chỉ định
         return {"templates": _TPL_ROWS}
     return next(polls)
@@ -174,7 +176,11 @@ st = {"agent": _A3(), "title": "El Dios Invisible", "script": "w " * 3000, "vide
       "episode_id": 7, "channel_resolved": {"id": "UC2", "name": "Cinematic Bible", "token_id": "tokB", "about": ""},
       "preset": {"name": "p", "fields": {"metadata": {"thumbnail_template": "bible_epic"}}},
       "_say": lambda *a: said.append(a), "_cancelled": lambda: False}
-P._step_thumbnail(st, {"thumbnail": True})
+# Đoạn này canh đường Thumbnail Studio: tắt prompt ảnh đại diện (có test riêng: content_video_thumb_prompt_test.py).
+_check_job = P.check_job
+P.check_job = lambda job: {"ready": True, "missing": [], "disabled": []}
+P._step_thumbnail(st, {"thumbnail": True, "thumbnail_prompt": False})
+P.check_job = _check_job
 assert posts[0][0] == "/api/v1/thumbnail/auto" and posts[0][1]["template_id"] == "bible_epic" and posts[0][1]["n"] == 1
 assert posts[0][1]["channel"] == "Cinematic Bible" and posts[0][1]["lang"] == "es" and posts[0][1]["platform"] == "youtube" and len(posts[0][1]["script"]) <= 2500
 assert st["thumbnail_path"] == png and st["thumbnail_template_used"] == "news" and st["_ck"] == {"thumbnail_path": png}
@@ -183,8 +189,8 @@ assert [g for g in gets if "/jobs/" in g] == ["/api/v1/thumbnail/jobs/job1"] * 2
 assert "/api/v1/thumbnail/templates" in gets, "mẫu chỉ định được tra tên ở Studio"
 posts.clear()
 st3 = {"agent": _A3(), "_say": lambda *a: said.append(a), "_cancelled": lambda: False}
-P._step_thumbnail(st3, {})
-assert posts == [] and said[-1][1] == "skipped", "mặc định tắt"
+P._step_thumbnail(st3, {"thumbnail_prompt": False})
+assert posts == [] and said[-1][1] == "skipped", "ảnh mặc định tắt; tắt cả prompt thì bỏ hẳn bước"
 assert P.DEFAULTS["thumbnail"] is False and any(s[0] == "thumbnail" for s in P.RENDER_STEPS) and "thumbnail" in P.SOFT_FAIL_STEPS
 assert [s[0] for s in P.RENDER_STEPS][-4:] == ["render", "thumbnail", "publish", "drive"]
 # 5b. TÊN mẫu người dùng gõ → id thật, tra ở Thumbnail Studio; sai tên thì cảnh báo

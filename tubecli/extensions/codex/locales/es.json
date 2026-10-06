@@ -352,5 +352,18 @@
   "codex.ext_tpl_saved": "Plantilla «{name}» guardada — Content Studio también puede usarla",
   "codex.toast_ext_required": "Falta: {field}",
   "codex.created_ext_title": "Tarea #{seq} en cola",
-  "codex.created_ext_desc": "La canalización se ejecuta en este servidor; sigue sus pasos en el tablero."
+  "codex.created_ext_desc": "La canalización se ejecuta en este servidor; sigue sus pasos en el tablero.",
+  "codex.field_video_thumb": "Dibujar la miniatura",
+  "codex.field_video_thumb_hint": "Un modelo de imagen la dibuja a partir del prompt de la miniatura, con la escena inicial del vídeo como referencia, y se guarda en Drive junto al vídeo. El prompt siempre se escribe: cópialo desde la tarea.",
+  "codex.field_video_thumb_style": "Estilo de la miniatura (opcional)",
+  "codex.field_video_thumb_style_placeholder": "Vacío = el aspecto y el ambiente del vídeo",
+  "codex.section_thumb_prompt": "Prompt de la miniatura",
+  "codex.action_thumb_prompt_show": "Ver prompt",
+  "codex.action_thumb_prompt_make": "Escribir prompt",
+  "codex.action_thumb_prompt_rewrite": "Reescribir",
+  "codex.action_copy_thumb_prompt": "Copiar prompt",
+  "codex.thumb_prompt_writing": "Escribiendo el prompt…",
+  "codex.thumb_style_placeholder": "Estilo para reescribir — vacío = el del vídeo",
+  "codex.thumb_prompt_no_script": "Esta tarea aún no tiene guion — el prompt se escribe a partir del guion.",
+  "codex.toast_thumb_prompt_wait": "Escribiendo el prompt de la miniatura — cerca de un minuto."
 }

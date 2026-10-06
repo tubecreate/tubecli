@@ -191,7 +191,9 @@ reports.clear()
 out3 = P.run_render({"kind": P.KIND_RENDER, "task_id": "r1", "agent_id": "a1", "script": "[SHOW: x]\ny", "title": "T",
                      "options": {"aspect_ratio": "9:16"}}, lambda *a: reports.append(a), lambda: False)
 assert out3.startswith("## ✅") and "episode_34_pipeline_export.mp4" in out3 and "Accept" in out3
-assert [r[0] for r in reports if r[1] == "success"] == ["capabilities", "studio", "images", "tts", "render"]
+# «thumbnail» luôn chạy (6/10/2026): viết prompt ảnh đại diện cho nút copy trên thẻ — model giả không trả JSON nên
+# prompt không có, bước vẫn xong và KHÔNG gắn ⚠️ cho video.
+assert [r[0] for r in reports if r[1] == "success"] == ["capabilities", "studio", "images", "tts", "render", "thumbnail"]
 ep_payload = next(p for path, p in posts if path.endswith("/episodes"))
 assert ep_payload["script_content"] == "[SHOW: x]\ny" and ep_payload["title"] == "T"
 try:

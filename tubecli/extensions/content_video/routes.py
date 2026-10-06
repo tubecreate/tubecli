@@ -294,3 +294,31 @@ async def drive_sync_start(task_id: str, req: DriveSyncRequest, request: Request
     except ValueError as e:
         raise HTTPException(400, str(e))
     return {"status": "queued", "task": task}
+
+
+class ThumbPromptRequest(BaseModel):
+    force: bool = False         # viết lại dù đã có
+    style: str = ""             # chữ thay dòng STYLE; trống = tự theo vibe video
+
+
+@router.get("/tasks/{task_id}/thumbnail-prompt")
+async def thumbnail_prompt_get(task_id: str, request: Request):
+    """Prompt ảnh đại diện đã viết của task (nút «Thumbnail prompt» trên thẻ Codex hỏi trước)."""
+    _deny_guests(request)
+    from tubecli.extensions.content_video.pipeline import thumbnail_prompt_info
+
+    return await asyncio.to_thread(thumbnail_prompt_info, task_id)
+
+
+@router.post("/tasks/{task_id}/thumbnail-prompt")
+async def thumbnail_prompt_make(task_id: str, req: ThumbPromptRequest, request: Request):
+    """Viết (hay viết lại) prompt ảnh đại diện từ kịch bản + style + ảnh mở đầu của task — task cũ cũng được."""
+    _deny_guests(request)
+    from tubecli.extensions.content_video.pipeline import thumbnail_prompt_for_task
+
+    try:
+        return await asyncio.to_thread(thumbnail_prompt_for_task, task_id, req.force, req.style)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except RuntimeError as e:
+        raise HTTPException(502, str(e))

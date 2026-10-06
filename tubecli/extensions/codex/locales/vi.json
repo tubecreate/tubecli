@@ -352,5 +352,18 @@
   "codex.ext_tpl_saved": "Đã lưu mẫu «{name}» — Content Studio cũng dùng được",
   "codex.toast_ext_required": "Còn thiếu: {field}",
   "codex.created_ext_title": "Việc #{seq} đã vào hàng",
-  "codex.created_ext_desc": "Dây chuyền chạy trên máy này; theo dõi từng bước ngay trên bảng."
+  "codex.created_ext_desc": "Dây chuyền chạy trên máy này; theo dõi từng bước ngay trên bảng.",
+  "codex.field_video_thumb": "Vẽ ảnh thumbnail",
+  "codex.field_video_thumb_hint": "Model ảnh vẽ từ prompt thumbnail, lấy cảnh mở đầu của video làm ảnh tham chiếu, rồi lên Drive cùng video. Prompt thì luôn được viết — sao chép trên thẻ task.",
+  "codex.field_video_thumb_style": "Style thumbnail (tuỳ chọn)",
+  "codex.field_video_thumb_style_placeholder": "Để trống = theo đúng chất và không khí của video",
+  "codex.section_thumb_prompt": "Prompt thumbnail",
+  "codex.action_thumb_prompt_show": "Xem prompt",
+  "codex.action_thumb_prompt_make": "Viết prompt",
+  "codex.action_thumb_prompt_rewrite": "Viết lại",
+  "codex.action_copy_thumb_prompt": "Sao chép prompt",
+  "codex.thumb_prompt_writing": "Đang viết prompt…",
+  "codex.thumb_style_placeholder": "Style khi viết lại — để trống = theo video",
+  "codex.thumb_prompt_no_script": "Task này chưa có kịch bản — prompt được viết từ kịch bản.",
+  "codex.toast_thumb_prompt_wait": "Đang viết prompt thumbnail — khoảng một phút."
 }

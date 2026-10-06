@@ -290,6 +290,22 @@
             </div>
           </div>
 
+          <!-- Ảnh đại diện: prompt LUÔN viết (nút copy trên thẻ + dòng trong Sheet). Bật ô này thì model ảnh vẽ luôn từ
+               prompt đó, ảnh hook làm tham chiếu, rồi lên Drive cùng video. Ô style thay dòng STYLE của prompt. -->
+          <label class="cx-check">
+            <input type="checkbox" id="cx-v-thumb">
+            <span>
+              <strong data-i18n="codex.field_video_thumb">Draw the thumbnail image</strong>
+              <em data-i18n="codex.field_video_thumb_hint">An image model draws it from the thumbnail prompt, using the video's opening shot as the reference, and it goes to Drive with the video. The prompt itself is always written — copy it from the task.</em>
+            </span>
+          </label>
+          <div class="cx-field">
+            <label for="cx-v-thumb-style" data-i18n="codex.field_video_thumb_style">Thumbnail style (optional)</label>
+            <input type="text" id="cx-v-thumb-style" maxlength="600"
+                   data-i18n-placeholder="codex.field_video_thumb_style_placeholder"
+                   placeholder="Empty = match the look and mood of the video">
+          </div>
+
           <div class="cx-field">
             <label for="cx-v-title" data-i18n="codex.field_title">Title (optional)</label>
             <input type="text" id="cx-v-title"

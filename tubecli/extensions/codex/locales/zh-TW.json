@@ -352,5 +352,18 @@
   "codex.ext_tpl_saved": "範本「{name}」已儲存 — Content Studio 也能使用",
   "codex.toast_ext_required": "請填寫：{field}",
   "codex.created_ext_title": "任務 #{seq} 已排隊",
-  "codex.created_ext_desc": "流水線在本伺服器上執行，可在看板上追蹤每一步。"
+  "codex.created_ext_desc": "流水線在本伺服器上執行，可在看板上追蹤每一步。",
+  "codex.field_video_thumb": "繪製縮圖",
+  "codex.field_video_thumb_hint": "圖像模型依縮圖提示詞繪製，以影片開場畫面為參考圖，並與影片一起存到 Drive。提示詞一定會產生——可在任務中複製。",
+  "codex.field_video_thumb_style": "縮圖風格（選填）",
+  "codex.field_video_thumb_style_placeholder": "留空 = 貼合影片的畫面與氛圍",
+  "codex.section_thumb_prompt": "縮圖提示詞",
+  "codex.action_thumb_prompt_show": "查看提示詞",
+  "codex.action_thumb_prompt_make": "產生提示詞",
+  "codex.action_thumb_prompt_rewrite": "重寫",
+  "codex.action_copy_thumb_prompt": "複製提示詞",
+  "codex.thumb_prompt_writing": "正在產生提示詞…",
+  "codex.thumb_style_placeholder": "重寫用的風格——留空 = 貼合影片",
+  "codex.thumb_prompt_no_script": "此任務還沒有腳本——提示詞依腳本產生。",
+  "codex.toast_thumb_prompt_wait": "正在產生縮圖提示詞——約需一分鐘。"
 }

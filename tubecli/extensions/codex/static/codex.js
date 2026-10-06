@@ -94,6 +94,7 @@ const CODEX = (() => {
     googleTokens: null,       // tài khoản Google của Auth Manager cho «Lưu lên Google Drive»; false = tải hỏng
     googleTokensError: '',
     driveSync: null,          // hộp «Đồng bộ lên Drive»: { id, deleteAfter, info }
+    thumbPrompts: {},         // taskId -> { prompt, style, busy } — prompt ảnh đại diện đã tải trên thẻ
     laneChoice: null,         // hàm resolve của hộp «đang có video chạy» (đợi người dùng chọn)
     auto: true,
     loaded: false,
@@ -925,6 +926,9 @@ const CODEX = (() => {
           ${mediaPreviewHtml(task)}
           <pre class="cx-pre">${linkify(esc(task.result))}</pre>
         </div>`);
+    }
+    if (task.lane === 'video' && !THUMB_HIDDEN.has(task.status) && !/^Drive:/.test(task.title || '')) {
+      parts.push(thumbPromptHtml(task));
     }
 
     // 4. Hoạt động — mở khi đang chạy, gấp khi đã xong.
@@ -1905,6 +1909,91 @@ const CODEX = (() => {
     }
   }
 
+  // ── Prompt ảnh đại diện (task video) ───────────────────────────
+  // NỘI DUNG (cảnh hook, tiêu đề) + một dòng STYLE riêng: tự theo vibe của video, hay chữ người dùng gõ để viết lại.
+  // Task cũ chưa có prompt thì bấm là viết ngay từ kịch bản đã lưu.
+  const THUMB_HIDDEN = new Set(['backlog', 'pending_approval', 'queued']);
+  function thumbPromptUrl(id) {
+    return '/api/v1/content-video/tasks/' + encodeURIComponent(id) + '/thumbnail-prompt';
+  }
+
+  function thumbPromptHtml(task) {
+    const id = esc(task.id);
+    const tp = state.thumbPrompts[task.id] || {};
+    const has = !!(task.meta && task.meta.thumb_prompt);
+    const dis = tp.busy ? ' disabled' : '';
+    const btn = (fn, ic, label) =>
+      `<button type="button" class="cx-btn cx-btn-sm cx-btn-ghost" onclick="CODEX.${fn}('${id}')"${dis}>${icon(ic)}${esc(t(label))}</button>`;
+    const actions = tp.busy
+      ? `<span class="cx-thumb-busy"><span class="cx-spin-dot"></span>${esc(t('codex.thumb_prompt_writing'))}</span>`
+      : (tp.prompt
+        ? btn('copyThumbPrompt', 'content_copy', 'codex.action_copy_thumb_prompt')
+        : btn('showThumbPrompt', has ? 'visibility' : 'edit_note', has ? 'codex.action_thumb_prompt_show' : 'codex.action_thumb_prompt_make'));
+    const body = !tp.prompt ? '' : `<pre class="cx-pre">${esc(tp.prompt)}</pre>
+        <div class="cx-thumb-restyle">
+          <input type="text" class="cx-thumb-style" id="cx-tp-style-${id}" maxlength="600" value="${esc(tp.style || '')}"
+                 placeholder="${esc(t('codex.thumb_style_placeholder'))}" aria-label="${esc(t('codex.field_video_thumb_style'))}"
+                 onchange="CODEX.setThumbStyle('${id}', this.value)">
+          ${btn('rewriteThumbPrompt', 'refresh', 'codex.action_thumb_prompt_rewrite')}
+        </div>`;
+    return `<div class="cx-section">
+        <div class="cx-section-head">
+          <div class="cx-section-title">${icon('image')}${esc(t('codex.section_thumb_prompt'))}</div>
+          ${actions}
+        </div>
+        ${body}
+      </div>`;
+  }
+
+  function setThumbStyle(id, value) {
+    state.thumbPrompts[id] = Object.assign({}, state.thumbPrompts[id] || {}, { style: String(value || '').slice(0, 600) });
+  }
+
+  async function loadThumbPrompt(id, force) {
+    const cur = state.thumbPrompts[id] || {};
+    if (cur.busy) return;
+    state.thumbPrompts[id] = Object.assign({}, cur, { busy: true });
+    renderList(true);
+    try {
+      let data = force ? null : await request(thumbPromptUrl(id));
+      if (!data || !data.prompt) {
+        if (data && data.can_write === false) throw new Error(t('codex.thumb_prompt_no_script'));
+        toast(t('codex.toast_thumb_prompt_wait'), 'info');
+        data = await request(thumbPromptUrl(id), {
+          method: 'POST', body: JSON.stringify({ force: !!force, style: String(cur.style || '').trim() }),
+        });
+      }
+      const parts = (data && data.parts) || {};
+      state.thumbPrompts[id] = {
+        prompt: (data && data.prompt) || '',
+        style: cur.style || (parts.style_source === 'user' ? parts.style || '' : ''),
+      };
+    } catch (e) {
+      state.thumbPrompts[id] = Object.assign({}, cur, { busy: false });
+      toast(t('codex.toast_action_failed', { error: e.message }), 'error');
+    }
+    renderList(true);
+  }
+
+  function showThumbPrompt(id) { return loadThumbPrompt(id, false); }
+
+  function rewriteThumbPrompt(id) {
+    const el = $('cx-tp-style-' + id);
+    if (el) setThumbStyle(id, el.value);
+    return loadThumbPrompt(id, true);
+  }
+
+  async function copyThumbPrompt(id) {
+    const tp = state.thumbPrompts[id] || {};
+    if (!tp.prompt) return;
+    try {
+      await navigator.clipboard.writeText(tp.prompt);
+      toast(t('codex.toast_copied'), 'success');
+    } catch (e) {
+      toast(t('codex.toast_action_failed', { error: e.message }), 'error');
+    }
+  }
+
   // ── Planning ───────────────────────────────────────────────────
   async function planTask(taskId) {
     if (state.planning[taskId]) return;
@@ -1944,6 +2033,8 @@ const CODEX = (() => {
     $('cx-v-instructions').value = lsGet(CV_INSTR_KEY) || '';
     $('cx-v-drive').checked = lsGet(CV_DRIVE_KEY) === '1';
     $('cx-v-drive-share').value = lsGet(CV_DRIVE_SHARE_KEY) === 'private' ? 'private' : 'public';
+    $('cx-v-thumb').checked = lsGet(CV_THUMB_KEY) === '1';
+    $('cx-v-thumb-style').value = lsGet(CV_THUMB_STYLE_KEY) || '';
     state.googleTokens = null;          // nạp lại mỗi lần mở: có thể vừa cấp quyền tài khoản mới
     $('cx-v-preset').innerHTML = '<option value="">…</option>';
     $('cx-v-preset').disabled = true;
@@ -2059,6 +2150,10 @@ const CODEX = (() => {
     if (drive && drive.checked && driveToken && driveToken.value) lsSet(CV_DRIVE_TOKEN_KEY, driveToken.value);
     const driveShare = $('cx-v-drive-share');
     if (driveShare) lsSet(CV_DRIVE_SHARE_KEY, driveShare.value === 'private' ? 'private' : 'public');
+    const thumb = $('cx-v-thumb');
+    if (thumb) lsSet(CV_THUMB_KEY, thumb.checked ? '1' : '0');
+    const thumbStyle = $('cx-v-thumb-style');
+    if (thumbStyle) lsSet(CV_THUMB_STYLE_KEY, (thumbStyle.value || '').trim().slice(0, 600));
   }
 
   /** Chọn lại giá trị đã nhớ nếu nó vẫn còn trong danh sách (agent/nhóm có thể đã bị xoá). */
@@ -2530,6 +2625,9 @@ const CODEX = (() => {
   const CV_DRIVE_KEY = 'codex.cvDrive';              // '1' | '0'
   const CV_DRIVE_TOKEN_KEY = 'codex.cvDriveToken';
   const CV_DRIVE_SHARE_KEY = 'codex.cvDriveShare';   // 'public' (ai có link xem+tải) | 'private'
+  // Ảnh đại diện: vẽ ảnh bằng model (prompt thì luôn viết) + style thay dòng STYLE của prompt — nhớ lần gần nhất.
+  const CV_THUMB_KEY = 'codex.cvThumb';              // '1' | '0'
+  const CV_THUMB_STYLE_KEY = 'codex.cvThumbStyle';
   // PHẢI khớp content_video/pipeline.py (WORDS_PER_MINUTE, _WORDS_MIN/_WORDS_MAX,
   // DEFAULT_WORDS, _VIDEO_LENGTH_WORDS, content_words) — lệch nhau là ô ước lượng
   // nói một đằng, video ra một nẻo. tests/codex_video_length_test.js canh.
@@ -2876,6 +2974,13 @@ const CODEX = (() => {
       // Quyền của thư mục: mặc định ai có link xem + tải được (file nằm trên Drive của tài khoản đã cấp quyền).
       options.drive_public = (($('cx-v-drive-share') || {}).value || 'public') !== 'private';
     }
+    // Ảnh đại diện vẽ bằng model ảnh từ prompt (ảnh hook làm tham chiếu) — bước Drive tải nó lên cùng video.
+    if (($('cx-v-thumb') || {}).checked) {
+      options.thumbnail = true;
+      options.thumbnail_engine = 'image';
+    }
+    const thumbStyleText = (($('cx-v-thumb-style') || {}).value || '').trim().slice(0, 600);
+    if (thumbStyleText) options.thumbnail_style = thumbStyleText;
 
     const btns = [$('cx-create-btn'), $('cx-queue-btn')];
     btns.forEach(b => { b.disabled = true; });
@@ -3045,6 +3150,7 @@ const CODEX = (() => {
     approve, reject, cancel, retry, runNow, accept, requestChanges,
     onRetryDrive, onRetryDriveToken, retryReauth,
     confirmNote, confirmDelete, doDelete, copyResult, planTask,
+    showThumbPrompt, rewriteThumbPrompt, copyThumbPrompt, setThumbStyle,
     openNewTask, submitNewTask, queueVideo, setNewKind, onExtFiles, onExtField, saveExtTemplate, onVideoPreset, onVideoAgent, onVideoContent, onVideoLength, onVideoScript, onVideoKeepTheme, onVideoInstructions, planFromModal, closeModal, onBackdrop,
     onVideoDrive, onVideoDriveToken, onVideoDriveShare, laneChoice, onVideoSplit, openDriveSync, startDriveSync, syncThenDelete, resumeLane,
     openClone, onCloneLang, startClone, openRetry, startRetry,

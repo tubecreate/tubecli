@@ -352,5 +352,18 @@
   "codex.ext_tpl_saved": "テンプレート「{name}」を保存しました — Content Studio でも使えます",
   "codex.toast_ext_required": "未入力: {field}",
   "codex.created_ext_title": "タスク #{seq} をキューに追加",
-  "codex.created_ext_desc": "パイプラインはこのサーバーで実行されます。ボードで各ステップを確認できます。"
+  "codex.created_ext_desc": "パイプラインはこのサーバーで実行されます。ボードで各ステップを確認できます。",
+  "codex.field_video_thumb": "サムネイル画像を描く",
+  "codex.field_video_thumb_hint": "サムネイル用プロンプトから画像モデルが描きます。動画の冒頭シーンを参照画像に使い、動画と一緒に Drive に保存します。プロンプトは常に作成されます — タスクからコピーできます。",
+  "codex.field_video_thumb_style": "サムネイルのスタイル（任意）",
+  "codex.field_video_thumb_style_placeholder": "空欄 = 動画の見た目と雰囲気に合わせる",
+  "codex.section_thumb_prompt": "サムネイル用プロンプト",
+  "codex.action_thumb_prompt_show": "プロンプトを表示",
+  "codex.action_thumb_prompt_make": "プロンプトを作成",
+  "codex.action_thumb_prompt_rewrite": "書き直す",
+  "codex.action_copy_thumb_prompt": "プロンプトをコピー",
+  "codex.thumb_prompt_writing": "プロンプトを作成中…",
+  "codex.thumb_style_placeholder": "書き直し用のスタイル — 空欄 = 動画に合わせる",
+  "codex.thumb_prompt_no_script": "このタスクにはまだ台本がありません — プロンプトは台本から作成します。",
+  "codex.toast_thumb_prompt_wait": "サムネイル用プロンプトを作成中 — 1 分ほどかかります。"
 }

@@ -352,5 +352,18 @@
   "codex.ext_tpl_saved": "Template «{name}» saved — Content Studio can use it too",
   "codex.toast_ext_required": "Please fill in: {field}",
   "codex.created_ext_title": "Task #{seq} queued",
-  "codex.created_ext_desc": "The pipeline runs on this server; follow its steps on the board."
+  "codex.created_ext_desc": "The pipeline runs on this server; follow its steps on the board.",
+  "codex.field_video_thumb": "Draw the thumbnail image",
+  "codex.field_video_thumb_hint": "An image model draws it from the thumbnail prompt, using the video's opening shot as the reference, and it goes to Drive with the video. The prompt itself is always written — copy it from the task.",
+  "codex.field_video_thumb_style": "Thumbnail style (optional)",
+  "codex.field_video_thumb_style_placeholder": "Empty = match the look and mood of the video",
+  "codex.section_thumb_prompt": "Thumbnail prompt",
+  "codex.action_thumb_prompt_show": "Show prompt",
+  "codex.action_thumb_prompt_make": "Write prompt",
+  "codex.action_thumb_prompt_rewrite": "Rewrite",
+  "codex.action_copy_thumb_prompt": "Copy prompt",
+  "codex.thumb_prompt_writing": "Writing the prompt…",
+  "codex.thumb_style_placeholder": "Style for the rewrite — empty = match the video",
+  "codex.thumb_prompt_no_script": "This task has no script yet — the prompt is written from the script.",
+  "codex.toast_thumb_prompt_wait": "Writing the thumbnail prompt — about a minute."
 }

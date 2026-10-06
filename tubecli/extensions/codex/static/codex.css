@@ -873,3 +873,14 @@ body {
 /* «Lưu thành mẫu» của form loại việc do extension khai (kho mẫu chung, 3/10/2026) */
 .cx-x-tpl { display: flex; justify-content: flex-end; margin-top: 4px; }
 .cx-x-tpl .material-symbols-outlined { font-size: 1rem; margin-right: 4px; vertical-align: -3px; }
+
+/* Prompt ảnh đại diện trên thẻ task video: prompt + ô style để viết lại (trống = tự theo vibe video). */
+.cx-thumb-busy { display: inline-flex; align-items: center; gap: 8px; color: var(--text-dim, #94a3b8); font-size: 12.5px; }
+.cx-thumb-restyle { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+.cx-thumb-style {
+    flex: 1; min-width: 0; padding: 7px 11px;
+    border: 1px solid var(--border); border-radius: 8px;
+    background: var(--bg); color: var(--text);
+    font-family: inherit; font-size: 0.82rem; transition: border-color 0.18s;
+}
+.cx-thumb-style:focus { outline: none; border-color: var(--primary); }

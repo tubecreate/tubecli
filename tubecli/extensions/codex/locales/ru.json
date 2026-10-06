@@ -352,5 +352,18 @@
   "codex.ext_tpl_saved": "Шаблон «{name}» сохранён — Content Studio тоже может его использовать",
   "codex.toast_ext_required": "Заполните: {field}",
   "codex.created_ext_title": "Задача #{seq} в очереди",
-  "codex.created_ext_desc": "Конвейер выполняется на этом сервере; следите за шагами на доске."
+  "codex.created_ext_desc": "Конвейер выполняется на этом сервере; следите за шагами на доске.",
+  "codex.field_video_thumb": "Нарисовать обложку",
+  "codex.field_video_thumb_hint": "Модель изображений рисует её по промпту обложки, взяв первый кадр видео за образец, и сохраняет в Drive вместе с видео. Сам промпт пишется всегда — его можно скопировать в задаче.",
+  "codex.field_video_thumb_style": "Стиль обложки (необязательно)",
+  "codex.field_video_thumb_style_placeholder": "Пусто = в духе и настроении видео",
+  "codex.section_thumb_prompt": "Промпт обложки",
+  "codex.action_thumb_prompt_show": "Показать промпт",
+  "codex.action_thumb_prompt_make": "Написать промпт",
+  "codex.action_thumb_prompt_rewrite": "Переписать",
+  "codex.action_copy_thumb_prompt": "Скопировать промпт",
+  "codex.thumb_prompt_writing": "Пишу промпт…",
+  "codex.thumb_style_placeholder": "Стиль для переписывания — пусто = как в видео",
+  "codex.thumb_prompt_no_script": "У этой задачи ещё нет сценария — промпт пишется по сценарию.",
+  "codex.toast_thumb_prompt_wait": "Пишу промпт обложки — около минуты."
 }
