@@ -2659,6 +2659,100 @@ def _pid_in_tree(pid, root_pid):
     return False
 
 
+def _profile_maybe_held(profile) -> bool:
+    """Phép thử RẺ trước khi quét mọi tiến trình (quét trên Windows mất 3–5 s): Chromium đang giữ hồ sơ thì
+    Windows khoá file «lockfile» trong thư mục hồ sơ (mở ra là PermissionError), POSIX có symlink
+    SingletonLock. Không có dấu đó → chắc chắn không ai giữ. Có dấu (kể cả khoá cũ sót lại) → đi quét."""
+    d = _profile_storage_dir(profile)
+    if os.name == "nt":
+        f = os.path.join(d, "lockfile")
+        if not os.path.lexists(f):
+            return False
+        try:
+            fd = os.open(f, os.O_RDWR)
+            os.close(fd)
+            return False                      # mở được = khoá cũ sót lại, không ai giữ
+        except OSError:
+            return True
+    return os.path.lexists(os.path.join(d, "SingletonLock"))
+
+
+def _untracked_holder(profile) -> Optional[dict]:
+    """Chromium CHÍNH đang mở thư mục hồ sơ này — gọi khi sổ (agent + live view) KHÔNG có phiên sống nào cho
+    nó, nên thứ tìm thấy là trình duyệt NGOÀI SỔ: sót lại qua lần khởi động lại TubeCLI. Hai loại, phải tách:
+      • còn người lái (có kết nối ESTABLISHED vào cổng CDP của nó): core/muse.py CỐ Ý nối lại đúng loại này
+        (_cdp_port_from_processes) để vẽ ảnh tiếp sau khi restart → BẬN, không được giết;
+      • không ai lái → bỏ hoang, dọn được.
+    Trước đây preflight không nhìn thấy cả hai: Windows thì Chrome mới thấy hồ sơ đang mở → chuyển lệnh sang
+    con cũ rồi thoát → «Failed to launch the browser process» ×3 (máy Windows, hồ sơ «muse», 7/10/2026).
+    Trả {pid, started_at (epoch), cdp_port (0 = không nối được), cdp_clients} hay None."""
+    try:
+        if not _profile_maybe_held(profile):
+            return None
+    except Exception:
+        pass
+    try:
+        import psutil
+    except Exception:
+        return None
+    try:
+        target = os.path.normcase(os.path.realpath(_profile_storage_dir(profile)))
+    except Exception:
+        return None
+    for p in psutil.process_iter(["pid", "cmdline", "create_time"]):
+        try:
+            cmd = [str(a) for a in (p.info.get("cmdline") or [])]
+            if not cmd or any(a.startswith("--type=") for a in cmd):
+                continue                                  # renderer/gpu… — chỉ tiến trình chính
+            udd = next((a[len("--user-data-dir="):] for a in cmd if a.startswith("--user-data-dir=")), "")
+            if not udd or os.path.normcase(os.path.realpath(udd.strip('"'))) != target:
+                continue
+            try:
+                conns = p.net_connections(kind="tcp")
+            except Exception:
+                conns = []
+            flag = next((a for a in cmd if a.startswith("--remote-debugging-port=")), "")
+            try:
+                port = int(flag.split("=", 1)[1]) if flag else 0
+            except ValueError:
+                port = 0
+            if not (port and _cdp_alive(port)):
+                port = 0
+                for cand in sorted({c.laddr.port for c in conns
+                                    if c.status == "LISTEN" and c.laddr and c.laddr.port}):
+                    if _cdp_alive(cand):
+                        port = cand
+                        break
+            clients = 0
+            if port:
+                clients = sum(1 for c in conns if c.status == "ESTABLISHED" and c.laddr
+                              and c.laddr.port == port and c.raddr)
+            return {"pid": p.pid, "started_at": p.info.get("create_time"),
+                    "cdp_port": int(port or 0), "cdp_clients": int(clients)}
+        except Exception:
+            continue
+    return None
+
+
+def _untracked_busy_reason(profile, holder):
+    """Lý do «bận» cho Chromium ngoài sổ ĐANG có người lái (xem _untracked_holder). Không ai lái → None."""
+    if not holder or not holder.get("cdp_clients"):
+        return None
+    mins = _minutes_since(holder.get("started_at"))
+    when = f" (mở {mins} phút trước)" if mins is not None else ""
+    return {
+        "reason": "profile_busy", "by": "manual", "untracked": True,
+        "who": None, "mins": mins, "profile": str(profile),
+        "cdp_port": int(holder.get("cdp_port") or 0),
+        "message_vi": (
+            f"Profile «{profile}» đang được mở ở nơi khác trên máy này{when} — một công cụ (vd. Muse của bảng "
+            f"việc) đang dùng trình duyệt này. Chờ nó xong hoặc dừng phiên đó rồi thử lại."
+        ),
+        "detail": f"untracked pid={holder.get('pid')} cdp_port={holder.get('cdp_port')} "
+                  f"cdp_clients={holder.get('cdp_clients')}",
+    }
+
+
 def _attach_probe(profile, instances):
     """Phiên SỐNG của profile này có nối CDP vào được không → (cổng, lý_do).
 
@@ -2742,6 +2836,8 @@ def _attach_offer(profile, busy, instances, preview_sessions=None):
                 "message_vi": "Không xem ghép được phiên này (" + _ATTACH_WHY_VI["no_session"] + ")."}
 
     port, why = _attach_probe(profile, instances)
+    if not port and (busy or {}).get("untracked") and (busy or {}).get("cdp_port"):
+        port, why = int(busy["cdp_port"]), "ok"
     if not port:
         return {"available": False, "why": why,
                 "message_vi": "Không xem ghép được phiên này ("
@@ -2776,11 +2872,13 @@ def _engine_key_reason(profile):
     return None
 
 
-def preview_preflight(profile, preview_sessions, instances, in_flight_others: int = 0):
+def preview_preflight(profile, preview_sessions, instances, in_flight_others: int = 0, holder=None):
     """Lý do KHÔNG mở được (dict) hay None (mở được). Thứ tự: cụ thể nhất trước —
-    profile đang bận → thiếu khoá engine → hết RAM. Không nhánh nào được ném."""
+    profile đang bận → thiếu khoá engine → hết RAM. Không nhánh nào được ném.
+    `holder`: Chromium ngoài sổ đang giữ hồ sơ (_untracked_holder) — có người lái thì cũng là bận."""
     try:
-        busy = _preview_busy_reason(profile, preview_sessions, instances)
+        busy = (_preview_busy_reason(profile, preview_sessions, instances)
+                or _untracked_busy_reason(profile, holder))
         if busy:
             # "Bận" không còn là ngõ cụt: kèm luôn CÁCH XEM phiên đó nếu nối được, để
             # một lần gọi trả đủ hai việc: vì sao không mở được, và bấm gì để xem. Mọi
@@ -3014,8 +3112,12 @@ async def launch_preview(request: Request):
         # RAM mà các launch khác đang bay sẽ sớm chiếm — để browser thứ 2/3 bị từ
         # chối có lý do thay vì cùng OOM (hàng đợi đầy đủ là việc của G1).
         _in_flight = sum(1 for p in _launching_profiles if p != profile)
+        try:
+            _holder = await asyncio.to_thread(_untracked_holder, profile)
+        except Exception:
+            _holder = None
         _pf = preview_preflight(profile, _preview_processes, _instances_snapshot,
-                                in_flight_others=_in_flight)
+                                in_flight_others=_in_flight, holder=_holder)
         if _pf is not None:
             # HTTP 200 + {ok:false,...}: cloud hiện message_vi NGAY, không mở WebSocket.
             preview_logger.info("preflight từ chối %s: %s", profile, _pf.get("reason"))
@@ -3034,6 +3136,14 @@ async def launch_preview(request: Request):
                     _preview_processes.pop(sid, None)
             await asyncio.to_thread(force_kill_profile, profile)
             _launching_profiles.pop(profile, None)
+        elif force and _holder:
+            # Chromium ngoài sổ mà KHÔNG ai lái (có người lái thì preflight đã báo bận ở trên) = bỏ hoang:
+            # dọn rồi mở. Linux vốn được browser_manager gặt qua SingletonLock; Windows thì không (khoá là
+            # mutex có tên) → trước đây mở hỏng ×3.
+            from .process_manager import force_kill_profile
+            _fk = await asyncio.to_thread(force_kill_profile, profile)
+            preview_logger.warning("dọn trình duyệt bỏ hoang giữ hồ sơ %s (pid %s) trước khi mở: %s",
+                                   profile, _holder.get("pid"), (_fk.get("killed") or [])[:6])
         import time as _time
 
         _launching_profiles[profile] = _time.time()
@@ -3082,6 +3192,13 @@ async def attach_preview(request: Request):
     except Exception:
         _snap = []
     cdp_port, why = _attach_probe(profile, _snap)
+    if not cdp_port and why == "no_session":
+        try:
+            _h = await asyncio.to_thread(_untracked_holder, profile)
+        except Exception:
+            _h = None
+        if _h and _h.get("cdp_port"):
+            cdp_port, why = int(_h["cdp_port"]), "ok"
     if not cdp_port:
         return {"ok": False, "why": why,
                 "message_vi": "Không xem ghép được phiên này ("

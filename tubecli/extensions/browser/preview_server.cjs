@@ -266,6 +266,18 @@ function classifyFatal(err) {
                     + 'bên dưới; nếu máy đang thiếu RAM, hãy đóng bớt việc rồi thử lại.' };
 }
 
+// Playwright nhét NGUYÊN dòng lệnh Chromium (~1.900 ký tự: hàng chục cờ + đường dẫn vân tay) vào dòng
+// «<launching> …» ngay đầu nhật ký, còn lý do thật (exitCode, [err] của Chromium) nằm SAU nó — detail cắt ở
+// 2.000 ký tự nên mất đúng đoạn cần đọc (máy Windows 7/10/2026: chỉ thấy cờ, không thấy vì sao thoát).
+// Rút dòng đó về «tên exe + số cờ»; các dòng khác giữ nguyên.
+function trimLaunchLog(text) {
+    return String(text == null ? '' : text).replace(/^(\s*<launching>\s+)(\S+)((?:[ \t]+\S+)*)/gm,
+        (all, head, exe, rest) => {
+            const n = (rest.match(/\S+/g) || []).length;
+            return `${head}${exe}${n ? ` … (${n} args)` : ''}`;
+        });
+}
+
 let __fatalEmitted = false;
 function emitFatalAndExit(reason, message, detail, code = 1) {
     // Gửi MỘT lần: nếu vừa emit ở chỗ throw rồi thì handler unhandledRejection sau
@@ -1219,7 +1231,7 @@ process.on('uncaughtException', (err) => {
             // trước khi thoát — thay cho `throw` câm cũ. return: không throw để tránh
             // handler unhandledRejection phát 'fatal' lần hai.
             const { reason, message } = classifyFatal(lastError);
-            const detail = `Failed after ${maxAttempts} attempts. Last error: ${lastError?.message || lastError}`;
+            const detail = `Failed after ${maxAttempts} attempts. Last error: ${trimLaunchLog(lastError?.message || lastError)}`;
             emitFatalAndExit(reason, message, detail);
             return;
         }

@@ -53,4 +53,22 @@ assert(/\} else if \(real\.length\) \{\n\s+await switchToPage\(real\[real\.lengt
   'tab nào cũng hỏng → đưa về trang đầu');
 assert(ps.indexOf('const ntUrl = msg.url || browserHome.home;') > 0, 'tab mới không URL → trang đầu');
 console.log('3 trang đầu : www.bing.com | tab hỏng (chrome-error) → chọn tab tải được, không có thì về trang đầu');
+// 4. Nhật ký mở hỏng: dòng «<launching> <~1.900 ký tự cờ>» đẩy lý do thật (exitCode) ra ngoài trần 2.000 ký tự
+//    của detail (máy Windows 7/10/2026) → rút về tên exe + số cờ, giữ nguyên các dòng sau
+const mt = /function trimLaunchLog\(text\) \{\n([\s\S]*?)\n\}/.exec(ps);
+assert(mt, 'thiếu trimLaunchLog');
+// eslint-disable-next-line no-new-func
+const trimLaunchLog = new Function('text', mt[1]);
+const flags = Array.from({ length: 60 }, (_, i) => `--flag-${i}=value-${i}`).join(' ');
+const raw = 'browserType.launchPersistentContext: Failed to launch the browser process.\nBrowser logs:\n\n'
+  + `<launching> C:\\Users\\USER\\AppData\\Roaming\\shardx-launcher\\chrome.exe ${flags}\n`
+  + '<launched> pid=5120\n[pid=5120] <process did exit: exitCode=21, signal=null>';
+const out = trimLaunchLog(raw);
+assert(out.includes('<launching> C:\\Users\\USER\\AppData\\Roaming\\shardx-launcher\\chrome.exe … (60 args)'), out);
+assert(out.includes('[pid=5120] <process did exit: exitCode=21, signal=null>'), 'giữ dòng lý do thoát');
+assert(!out.includes('--flag-59'), 'bỏ cờ');
+assert(out.length < 400, 'ngắn lại: ' + out.length);
+assert.strictEqual(trimLaunchLog('no launching line'), 'no launching line');
+assert(ps.includes('Last error: ${trimLaunchLog(lastError?.message || lastError)}'), 'detail dùng trimLaunchLog');
+console.log('4 nhật ký   : <launching> rút về exe + số cờ, giữ exitCode');
 console.log('OK browser_cn_home_test');
