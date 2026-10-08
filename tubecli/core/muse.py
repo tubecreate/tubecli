@@ -660,6 +660,8 @@ def ask(prompt: str, *, want_images: bool = False, files: Optional[List[str]] = 
                "image_dir": image_dir or "", "files": list(files or []),
                "want_videos": bool(want_videos), "max_videos": int(max_videos or 1), "video_dir": video_dir or ""}
         res = run_tool(port, "ask", req, timeout=timeout)
+        if res.get("tabs_closed"):
+            logger.info("muse: closed %s leftover tab(s) of %s before this request", res.get("tabs_closed"), prof)
         if not res.get("ok") and thread != "new" and not own and res.get("kind") == "error" and not res.get("thread_id"):
             # Chat phụ đã bị xoá / không mở được → mở chat phụ mới, MỘT lần.
             logger.warning("muse: chat %s unusable (%s) — starting a new one", thread, res.get("error"))

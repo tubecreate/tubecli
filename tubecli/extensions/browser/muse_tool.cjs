@@ -78,6 +78,25 @@ async function sessionCookie(ctx) {
   } catch { return false; }
 }
 
+// ── dọn tab (user 8/10/2026: «muse quá tải là quá nhiều tab, xoá bớt tab không cần mỗi lần tạo xong») ────────────
+// Tab việc đóng ở finally, nhưng lượt bị Python giết vì quá giờ (clip 600 s) thì finally không chạy → tab mồ côi dồn
+// dần; muse.ai cũng tự bật tab phụ. Giữ MỘT tab muse.ai (tab đầu — status() gõ cửa nó), đóng mọi tab muse.ai khác và
+// tab trống. KHÔNG đụng tab trang khác: hồ sơ có thể là trình duyệt người dùng đang mở tay. `keep` = tab việc đang dùng.
+async function pruneTabs(ctx, keep) {
+  let closed = 0;
+  const pages = ctx.pages();
+  const home = pages.find((p) => p !== keep && p.url().startsWith(MUSE));
+  for (const p of pages) {
+    if (p === keep || p === home) continue;
+    const u = p.url();
+    if (u.startsWith(MUSE) || u === 'about:blank' || u === '') {
+      await p.close().catch(() => {});
+      closed++;
+    }
+  }
+  return closed;
+}
+
 // ── status: KHÔNG mở tab mới (bảng chọn model gõ cửa mỗi lần mở) ─────────────────────────────
 async function status(ctx) {
   const page = ctx.pages().find((p) => p.url().startsWith(MUSE));
@@ -279,6 +298,7 @@ async function ask(ctx, req) {
   const files = (Array.isArray(req.files) ? req.files : []).filter((f) => f && fs.existsSync(f));
   if (!prompt.trim() && !files.length) return { ok: false, kind: 'error', error: 'prompt is empty' };
 
+  const pruned = await pruneTabs(ctx, null).catch(() => 0);
   const page = await ctx.newPage();
   try {
     // Tab làm việc phải "đang hiện": tab nền ngừng vẽ khung, chữ đang chạy của Muse có thể đứng.
@@ -420,7 +440,7 @@ async function ask(ctx, req) {
       : [];
     const out = {
       ok: true, text: texts.join('\n\n'), messages: texts, images, videos, thread_id: threadId, url: page.url(),
-      elapsed_ms: Date.now() - t0, sent_ms: sentMs, first_ms: firstMs,
+      elapsed_ms: Date.now() - t0, sent_ms: sentMs, first_ms: firstMs, tabs_closed: pruned,
     };
     if (st && st.error) Object.assign(out, { ok: false, kind: 'error', error: st.error });
     else if (st && st.approval) Object.assign(out, { ok: false, kind: 'approval', error: 'Muse is waiting for an approval in its own app.' });
@@ -429,10 +449,12 @@ async function ask(ctx, req) {
     return out;
   } finally {
     if (!req.keep_tab) await page.close().catch(() => {});
+    await pruneTabs(ctx, req.keep_tab ? page : null).catch(() => {});
   }
 }
 
-(async () => {
+module.exports = { pruneTabs };
+if (require.main === module) (async () => {
   const port = parseInt(arg('cdp', '0'), 10);
   const action = arg('action', 'status');
   if (!port) { emit({ ok: false, kind: 'error', error: 'missing --cdp' }); process.exit(2); }
