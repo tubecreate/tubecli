@@ -60,6 +60,14 @@ ASPECTS = {"16:9": "landscape", "9:16": "vertical portrait", "1:1": "square",
 MAX_LANES = 3
 # Hồ sơ hỏng (trình duyệt không mở / chưa đăng nhập) bị bỏ qua chừng này giây, lượt đi sang tài khoản khác.
 DOWN_SECONDS = 600
+# Thử lại + dọn phiên (user 8/10/2026: «thêm cơ chế thử lại muse, clear phiên (giải phóng ram) xong mở lại, nếu 3 lần
+# lỗi báo cho telegram»): trình duyệt treo/đóng (kind "browser") → giết cả cây tiến trình của hồ sơ, nghỉ RESET_WAIT, mở
+# lại, thử lại — tối đa MUSE_ATTEMPTS lượt cho một yêu cầu; hết lượt (hay tài khoản chưa đăng nhập) → một dòng Telegram,
+# tối đa mỗi ALERT_EVERY giây cho cùng lý do.
+MUSE_ATTEMPTS = 3
+RESET_WAIT = 6.0
+ALERT_EVERY = 900
+_ALERTED: Dict[str, float] = {}
 
 # Chỗ ngồi: mỗi (hồ sơ, lượt) một khoá. User 5/10/2026: «có 3 tài khoản có thể tạo cùng lúc 3 ảnh cho nhanh hơn
 # không?» — Studio vốn gửi 3 ảnh song song (DRAW_LANES) mà trước đây cả 3 xếp hàng sau MỘT _LOCK.
@@ -290,6 +298,93 @@ def _cdp_port_from_processes(profile: str) -> int:
             if _port_alive(cand):
                 return cand
     return 0
+
+
+def _profile_processes(profile: str) -> list:
+    """Mọi tiến trình Chromium (chính + renderer/gpu…) mang --user-data-dir của hồ sơ này."""
+    try:
+        import psutil
+    except Exception:      # noqa: BLE001
+        return []
+    target = os.path.normcase(os.path.realpath(os.path.join(_profiles_dir(), profile)))
+    out = []
+    for p in psutil.process_iter(["cmdline"]):
+        try:
+            cmd = list(p.info.get("cmdline") or [])
+        except Exception:      # noqa: BLE001
+            continue
+        udd = next((a[len("--user-data-dir="):] for a in cmd if a.startswith("--user-data-dir=")), "")
+        if udd and os.path.normcase(os.path.realpath(udd.strip('"'))) == target:
+            out.append(p)
+    return out
+
+
+def reset_browser(profile: str) -> bool:
+    """ĐÓNG HẲN phiên trình duyệt của hồ sơ — giết cả cây tiến trình (giải phóng RAM) để lượt sau mở lại sạch (user
+    8/10/2026: «clear phiên (giải phóng ram) xong mở lại»). Qua sổ phiên của browser extension trước; phiên không có
+    trong sổ (server đã khởi động lại, công cụ khác mở) thì giết theo --user-data-dir. True khi hồ sơ không còn tiến
+    trình nào."""
+    try:
+        from tubecli.extensions.browser.process_manager import browser_process_manager
+        browser_process_manager.stop_by_profile(profile)
+    except Exception as e:      # noqa: BLE001
+        logger.info("muse: process manager could not stop %s: %s", profile, e)
+    procs = _profile_processes(profile)
+    for p in procs:
+        try:
+            p.kill()
+        except Exception:      # noqa: BLE001
+            pass
+    if procs:
+        try:
+            import psutil
+            psutil.wait_procs(procs, timeout=5)
+        except Exception:      # noqa: BLE001
+            pass
+    left = _profile_processes(profile)
+    logger.warning("muse: browser session of %s closed — %d process(es) killed%s", profile, len(procs),
+                   "" if not left else f", {len(left)} still alive")
+    return not left
+
+
+def _telegram_target() -> tuple:
+    """(bot token, chat id) từ cài đặt chung — cùng nguồn Codex dùng để báo task xong."""
+    try:
+        from tubecli.config import read_global_settings
+        data = read_global_settings() or {}
+        return str(data.get("telegram_bot_token") or ""), str(data.get("telegram_chat_id") or "")
+    except Exception:      # noqa: BLE001
+        return "", ""
+
+
+def _alert(reason: str, text: str) -> bool:
+    """Một dòng Telegram cho người vận hành — tối đa mỗi ALERT_EVERY giây cho cùng `reason`. True khi đã gửi."""
+    now = time.time()
+    if now - _ALERTED.get(reason, 0) < ALERT_EVERY:
+        return False
+    token, chat_id = _telegram_target()
+    if not token or not chat_id:
+        logger.warning("muse: no Telegram bot/chat configured — alert not sent: %s", text)
+        return False
+    _ALERTED[reason] = now
+    try:
+        from tubecli.extensions.codex.telegram import notify_fire_and_forget
+        notify_fire_and_forget(token, chat_id, text)
+        return True
+    except Exception as e:      # noqa: BLE001
+        logger.warning("muse: Telegram alert failed: %s", e)
+        return False
+
+
+def _alert_text(err: "MuseError", profile: str, attempts: int) -> str:
+    if err.kind == "browser":
+        return (f"⚠️ Muse: the browser of account «{profile}» failed {attempts} times in a row — its session was closed "
+                f"and reopened each time ({str(err)[:160]}). Image and video requests will keep failing until it is "
+                f"fixed: open Settings → Muse → Test.")
+    if err.kind == "auth":
+        return (f"⚠️ Muse: account «{profile}» is not signed in to muse.ai ({str(err)[:160]}). Sign in again in that "
+                f"browser profile.")
+    return f"⚠️ Muse: {err.kind} — {str(err)[:200]}"
 
 
 def _cdp_port(profile: str) -> int:
@@ -535,12 +630,14 @@ def _release(key: str) -> None:
 def ask(prompt: str, *, want_images: bool = False, files: Optional[List[str]] = None,
         image_dir: str = "", max_images: int = 1, timeout: int = CHAT_TIMEOUT, fresh: bool = False,
         launch: bool = True, want_videos: bool = False, video_dir: str = "", max_videos: int = 1,
-        thread_id: str = "", _failover: bool = True) -> dict:
+        thread_id: str = "", _failover: bool = True, _attempt: int = 1) -> dict:
     """Một lượt hỏi Muse → kết quả của muse_tool (text, images, videos, thread_id, profile…). Ném MuseError.
 
     thread_id: gõ vào ĐÚNG chat phụ này (chuỗi clip nối tiếp phải ở cùng một chat để Muse giữ mạch), bỏ qua
     chat phụ dùng chung; "" = chat phụ dùng chung như thường. Chat phụ thuộc về tài khoản đã mở nó.
-    Tài khoản hỏng trình duyệt / chưa đăng nhập: bỏ qua nó DOWN_SECONDS và thử lại MỘT lần ở tài khoản khác."""
+    Trình duyệt treo/đóng: ĐÓNG HẲN phiên (giải phóng RAM), nghỉ, mở lại, thử lại — tối đa MUSE_ATTEMPTS lượt, tài khoản
+    vừa hỏng bị bỏ qua DOWN_SECONDS nên lượt sau thường rơi vào tài khoản khác; hết lượt → Telegram + MuseError.
+    Chưa đăng nhập: bỏ qua tài khoản ấy và thử lại MỘT lần ở tài khoản khác; hết → Telegram + MuseError."""
     st = settings()
     profile = st["profile"]
     if not profile:
@@ -583,16 +680,30 @@ def ask(prompt: str, *, want_images: bool = False, files: Optional[List[str]] = 
         _release(key)
     if failed.kind in ("browser", "auth") and len(pool) > 1:
         _DOWN[prof] = time.time() + DOWN_SECONDS
-        if _failover and not pinned:
-            logger.warning("muse: account %s unusable (%s) — trying another account", prof, failed)
-            return ask(prompt, want_images=want_images, files=files, image_dir=image_dir, max_images=max_images,
-                       timeout=timeout, fresh=fresh, launch=launch, want_videos=want_videos, video_dir=video_dir,
-                       max_videos=max_videos, thread_id=thread_id, _failover=False)
-    elif failed.kind == "timeout" and _failover and not own and not want_images and not want_videos:
+    if failed.kind == "browser" and launch and _attempt < MUSE_ATTEMPTS:
+        # Trình duyệt treo/đóng («cannot attach to the browser on CDP port…» — 8/10/2026 làm #302/#306 mất clip): ĐÓNG
+        # HẲN phiên của hồ sơ (giải phóng RAM), nghỉ, rồi thử lại — ensure_browser mở lại; tài khoản vừa hỏng bị bỏ qua
+        # nên lượt sau ưu tiên tài khoản khác (chat riêng ghim tài khoản thì vẫn tài khoản ấy).
+        logger.warning("muse: browser of %s unusable (%s) — closing its session and retrying (%d/%d)",
+                       prof, failed, _attempt, MUSE_ATTEMPTS)
+        reset_browser(prof)
+        time.sleep(RESET_WAIT)
+        return ask(prompt, want_images=want_images, files=files, image_dir=image_dir, max_images=max_images,
+                   timeout=timeout, fresh=fresh, launch=launch, want_videos=want_videos, video_dir=video_dir,
+                   max_videos=max_videos, thread_id=thread_id, _failover=_failover, _attempt=_attempt + 1)
+    if failed.kind == "auth" and len(pool) > 1 and _failover and not pinned:
+        logger.warning("muse: account %s unusable (%s) — trying another account", prof, failed)
+        return ask(prompt, want_images=want_images, files=files, image_dir=image_dir, max_images=max_images,
+                   timeout=timeout, fresh=fresh, launch=launch, want_videos=want_videos, video_dir=video_dir,
+                   max_videos=max_videos, thread_id=thread_id, _failover=False, _attempt=_attempt)
+    if failed.kind == "timeout" and _failover and not own and not want_images and not want_videos:
         # Lượt CHỮ treo hết hạn mà không ra chữ nào (6/10/2026: task #277 hỏng ở bước kịch bản sau 300 s, Muse vẫn
         # khoẻ) — thử lại MỘT lần trong chat MỚI; xoay vòng nên thường rơi vào tài khoản khác. Không coi là hỏng.
         logger.warning("muse: no answer from %s within %s s — asking once more in a new chat", prof, timeout)
-        return ask(prompt, files=files, timeout=timeout, fresh=True, launch=launch, _failover=False)
+        return ask(prompt, files=files, timeout=timeout, fresh=True, launch=launch, _failover=False, _attempt=_attempt)
+    if (failed.kind == "browser" and launch) or failed.kind == "auth":
+        # hết đường thử lại — báo người vận hành (user 8/10/2026: «nếu 3 lần lỗi báo cho telegram»)
+        _alert(f"{failed.kind}:{prof}", _alert_text(failed, prof, _attempt))
     raise failed
 
 

@@ -11,6 +11,7 @@ Kiểm (KHÔNG chạm trình duyệt / Muse thật: ensure_browser, run_tool, _c
   G. status() có một dòng cho mỗi tài khoản; route PUT /settings nhận extra_profiles + lanes
   H. Muse gửi lại ảnh cũ của chat → vẽ lại trong chat mới
   I. lượt chữ treo hết hạn → hỏi lại MỘT lần trong chat mới (ảnh / chuỗi clip thì không)
+  J. trình duyệt treo → đóng phiên (giải phóng RAM), mở lại, thử lại; 3 lần hỏng / chưa đăng nhập → một dòng Telegram
 
 Run:  python tests/muse_pool_test.py
 """
@@ -330,6 +331,78 @@ try:
 except M.MuseError:
     pass
 ok(len(hung) == 2, "ảnh / chat riêng (chuỗi clip) treo → KHÔNG tự hỏi lại", hung)
+
+# ── J ─────────────────────────────────────────────────────────────────────────
+print("J. trình duyệt treo → đóng phiên, mở lại, thử lại; 3 lần hỏng → Telegram")
+M.set_settings(profile="chayagent", extra_profiles=["muse2", "muse3"], lanes=1)
+reset()
+M.RESET_WAIT = 0
+real_alert = M._alert
+killed, alerts, seq = [], [], []
+M.reset_browser = lambda p: (killed.append(p) or True)
+M._alert = lambda reason, text: (alerts.append((reason, text)) or True)
+
+
+def flaky_browser(port, action, req=None, timeout=60):
+    seq.append(BY_PORT[port])
+    if len(seq) <= 2:
+        return {"ok": False, "kind": "browser", "error": f"cannot attach to the browser on CDP port {port}"}
+    return {"ok": True, "text": "fine", "images": [], "thread_id": "T-" + BY_PORT[port]}
+
+
+M.run_tool = flaky_browser
+M._LAST_USED.update({"chayagent": 1.0, "muse2": 2.0, "muse3": 3.0})
+r = M.ask("q")
+ok(r["text"] == "fine" and len(seq) == 3 and killed == seq[:2] and not alerts,
+   "treo 2 lần → đóng phiên (giải phóng RAM) + mở lại + thử lại, lần 3 được, không báo", (seq, killed, alerts))
+ok(len(set(seq)) == 3 and not M._BUSY, "mỗi lượt thử ưu tiên tài khoản khác; chỗ ngồi đã nhả", (seq, M._BUSY))
+reset()
+seq.clear()
+killed.clear()
+M.run_tool = lambda port, action, req=None, timeout=60: (seq.append(BY_PORT[port]) or
+                                                        {"ok": False, "kind": "browser", "error": "cannot attach"})
+try:
+    M.ask("q")
+    ok(False, "3 lần hỏng → MuseError")
+except M.MuseError as e:
+    ok(e.kind == "browser" and len(seq) == M.MUSE_ATTEMPTS and len(killed) == M.MUSE_ATTEMPTS - 1 and len(alerts) == 1
+       and "3 times" in alerts[0][1] and alerts[0][0].startswith("browser:"),
+       "3 lần hỏng → MuseError(browser) + MỘT dòng Telegram", (seq, killed, alerts))
+reset()
+alerts.clear()
+killed.clear()
+try:
+    M.ask("q", launch=False)
+except M.MuseError:
+    pass
+ok(not killed and not alerts, "launch=False (chỉ dò trạng thái) → không đóng phiên, không báo", (killed, alerts))
+reset()
+alerts.clear()
+M.run_tool = lambda port, action, req=None, timeout=60: {"ok": False, "kind": "auth", "error": "not signed in"}
+try:
+    M.ask("q")
+except M.MuseError:
+    pass
+ok(len(alerts) == 1 and alerts[0][0].startswith("auth:") and "not signed in" in alerts[0][1],
+   "mọi tài khoản chưa đăng nhập → một dòng Telegram", alerts)
+reset()
+alerts.clear()
+M.run_tool = lambda port, action, req=None, timeout=60: {"ok": False, "kind": "refused", "error": "policy"}
+try:
+    M.ask("q")
+except M.MuseError:
+    pass
+ok(not alerts, "từ chối nội dung → không báo Telegram", alerts)
+# _alert thật: rate-limit theo lý do; chưa cấu hình bot/chat → không gửi, không ném
+import tubecli.extensions.codex.telegram as TG
+sent = []
+TG.notify_fire_and_forget = lambda token, chat, text: sent.append((chat, text))
+M._telegram_target = lambda: ("tok", "123")
+M._ALERTED.clear()
+ok(real_alert("browser:x", "hello") is True and real_alert("browser:x", "again") is False and sent == [("123", "hello")],
+   "Telegram thật: cùng lý do chỉ báo một lần mỗi ALERT_EVERY giây", sent)
+M._telegram_target = lambda: ("", "")
+ok(real_alert("other", "x") is False and len(sent) == 1, "chưa cấu hình bot/chat → không gửi, không ném", sent)
 
 print()
 print(f"{PASS} passed, {FAIL} failed")
