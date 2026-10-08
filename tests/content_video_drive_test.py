@@ -365,7 +365,7 @@ ok(field(ov, "Video") == FD.by_name(f"{base}.mp4")[0]["webViewLink"] and field(o
    "Overview: link video, thư mục, ai đăng từ máy nào, YouTube, tag, nguồn, thời lượng, số cảnh", ov)
 sc = rows_of(last, "Scenes")
 ok(sc[0] == ["Scene", "Image prompt", "Video prompt", "Narration", "Seconds", "Image file", "Voice file",
-             "Scene video"] and len(sc) == 4,
+             "Scene video", "Director board"] and len(sc) == 4,
    "Scenes: prompt ảnh, prompt video đầy đủ trong MỘT ô (không tách Camera / Sound), lời, giây, link file, "
    "link video từng cảnh", sc[0])
 FULL = ("[VIDEO PROMPT]\n"
@@ -640,7 +640,7 @@ ok(P.RENDER_STEPS[-1] == ("drive", "Save to Google Drive", "drive", True) and "d
 ok(CAP.JOBS["drive"]["requires"] == ["auth_manager"] and "auth_manager" in CAP.EXTENSIONS, "năng lực: cần Auth Manager")
 d = P.describe_plan({"drive": True, "drive_token_id": "cred_a_1", "title": "Mây"})
 ok("- Save to Google Drive: a folder «Mây» inside «tuan89tk-vps-k7m2qx» on a@x.com — content sheet, images, voice, "
-   "one clip per scene, the layout overlay, the video and its subtitles (.srt)" in d,
+   "one clip per scene, the director boards (cinematic templates), the layout overlay, the video and its subtitles (.srt)" in d,
    "dòng kế hoạch: thư mục (trong thư mục của máy) + tài khoản", d)
 d2 = P.describe_plan({"drive": True})
 ok("named after the video title inside «tuan89tk-vps-k7m2qx» on the Google account granted to the agent in its Auth tab" in d2,

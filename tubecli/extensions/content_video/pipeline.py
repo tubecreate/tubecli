@@ -6699,7 +6699,8 @@ def _drive_plan_note(options: Dict) -> str:
     share = ("anyone with the link can view and download"
              if _truthy(options.get("drive_public"), True) else "private to that account")
     return (f"a folder {folder} inside «{_drive_root_name()}» on {who} — content sheet, images, voice, one clip "
-            f"per scene, the layout overlay, the video and its subtitles (.srt) ({share})")
+            f"per scene, the director boards (cinematic templates), the layout overlay, the video and its subtitles "
+            f"(.srt) ({share})")
 
 
 # ── Phụ đề .srt cạnh video (17/9/2026) ────────────────────────────────────────────────────────────────────────────
@@ -6964,6 +6965,16 @@ def build_srt(state: Dict, shots: List[Dict], video_path: str) -> Tuple[str, Dic
     return "\r\n".join(blocks), rep
 
 
+def _director_board(shot: Dict) -> str:
+    """Bảng đạo diễn của cảnh (mẫu điện ảnh — Content Studio hook_video vẽ bằng gpt-image-2): đường dẫn hay ""."""
+    try:
+        from tubecli.config import DATA_DIR
+        p = os.path.join(str(DATA_DIR), "content_studio", "hook_videos", f"director_{shot.get('id')}.png")
+    except Exception:      # noqa: BLE001
+        return ""
+    return p if os.path.isfile(p) else ""
+
+
 def _drive_plan(state: Dict) -> Tuple[List[Dict], List[Dict]]:
     """(shot theo thứ tự, file cần đưa lên [{key, path, name, sub, label}]) — sub "" | "images" | "audio"."""
     base = _drive_file_base(state)
@@ -7028,6 +7039,8 @@ def _drive_plan(state: Dict) -> Tuple[List[Dict], List[Dict]]:
         audio = _data_file(sh.get("tts_audio_url"))
         add(f"audio:{i}", audio, n, "audio", "voice")
         add(f"clip:{i}", clips.get(i, ""), n, "scenes", "scene")
+        # bảng đạo diễn của cảnh (8/10/2026: «khi cần up lên drive thì up luôn file đó»)
+        add(f"director:{i}", _director_board(sh), n, "directors", "director board")
         sh["_seconds"] = media_seconds(audio) if audio else 0.0
     # Phụ đề .srt CÙNG TÊN và cùng thư mục với video — trình phát tự nạp; bản trên máy nằm cạnh mp4 (xoá task là xoá
     # theo, cùng mẫu episode_<id>_*). Hỏng thì chỉ cảnh báo: video và mọi thứ khác vẫn lên Drive.
@@ -7227,14 +7240,14 @@ def _drive_tabs(state: Dict, shots: List[Dict], links: Dict[str, str], rec: Dict
     # lại nội dung đã nằm trong prompt; user: "cứ dồn prompt video vào 1 chỗ" (16/9/2026). Studio sinh
     # video_prompt trong agents/storyboard_breaker.py nhưng chỉ 80–200 ký tự — xem full_video_prompt.
     scenes = [["Scene", "Image prompt", "Video prompt", "Narration", "Seconds", "Image file", "Voice file",
-               "Scene video"]]
+               "Scene video", "Director board"]]
     for i, sh in enumerate(shots, 1):
         scenes.append([i, str(sh.get("image_prompt") or sh.get("description") or ""),
                        full_video_prompt(sh, state.get("_drive_cast"), state.get("_drive_places")),
                        _shot_narration(sh),
                        sh.get("_seconds") or sh.get("duration") or "",
                        links.get(f"image:{i}", ""), links.get(f"audio:{i}", ""),
-                       links.get(f"clip:{i}", "")])
+                       links.get(f"clip:{i}", ""), links.get(f"director:{i}", "")])
     script = [["Script"]] + [[line] for line in str(state.get("script") or "").splitlines() if line.strip()]
     return [("Overview", overview), ("Scenes", scenes), ("Script", script)]
 
@@ -7352,7 +7365,7 @@ def _drive_save(state: Dict, options: Dict) -> None:
 
     parents = {"": rec["folder_id"]}
     have = {"": DX.list_children(drive, rec["folder_id"])}
-    for sub in ("images", "audio", "scenes"):
+    for sub in ("images", "audio", "scenes", "directors"):
         if any(u["sub"] == sub for u in ups):
             parents[sub] = DX.ensure_folder(drive, rec["folder_id"], sub, have[""])["id"]
             have[sub] = DX.list_children(drive, parents[sub])

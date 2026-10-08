@@ -125,7 +125,9 @@ ok('add(f"clip:{i}", clips.get(i, ""), n, "scenes", "scene")' in plan, "mỗi c�
 ok('_post(f"/api/v1/studio/episodes/{state[\'episode_id\']}/scene-clips"' in plan, "gọi route của Studio để có file")
 ok("except Exception as e:      # noqa: BLE001" in plan and "scene clips unavailable" in plan,
    "route hỏng chỉ mất thư mục scenes — video, ảnh, giọng vẫn lên Drive")
-ok('for sub in ("images", "audio", "scenes"):' in pipe_src, "thư mục scenes/ được tạo trên Drive")
+ok('for sub in ("images", "audio", "scenes", "directors"):' in pipe_src, "thư mục scenes/ (+ directors/) được tạo trên Drive")
+ok('add(f"director:{i}", _director_board(sh), n, "directors", "director board")' in plan and '"Director board"' in pipe_src,
+   "bảng đạo diễn từng cảnh lên directors/ + cột «Director board» trong Sheet")
 ok('"Scene video"' in pipe_src and 'links.get(f"clip:{i}", "")' in pipe_src,
    "Sheet có cột «Scene video» trỏ đúng cảnh")
 ok('"Scenes": {1: 320, 2: 460, 3: 420, 5: 220, 6: 220, 7: 220}' in pipe_src, "cột mới đủ rộng để thấy link")
@@ -254,7 +256,7 @@ ok('add("layout", lay["path"], f"{base} (layout)", "", "layout")' in pipe_src,
    "file bố cục lên Drive cạnh video, tên có «(layout)»")
 ok('["Layout overlay", links.get("layout", "")]' in pipe_src, "Sheet có dòng «Layout overlay»")
 ok("layout clip unavailable" in pipe_src, "không dựng được bố cục thì mọi thứ khác vẫn lên Drive")
-ok("per scene, the layout overlay" in pipe_src,
+ok("per scene, the director boards (cinematic templates), the layout overlay" in pipe_src,
    "dòng xin duyệt nói đúng những gì sắp lên Drive")
 
 shutil.rmtree(TMP, ignore_errors=True)
