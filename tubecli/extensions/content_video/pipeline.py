@@ -3439,6 +3439,28 @@ def _step_images(state: Dict, options: Dict) -> None:
         state.setdefault("warnings", []).append(
             f"{len(errors)}/{total} shot(s) could not be drawn" + (f": {last[:200]}" if last else "")
             + " — they will be missing from the video.")
+    state.setdefault("warnings", []).extend(_clip_warnings(data))
+
+
+def _clip_warnings(data: Dict) -> List[str]:
+    """Cảnh báo về clip Muse từng cảnh (mẫu điện ảnh — Studio ghi `shot_videos` vào lượt vẽ): lô dừng giữa chừng hay
+    nhiều cảnh giữ ảnh tĩnh thì NÓI RA — 8/10/2026 #306 báo ✅ mà chỉ 4/30 cảnh có clip (trình duyệt Muse treo ở cảnh
+    6), user: «chỉ hook đầu video còn đâu toàn ảnh fade zoom». Tập không làm clip → []."""
+    sv = data.get("shot_videos") if isinstance(data, dict) and isinstance(data.get("shot_videos"), dict) else {}
+    if not sv:
+        return []
+    if sv.get("error"):
+        return [f"Scene clips were not made: {str(sv['error'])[:200]}"]
+    picked, made = int(sv.get("picked") or 0), int(sv.get("made") or 0)
+    if not picked or made >= picked:
+        return []
+    why = str(sv.get("stopped") or "")
+    first = (sv.get("errors") or [{}])[0] or {}
+    if not why and first.get("error"):
+        why = f"e.g. scene {first.get('shot_id')}: {str(first.get('error'))[:160]}"
+    return [f"Only {made}/{picked} scenes got a Muse clip; the others play as moving stills"
+            + (f" — {why[:220]}" if why else "")
+            + ". Content Studio can make the missing scene clips (shot-videos), then re-render."]
 
 
 # Studio "quên" việc nền: chờ số shot có ảnh ngừng tăng chừng này giây (việc cũ đã dừng hẳn)
