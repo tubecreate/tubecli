@@ -910,6 +910,7 @@ def _poll_studio(status_path: str, timeout_sec: int, state: Dict, step: str,
     last_change = started
     last_sig = None
     last_pct = -1
+    last_phase = ""
     last_seen = "no answer yet"
     while True:
         if state["_cancelled"]():
@@ -931,11 +932,21 @@ def _poll_studio(status_path: str, timeout_sec: int, state: Dict, step: str,
         status = str(data.get("status") or "")
         total = data.get("total") or 0
         done = data.get("done") or 0
-        sig = (status, done, total, str(data.get("current_shot") or ""))
+        sig = (status, done, total, str(data.get("current_shot") or ""), str(data.get("phase_note") or ""))
         if sig != last_sig:
             last_sig, last_change = sig, time.time()
             last_seen = f"{status} {done}/{total}" + (f" · {sig[3][:60]}" if sig[3] else "")
-        if total:
+        # Studio làm việc KHÁC sau khi đủ ảnh (video mở đầu, clip từng cảnh — 8/10/2026): báo pha đó thay «29/29»
+        # đứng yên hàng chục phút («chỗ này chưa có pipeline bar không biết đang làm gì»).
+        ptot = int(data.get("phase_total") or 0) if str(data.get("phase") or "") else 0
+        if ptot:
+            pdone = int(data.get("phase_done") or 0)
+            note = str(data.get("phase_note") or "")
+            msg = f"{data.get('phase')} {pdone}/{ptot}" + (f" · {note}" if note else "")
+            if msg != last_phase:
+                state["_say"](step, "running", msg[:200], int(min(99, pdone * 100 / ptot)))
+                last_phase = msg
+        elif total:
             pct = int(min(99, done * 100 / total))
             if pct != last_pct:          # every report rewrites tasks.json — only on change
                 state["_say"](step, "running", f"{done}/{total}", pct)
