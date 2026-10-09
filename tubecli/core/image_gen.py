@@ -169,10 +169,8 @@ def resolve_provider(provider: Optional[str] = None, model: Optional[str] = None
             if accs:
                 # Có account mà account nào cũng đang đỗ / tắt: "chưa có credential" là nói sai — Studio chọn nhà
                 # ở đầu mỗi lô nên người dùng từng thấy đúng câu sai này (15/9/2026).
-                states = "; ".join(f"{a['label']} — {_cf_state_text(a)}" for a in accs)
                 return {"ok": False, "provider": "cloudflare", "model": m or CF_DEFAULT_MODEL,
-                        "reason": f"All Cloudflare accounts are paused: {states}. Add another Cloudflare account "
-                                  "in Cloud API Keys, or wait for one to resume."}
+                        "reason": _cf_paused_reason(accs)}
             return {"ok": False, "provider": "cloudflare", "model": m or CF_DEFAULT_MODEL,
                     "reason": "Chưa có credential Cloudflare (cần API token + Account ID) trong Cloud API Keys."}
         return {"ok": True, "provider": "cloudflare", "model": m or CF_DEFAULT_MODEL,
@@ -208,13 +206,18 @@ def resolve_provider(provider: Optional[str] = None, model: Optional[str] = None
         m = m or MUSE_DEFAULT_MODEL
         try:
             from tubecli.core import muse
-            prof = muse.settings()["profile"]
+            st = muse.settings()
+            prof = st["profile"]
+            remotes = st.get("remotes") or []
         except Exception as e:      # noqa: BLE001
             return {"ok": False, "provider": "muse", "model": m, "reason": f"Muse is unavailable on this TubeCLI ({e})."}
-        if not prof:
+        # CHỈ nút từ xa (9/10/2026, máy dev chuyển hết video sang tungho2): không hồ sơ cục bộ nhưng có nút → vẫn sẵn sàng.
+        if not prof and not remotes:
             return {"ok": False, "provider": "muse", "model": m,
-                    "reason": "Muse is not set up: pick the browser profile signed in to muse.ai in Cloud API Keys → Muse."}
-        out = {"ok": True, "provider": "muse", "model": m, "label": prof, "reason": ""}
+                    "reason": "Muse is not set up: pick the browser profile signed in to muse.ai in Cloud API Keys → Muse, "
+                              "or add a remote Muse node there."}
+        label = prof or f"{len(remotes)} remote node(s)"
+        out = {"ok": True, "provider": "muse", "model": m, "label": label, "reason": ""}
         # Muse chậm và đi qua MỘT phiên trình duyệt — hỏng giữa lô (trình duyệt bị đóng, Muse trả lời bằng chữ)
         # thì vẽ tiếp bằng Cloudflare như đường lùi của 9Router, ghi rõ fallback_from.
         fb = _cloudflare(NR_FALLBACK_CF_MODEL)
@@ -571,6 +574,39 @@ def _cf_switch(r: dict, acc: dict, why: str) -> None:
     r["rotated_to"] = acc["label"]
     r["_rotated"] = True
     logger.warning("cloudflare/%s: account '%s' %s → '%s'", r.get("model"), old, why, acc["label"])
+
+
+def _cf_paused_reason(accs: list) -> str:
+    """Câu báo khi KHÔNG còn account Cloudflare nào dùng được.
+
+    Trước 23/9/2026 câu này chỉ nối tình trạng của cả năm account theo thứ tự lưu. Nó dài 438 ký tự, mà chỗ hiển
+    thị cắt còn 300 — account hỏng KHOÁ tình cờ đứng đầu nên người dùng đọc được đúng «HTTP 401 Authentication
+    error» rồi tưởng chờ cũng vô ích, trong khi bốn account kia chỉ hết hạn mức ngày và tự hồi lúc 07:00. Nay nói
+    ĐIỀU QUAN TRỌNG TRƯỚC: bao nhiêu cái tự hồi và hồi lúc nào; cái cần người sửa để sau."""
+    waits, broken = [], []
+    for a in accs:
+        if a.get("active"):
+            continue        # đang dùng được thì không phải chuyện để kể ở đây (account vừa thêm xong)
+        (waits if a.get("disable_reason") == "transient" else broken).append(a)
+    if not waits and not broken:
+        return "No Cloudflare account is usable right now."
+    soonest = ""
+    times = [float(a["disabled_until"]) for a in waits if a.get("disabled_until")]
+    if times:
+        soonest = _local_clock(min(times))
+    bits = []
+    if waits:
+        # Chữ «used up their daily quota» là CÓ CHỦ Ý: dây chuyền video dò chữ này để biết nên ĐỖ LÀN chờ quota
+        # thay vì đánh hỏng task (content_video/pipeline.py::_QUOTA_RE). Đổi chữ ở đây là đổi hành vi ở đó.
+        bits.append(f"{len(waits)}/{len(accs)} accounts used up their daily quota"
+                    + (f" and resume {soonest}" if soonest else ""))
+    if broken:
+        names = ", ".join(str(a.get("label") or "?") for a in broken)
+        bits.append(f"{len(broken)} need a new API token in Cloud API Keys ({names})")
+    head = "No Cloudflare account is usable right now: " + ("; ".join(bits) if bits else "all are turned off")
+    tail = (" The video queue waits for the first one to resume." if waits
+            else " Fix a token or add another Cloudflare account — waiting will not help.")
+    return head + "." + tail
 
 
 def _cf_state_text(acc: dict) -> str:

@@ -764,9 +764,10 @@ def _town_plan(args) -> Dict[str, Any]:
         Pd = rules.get("pod") or {}
         try:
             from tubecli.core import muse
-            if not muse.settings().get("profile"):
+            _ms = muse.settings()
+            if not _ms.get("profile") and not (_ms.get("remotes") or []):      # chỉ nút từ xa vẫn làm được (9/10/2026)
                 raise ToolError("Ad videos need Muse: the owner must pick the browser profile signed in to muse.ai in "
-                                "Cloud API Keys → Muse")
+                                "Cloud API Keys → Muse, or add a remote Muse node there")
         except ImportError:
             raise ToolError("This TubeCLI has no Muse support — update TubeCLI")
         from tubecli.core import templates as T
