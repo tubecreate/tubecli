@@ -4513,6 +4513,12 @@ def _wait_export(state: Dict, ep_id: int, task_id: str) -> str:
                     f"Render: {_bad} shot(s) have a voice file the renderer could not measure, so they "
                     f"played as 5-second silent stills with no subtitles. Install ffmpeg/ffprobe on this "
                     f"machine (apt install ffmpeg) and Retry.")
+        # VIDEO REVIEW 9:16 đi kèm (Studio ≥ 9/10/2026, style khai `review_video`: sheet / video / bảng đạo diễn)
+        if isinstance(done, dict) and done.get("review_path"):
+            state["review_path"] = str(done["review_path"])
+            state["review_link"] = f"{_base_url()}/api/v1/studio/export-video/{os.path.basename(state['review_path'])}"
+        elif isinstance(done, dict) and done.get("review_error"):
+            state.setdefault("warnings", []).append(f"Review video: {done['review_error']}")
     except RuntimeError as e:
         msg = str(e)
         if msg.startswith(("No progress", "Gave up")):
@@ -4563,6 +4569,8 @@ def share_links(state: Dict) -> Dict[str, Any]:
         out["final"] = _share_link(str(state["video_path"]), f"{title} (final)")
     if state.get("video_main_path"):
         out["main"] = _share_link(str(state["video_main_path"]), f"{title} (main, no layout)")
+    if state.get("review_path") and os.path.isfile(str(state["review_path"])):
+        out["review"] = _share_link(str(state["review_path"]), f"{title} (review 9:16)")
     out = {k: v for k, v in out.items() if v}
     if out and not all(v.startswith("http") for v in out.values()):
         out["relative"] = True
@@ -9072,6 +9080,10 @@ def _render_result(state: Dict, options: Dict, notes: List[str], skipped_jobs: L
         lines.append(f"- **Share** (final video, with layout): {sl['final']}")
     if sl.get("main"):
         lines.append(f"- **Main video** (images + voice, no layout): {sl['main']}")
+    if state.get("review_path"):
+        # video review 9:16 (sheet / video / bảng đạo diễn) — user 9/10/2026
+        lines.append(f"- **Review video** (9:16: reference sheets / video / director boards): "
+                     f"{sl.get('review') or state.get('review_link') or state['review_path']}")
     if sl.get("relative"):
         lines.append("- ℹ️ Share links are relative: TubeCLI does not know this server's public address yet. "
                      "Open the dashboard once through its public domain (or set TUBECLI_PUBLIC_URL) "
