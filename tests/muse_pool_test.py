@@ -10,7 +10,7 @@ Kiểm (KHÔNG chạm trình duyệt / Muse thật: ensure_browser, run_tool, _c
   F. lanes=2: một tài khoản chạy 2 lượt cùng lúc, mỗi lượt một chat phụ
   G. status() có một dòng cho mỗi tài khoản; route PUT /settings nhận extra_profiles + lanes
   H. Muse gửi lại ảnh cũ của chat → vẽ lại trong chat mới
-  I. lượt chữ treo hết hạn → hỏi lại MỘT lần trong chat mới (ảnh / chuỗi clip thì không)
+  I. lượt treo hết hạn → ĐÓNG phiên, hỏi lại trong chat mới (tối đa 3 lượt; ảnh / chuỗi clip cũng vậy)
   J. trình duyệt treo → đóng phiên (giải phóng RAM), mở lại, thử lại; 3 lần hỏng / chưa đăng nhập → một dòng Telegram
 
 Run:  python tests/muse_pool_test.py
@@ -305,32 +305,41 @@ def first_hangs(port, action, req=None, timeout=60):
 
 
 M.run_tool = first_hangs
+M.RESET_WAIT = 0
+resets = []
+M.reset_browser = lambda p: (resets.append(p) or True)
 M._save_slot("chayagent", {"profile": "chayagent", "thread": "T-hang", "turns": 3})
 M._LAST_USED.update({"chayagent": 1.0, "muse2": 2.0, "muse3": 3.0})
 r = M.ask("describe scenes 1-12")
-ok(r["text"] == "scenes" and len(hung) == 2 and hung[1][1] == "new" and hung[1][0] != "chayagent",
-   "chữ treo → hỏi lại MỘT lần trong chat mới ở tài khoản khác", hung)
+ok(r["text"] == "scenes" and len(hung) == 2 and hung[1][1] == "new" and resets == ["chayagent"],
+   "treo → ĐÓNG phiên tài khoản ấy, hỏi lại trong chat mới (user 9/10: «15 phút không thành công thì reset phiên»)", (hung, resets))
 ok(not M._DOWN and not M._BUSY, "treo không làm tài khoản bị bỏ qua, chỗ ngồi đã nhả", (M._DOWN, M._BUSY))
 M.run_tool = lambda port, action, req=None, timeout=60: (hung.append(1) or
                                                         {"ok": False, "kind": "timeout", "error": "slow"})
 reset()
 hung.clear()
+resets.clear()
 try:
     M.ask("q")
-    ok(False, "treo cả hai lần → MuseError")
+    ok(False, "treo mãi → MuseError")
 except M.MuseError as e:
-    ok(e.kind == "timeout" and len(hung) == 2, "treo cả hai lần → MuseError(timeout), chỉ thử lại một lần", hung)
+    ok(e.kind == "timeout" and len(hung) == M.MUSE_ATTEMPTS and len(resets) == M.MUSE_ATTEMPTS - 1,
+       "treo mãi → đóng phiên + thử lại đủ 3 lượt rồi MuseError(timeout)", (hung, resets))
 reset()
 hung.clear()
+resets.clear()
 try:
     M.ask("draw", want_images=True)
 except M.MuseError:
     pass
+n_img = len(hung)
 try:
     M.ask("clip", thread_id="CH-x")
 except M.MuseError:
     pass
-ok(len(hung) == 2, "ảnh / chat riêng (chuỗi clip) treo → KHÔNG tự hỏi lại", hung)
+ok(n_img == M.MUSE_ATTEMPTS and len(hung) == 2 * M.MUSE_ATTEMPTS and len(resets) == 2 * (M.MUSE_ATTEMPTS - 1),
+   "ảnh / chat riêng (chuỗi clip) treo → cũng đóng phiên + thử lại", (hung, resets))
+ok(M.VIDEO_TIMEOUT == 900, "một lượt quay chờ tối đa 15 phút")
 
 # ── J ─────────────────────────────────────────────────────────────────────────
 print("J. trình duyệt treo → đóng phiên, mở lại, thử lại; 3 lần hỏng → Telegram")

@@ -641,6 +641,7 @@ def ask(prompt: str, *, want_images: bool = False, files: Optional[List[str]] = 
     chat phụ dùng chung; "" = chat phụ dùng chung như thường. Chat phụ thuộc về tài khoản đã mở nó.
     Trình duyệt treo/đóng: ĐÓNG HẲN phiên (giải phóng RAM), nghỉ, mở lại, thử lại — tối đa MUSE_ATTEMPTS lượt, tài khoản
     vừa hỏng bị bỏ qua DOWN_SECONDS nên lượt sau thường rơi vào tài khoản khác; hết lượt → Telegram + MuseError.
+    Lượt quá hạn (timeout) không ra gì: cũng đóng hẳn phiên rồi thử lại (chat mới), tối đa MUSE_ATTEMPTS lượt.
     Chưa đăng nhập: bỏ qua tài khoản ấy và thử lại MỘT lần ở tài khoản khác; hết → Telegram + MuseError."""
     st = settings()
     profile = st["profile"]
@@ -702,11 +703,17 @@ def ask(prompt: str, *, want_images: bool = False, files: Optional[List[str]] = 
         return ask(prompt, want_images=want_images, files=files, image_dir=image_dir, max_images=max_images,
                    timeout=timeout, fresh=fresh, launch=launch, want_videos=want_videos, video_dir=video_dir,
                    max_videos=max_videos, thread_id=thread_id, _failover=False, _attempt=_attempt)
-    if failed.kind == "timeout" and _failover and not own and not want_images and not want_videos:
-        # Lượt CHỮ treo hết hạn mà không ra chữ nào (6/10/2026: task #277 hỏng ở bước kịch bản sau 300 s, Muse vẫn
-        # khoẻ) — thử lại MỘT lần trong chat MỚI; xoay vòng nên thường rơi vào tài khoản khác. Không coi là hỏng.
-        logger.warning("muse: no answer from %s within %s s — asking once more in a new chat", prof, timeout)
-        return ask(prompt, files=files, timeout=timeout, fresh=True, launch=launch, _failover=False, _attempt=_attempt)
+    if failed.kind == "timeout" and launch and _attempt < MUSE_ATTEMPTS:
+        # Lượt treo quá hạn (video 15 phút, chữ/ảnh 5 phút) mà không ra gì: phiên có thể kẹt → ĐÓNG HẲN phiên (dọn RAM),
+        # mở lại, thử lại trong chat MỚI (chat riêng ghim tài khoản thì giữ chat) — user 9/10/2026: «sau 15 phút thử không
+        # thành công thì reset phiên chứ» (thay cho giết phiên theo đồng hồ 30 phút). Tài khoản vừa treo không bị bỏ qua.
+        logger.warning("muse: %s did not finish within %s s — resetting its session and retrying (%d/%d)",
+                       prof, timeout, _attempt, MUSE_ATTEMPTS)
+        reset_browser(prof)
+        time.sleep(RESET_WAIT)
+        return ask(prompt, want_images=want_images, files=files, image_dir=image_dir, max_images=max_images,
+                   timeout=timeout, fresh=(fresh or not own), launch=launch, want_videos=want_videos, video_dir=video_dir,
+                   max_videos=max_videos, thread_id=thread_id, _failover=_failover, _attempt=_attempt + 1)
     if (failed.kind == "browser" and launch) or failed.kind == "auth":
         # hết đường thử lại — báo người vận hành (user 8/10/2026: «nếu 3 lần lỗi báo cho telegram»)
         _alert(f"{failed.kind}:{prof}", _alert_text(failed, prof, _attempt))
@@ -899,7 +906,9 @@ def generate_image_bytes(prompt: str, aspect_ratio: str = "16:9", reference_imag
 
 # ── video ─────────────────────────────────────────────────────────────────────
 # Đo 2/10/2026: image→video 9:16 → 704×1104, 10 s cố định, h264 + aac, ~6 MB, ~90 s. Muse không nhận độ dài khác.
-VIDEO_TIMEOUT = 600
+# Một lượt quay chờ tối đa 15 phút (user 9/10/2026: «sau 15 phút thử không thành công thì reset phiên») — hết hạn thì
+# ask() ĐÓNG HẲN phiên rồi thử lại, xem bên dưới.
+VIDEO_TIMEOUT = 900
 
 
 def video_request(prompt: str, aspect_ratio: str = "9:16", continue_from: bool = False) -> str:
