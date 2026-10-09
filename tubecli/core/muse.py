@@ -51,7 +51,11 @@ LAUNCH_WAIT = 120
 LAUNCH_SETTLE = 4
 # Hồ sơ tự mở ẩn để phục vụ Muse sống tối đa chừng này (monitor của process_manager tự giết), lượt sau
 # thấy nó tắt thì mở lại.
-HIDDEN_SESSION_MAX = 1800
+# Phiên ẩn sống tối đa chừng này giây. Từng là 1800 (30 phút): bộ quản lý trình duyệt GIẾT phiên đúng giờ dù đang quay
+# clip dở («exceeded max duration (1800s). Force killing» → page closed → ECONNREFUSED → tài khoản bị bỏ qua 10 phút) —
+# nguyên nhân gốc của chuỗi «trình duyệt Muse treo» 8–9/10/2026. Lô 30 clip × 3 tài khoản kéo dài hàng giờ ⇒ 6 giờ;
+# phiên hỏng đã có reset_browser dọn.
+HIDDEN_SESSION_MAX = 6 * 3600
 ASPECTS = {"16:9": "landscape", "9:16": "vertical portrait", "1:1": "square",
            "4:3": "landscape", "3:4": "portrait"}
 
