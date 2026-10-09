@@ -76,7 +76,7 @@
   "cloud_api.muse_lanes_hint": "Để 1 cho an toàn. Thử ngắn với 2 vẫn chạy được, nhưng Muse có thể chậm lại hoặc đánh dấu tài khoản gửi nhiều lượt cùng lúc.",
   "cloud_api.muse_saved_pool": "Đã lưu — Muse dùng {profile} và thêm {n} tài khoản.",
   "cloud_api.muse_remotes": "Nút Muse từ xa (giống 9Router)",
-  "cloud_api.muse_remotes_hint": "Máy khác chạy TubeCLI với tài khoản Muse riêng. Mỗi dòng: URL gốc (…/api/v1/muse) | khoá node | số chỗ. Mỗi nút thêm bấy nhiêu luồng song song; trình duyệt chạy ở máy đó, không ở đây.",
+  "cloud_api.muse_remotes_hint": "Máy khác chạy TubeCLI với tài khoản Muse riêng, mỗi máy một dòng, bao nhiêu máy cũng được: địa chỉ máy | khoá node | số chỗ. Chỉ cần địa chỉ trần (https://vps1.tubecreate.com), phần /api/v1/muse tự nối. Khoá node lấy ở panel Muse của máy kia (nút «Tạo khoá»), không phải mật khẩu. Mỗi nút thêm bấy nhiêu luồng song song; trình duyệt chạy ở máy đó, không ở đây.",
   "cloud_api.muse_node_key": "Khoá node của máy này",
   "cloud_api.muse_node_key_hint": "Cho TubeCLI khác dùng tài khoản Muse của máy này qua /api/v1/muse/v1/*. Tạo khoá rồi dán vào dòng nút từ xa ở máy kia.",
   "cloud_api.muse_node_key_new": "Tạo khoá",

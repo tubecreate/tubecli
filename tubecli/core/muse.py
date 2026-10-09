@@ -119,14 +119,39 @@ REMOTE_PREFIX = "remote"
 NODE_KEY_MIN = 16
 
 
+NODE_PATH = "/api/v1/muse"
+
+
+def _node_url(raw: str) -> str:
+    """Địa chỉ nút từ xa người dùng dán → URL đầy đủ tới /api/v1/muse, hoặc "" nếu không dùng được.
+
+    9/10/2026 user dán `https://tungho2-23.tubecreate.com` (tên miền trần) — trước đây lõi gọi thẳng
+    `<trần>/v1/chat/completions` → 404. Giờ: thiếu scheme → https (IP/localhost → http); không có đường dẫn
+    (hoặc chỉ "/") → nối /api/v1/muse; đã có đường dẫn khác thì giữ nguyên (ví dụ reverse-proxy đổi tiền tố).
+    """
+    url = str(raw or "").strip().rstrip("/")
+    if not url:
+        return ""
+    if "://" not in url:
+        host = url.split("/", 1)[0].split(":", 1)[0]
+        local = host in ("localhost", "127.0.0.1") or re.fullmatch(r"\d{1,3}(\.\d{1,3}){3}", host) is not None
+        url = ("http://" if local else "https://") + url
+    if not url.startswith(("http://", "https://")):
+        return ""
+    rest = url.split("://", 1)[1]
+    if "/" not in rest:
+        url = url + NODE_PATH
+    return url
+
+
 def _clean_remotes(raw) -> List[dict]:
     """[{base_url, key, seats}] — nút Muse từ xa (TubeCLI khác, như 9Router): base_url http(s) tới /api/v1/muse."""
     out: List[dict] = []
     for r in (raw if isinstance(raw, list) else []):
         if not isinstance(r, dict):
             continue
-        url = str(r.get("base_url") or r.get("url") or "").strip().rstrip("/")
-        if not url.startswith(("http://", "https://")):
+        url = _node_url(str(r.get("base_url") or r.get("url") or ""))
+        if not url:
             continue
         try:
             seats = int(r.get("seats") or 1)

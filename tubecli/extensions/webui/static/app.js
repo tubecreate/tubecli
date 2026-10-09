@@ -2943,7 +2943,7 @@ async function _renderMusePanel() {
         <div class="text-muted" style="font-size:.74rem;margin-top:4px;">${esc(T('cloud_api.muse_lanes_hint'))}</div>
         <div style="margin-top:10px;font-size:.78rem;font-weight:600;">${esc(T('cloud_api.muse_remotes'))}</div>
         <div class="text-muted" style="font-size:.74rem;margin:2px 0 4px;">${esc(T('cloud_api.muse_remotes_hint'))}</div>
-        <textarea id="muse-remotes-input" rows="3" style="width:100%;font-family:monospace;font-size:.76rem;" placeholder="https://vps1.example.com/api/v1/muse | key | 3">${esc((st.remotes || []).map(r => `${r.base_url} | ${r.key || ''} | ${r.seats || 1}`).join('\n'))}</textarea>
+        <textarea id="muse-remotes-input" rows="3" style="width:100%;font-family:monospace;font-size:.76rem;" placeholder="https://vps1.tubecreate.com | node key | 2&#10;https://vps2.tubecreate.com | node key | 3">${esc((st.remotes || []).map(r => `${r.base_url} | ${r.key || ''} | ${r.seats || 1}`).join('\n'))}</textarea>
         <div style="margin-top:8px;font-size:.78rem;font-weight:600;">${esc(T('cloud_api.muse_node_key'))}</div>
         <div class="text-muted" style="font-size:.74rem;margin:2px 0 4px;">${esc(T('cloud_api.muse_node_key_hint'))}</div>
         <div style="display:flex;gap:6px;align-items:center;">

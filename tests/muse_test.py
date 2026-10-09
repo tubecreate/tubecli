@@ -33,6 +33,10 @@ except AttributeError:
 
 import tubecli.config as CFG  # noqa: E402
 TMP = Path(tempfile.mkdtemp(prefix="muse_test_"))
+# Thư mục tạm RIÊNG: kiểm «file tạm đầu ra được dọn» quét gettempdir() — server dev đang làm clip Muse cũng
+# ghi muse_out_/muse_err_ vào %TEMP% chung → 9/10/2026 test hỏng giả (nhiễu từ tiến trình khác).
+tempfile.tempdir = str(TMP / "tmp")
+os.makedirs(tempfile.tempdir, exist_ok=True)
 CFG.GLOBAL_SETTINGS_FILE = TMP / "global_settings.json"
 from tubecli.core import muse as M  # noqa: E402
 _REAL_RUN_TOOL = M.run_tool        # các phần sau thay bằng bản giả; phần K cần bản thật

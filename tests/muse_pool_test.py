@@ -422,6 +422,13 @@ st = M.settings()
 ok(st["remotes"] == [{"base_url": "https://vps1.example.com/api/v1/muse", "key": "k1", "seats": 2},
                      {"base_url": "http://vps2:5295/api/v1/muse", "key": "", "seats": M.MAX_REMOTE_SEATS}],
    "remotes: bỏ dấu / cuối, bỏ URL không http(s), kẹp số chỗ", st["remotes"])
+# 9/10/2026 user dán tên miền trần «https://tungho2-23.tubecreate.com» → phải tự nối /api/v1/muse; thiếu scheme → https (IP → http)
+ok([M._node_url(u) for u in ("https://tungho2-23.tubecreate.com", "tungho2-23.tubecreate.com/", "192.168.1.5:5295", "localhost:5295",
+                             "http://vps:5295/api/v1/muse", "https://proxy.example.com/muse", "", "ftp://x", "   ")]
+   == ["https://tungho2-23.tubecreate.com/api/v1/muse", "https://tungho2-23.tubecreate.com/api/v1/muse", "http://192.168.1.5:5295/api/v1/muse",
+       "http://localhost:5295/api/v1/muse", "http://vps:5295/api/v1/muse", "https://proxy.example.com/muse", "", "", ""],
+   "_node_url: tên miền trần → https + /api/v1/muse; IP/localhost → http; đường dẫn riêng giữ nguyên; rỗng/ftp → bỏ",
+   [M._node_url(u) for u in ("https://tungho2-23.tubecreate.com", "192.168.1.5:5295", "ftp://x")])
 try:
     M.set_settings(node_key="short")
     ok(False, "khoá node ngắn → ValueError")
