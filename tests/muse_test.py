@@ -480,6 +480,7 @@ def _fake_remote(node, prof, prompt, **kw):
     return {"ok": True, "text": "OK", "images": [], "videos": [], "profile": prof}
 
 
+_orig_ask_remote = M._ask_remote
 M._ask_remote = _fake_remote
 M.set_settings(remotes=[{"base_url": "https://vps9.example.com", "key": "k-real-1234567890", "seats": 2}])
 rt = c.post("/api/v1/muse/remotes/test", json={"base_url": "vps9.example.com", "key": "k-r…890"}).json()
@@ -493,6 +494,7 @@ ps = c.put("/api/v1/muse/settings", json={"remotes": [{"base_url": "vps9.example
 ok(M.settings()["remotes"] == [{"base_url": "https://vps9.example.com/api/v1/muse", "key": "k-real-1234567890", "seats": 3}] and ps["remotes"][0]["key"] == "k-r…890",
    "PUT settings: tên miền trần + khoá che → giữ khoá thật (so địa chỉ sau chuẩn hoá), GET vẫn che", M.settings()["remotes"])
 M.set_settings(remotes=[])
+M._ask_remote = _orig_ask_remote
 # nút từ xa: /v1/videos/generations trả clip base64 + thread_id; ảnh tham chiếu base64 → file tạm → xoá
 vid_seen = []
 
@@ -513,6 +515,94 @@ ok(base64.b64decode(rv["data"][0]["b64_json"]) == b"MP4DATA" and rv["data"][0]["
 M.generate_video_clip = lambda *a, **k: (_ for _ in ()).throw(M.MuseError("refused", "no"))
 rv2 = c.post("/api/v1/muse/v1/videos/generations", json={"prompt": "x"})
 ok(rv2.status_code == 400 and rv2.json()["error"]["code"] == "refused", "lỗi Muse → {error: {code}} để bên gọi dựng lại MuseError")
+# việc quay NỀN (wait=false) → {id}; GET /v1/videos/jobs/{id} running → done. 9/10/2026: tunnel Cloudflare trả 524 khi HTTP > ~100 s
+import threading as _th
+import time as _t
+_gate = _th.Event()
+
+
+def slow_video(prompt, out_dir, refs=None, ar="16:9", continue_from=False, thread_id="", timeout=600):
+    _gate.wait(10)
+    p = os.path.join(out_dir, "clip.mp4")
+    open(p, "wb").write(b"MP4JOB")
+    return {"path": p, "poster": "", "width": 1248, "height": 704, "duration": 10, "thread_id": "T-job"}
+
+
+M.generate_video_clip = slow_video
+j = c.post("/api/v1/muse/v1/videos/generations", json={"prompt": "walk", "wait": False}).json()
+ok(j.get("status") == "running" and j.get("id"), "wait=false → {id, running} ngay, không chờ clip", j)
+g1 = c.get(f"/api/v1/muse/v1/videos/jobs/{j['id']}").json()
+_gate.set()
+g2 = {}
+for _ in range(100):
+    g2 = c.get(f"/api/v1/muse/v1/videos/jobs/{j['id']}").json()
+    if g2.get("status") != "running":
+        break
+    _t.sleep(0.05)
+ok(g1.get("status") == "running" and g2.get("status") == "done" and base64.b64decode(g2["data"][0]["b64_json"]) == b"MP4JOB"
+   and g2["data"][0]["thread_id"] == "T-job", "GET jobs/{id}: running → done + clip base64 + thread_id", (g1, g2.get("status")))
+ok(c.get(f"/api/v1/muse/v1/videos/jobs/{j['id']}").json().get("status") == "done" and c.get("/api/v1/muse/v1/videos/jobs/nope").status_code == 404,
+   "kết quả còn giữ (hỏi lần hai vẫn done); việc lạ → 404")
+M.generate_video_clip = lambda *a, **k: (_ for _ in ()).throw(M.MuseError("refused", "no job"))
+je = c.post("/api/v1/muse/v1/videos/generations", json={"prompt": "x", "wait": False}).json()
+ge = None
+for _ in range(100):
+    ge = c.get(f"/api/v1/muse/v1/videos/jobs/{je['id']}")
+    if ge.json().get("status") != "running":
+        break
+    _t.sleep(0.05)
+ok(ge.status_code == 400 and ge.json()["error"]["code"] == "refused", "việc hỏng → GET trả {error: {code}} cùng mã HTTP như lượt đồng bộ", ge.json())
+# máy gọi (_ask_remote): POST wait=false → id → hỏi tới khi done; nút lõi cũ trả data ngay vẫn hiểu; kẹt → MuseError(timeout)
+import urllib.request as _ur
+_seq = {"gets": 0}
+
+
+class _Resp:
+    def __init__(self, payload):
+        self._b = json.dumps(payload).encode()
+
+    def read(self):
+        return self._b
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+def fake_urlopen(req, timeout=60):
+    url = req.full_url
+    if req.get_method() == "POST" and url.endswith("/v1/videos/generations"):
+        assert json.loads(req.data.decode()).get("wait") is False
+        return _Resp({"id": "j9", "status": "running"})
+    if req.get_method() == "GET" and url.endswith("/v1/videos/jobs/j9"):
+        _seq["gets"] += 1
+        if _seq["gets"] < 3:
+            return _Resp({"id": "j9", "status": "running"})
+        return _Resp({"id": "j9", "status": "done", "data": [{"b64_json": base64.b64encode(b"MP4REMOTE").decode(), "thread_id": "T-r9",
+                                                              "width": 1280, "height": 720, "duration": 10}]})
+    raise AssertionError("unexpected " + url)
+
+
+_real_urlopen, _real_poll = _ur.urlopen, M.REMOTE_POLL
+_ur.urlopen, M.REMOTE_POLL = fake_urlopen, 0.01
+vdj = str(TMP / "vd_job")
+os.makedirs(vdj, exist_ok=True)
+rr = M._ask_remote({"base_url": "https://vps.example.com/api/v1/muse", "key": "k", "seats": 1}, "remote0", "walk", want_videos=True, video_dir=vdj, timeout=30)
+ok(rr["videos"] and open(rr["videos"][0]["path"], "rb").read() == b"MP4REMOTE" and rr["thread_id"] == "remote0:T-r9" and _seq["gets"] == 3,
+   "_ask_remote video: POST wait=false → hỏi jobs/{id} tới khi done → ghi clip, thread_id mang tên nút", (rr.get("thread_id"), _seq))
+_ur.urlopen = lambda req, timeout=60: _Resp({"created": 1, "data": [{"b64_json": base64.b64encode(b"MP4OLD").decode(), "thread_id": "T-old",
+                                                                     "width": 1, "height": 1, "duration": 10}]})
+ro = M._ask_remote({"base_url": "https://old.example.com/api/v1/muse", "key": "k", "seats": 1}, "remote1", "walk", want_videos=True, video_dir=vdj, timeout=30)
+ok(open(ro["videos"][0]["path"], "rb").read() == b"MP4OLD" and ro["thread_id"] == "remote1:T-old", "nút lõi cũ trả clip ngay → vẫn hiểu")
+_ur.urlopen = lambda req, timeout=60: _Resp({"id": "j1", "status": "running"})
+try:
+    M._ask_remote({"base_url": "https://vps.example.com/api/v1/muse", "key": "k", "seats": 1}, "remote0", "walk", want_videos=True, video_dir=vdj, timeout=-60)
+    ok(False, "việc không xong trong hạn → MuseError(timeout)")
+except M.MuseError as e:
+    ok(e.kind == "timeout", "việc không xong trong hạn → MuseError(timeout)", str(e))
+_ur.urlopen, M.REMOTE_POLL = _real_urlopen, _real_poll
 ok(len(r["data"]) == 2 and base64.b64decode(r["data"][0]["b64_json"]) == b"\xff\xd8\xffIMG" and ar_seen == ["9:16", "9:16"],
    "images/generations n=2, khung 9:16", r)
 r = c.get("/api/v1/muse/settings").json()

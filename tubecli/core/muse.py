@@ -117,6 +117,8 @@ def _clamp_lanes(v) -> int:
 MAX_REMOTE_SEATS = 6
 REMOTE_PREFIX = "remote"
 NODE_KEY_MIN = 16
+REMOTE_POST_WAIT = 90      # giây chờ lượt POST video tới nút (dưới ngưỡng ~100 s của tunnel Cloudflare)
+REMOTE_POLL = 5.0          # giây giữa hai lần hỏi GET /v1/videos/jobs/{id}
 
 
 NODE_PATH = "/api/v1/muse"
@@ -446,27 +448,45 @@ def _ask_remote(node: dict, prof: str, prompt: str, *, files=None, want_images=F
     if tid.startswith(prof + ":"):
         tid = tid[len(prof) + 1:]
     if want_videos:
+        # wait=false: nút trả {id} ngay rồi quay nền — tunnel Cloudflare cắt HTTP > ~100 s (524) mà clip mất 75–200 s.
         path, body = "/v1/videos/generations", {"prompt": prompt, "reference_images": refs, "thread_id": tid,
-                                                 "timeout": int(timeout)}
+                                                 "timeout": int(timeout), "wait": False}
     elif want_images:
         path, body = "/v1/images/generations", {"prompt": prompt, "reference_images": refs, "thread_id": tid, "n": 1}
     else:
         path, body = "/v1/chat/completions", {"model": CHAT_MODEL, "messages": [{"role": "user", "content": prompt}]}
-    req = urllib.request.Request(base + path, data=json.dumps(body).encode("utf-8"), headers=headers, method="POST")
-    try:
-        with urllib.request.urlopen(req, timeout=int(timeout) + 60) as r:
-            data = json.loads(r.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
+
+    def _http(method: str, url: str, payload=None, wait: int = 60) -> dict:
+        req = urllib.request.Request(url, data=(json.dumps(payload).encode("utf-8") if payload is not None else None),
+                                     headers=headers, method=method)
         try:
-            err = json.loads(e.read().decode("utf-8")).get("error") or {}
-        except Exception:      # noqa: BLE001
-            err = {}
-        kind = str(err.get("code") or "")
-        kind = kind if kind in ("config", "refused", "auth", "approval", "busy", "browser", "timeout", "error") else \
-            ("auth" if e.code in (401, 403) else "browser")
-        raise MuseError(kind, f"remote Muse node {base}: {err.get('message') or e}")
-    except Exception as e:      # noqa: BLE001 — không nối được / hết giờ
-        raise MuseError("browser", f"remote Muse node {base} unreachable: {str(e)[:160]}")
+            with urllib.request.urlopen(req, timeout=wait) as r:
+                return json.loads(r.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            try:
+                err = json.loads(e.read().decode("utf-8")).get("error") or {}
+            except Exception:      # noqa: BLE001
+                err = {}
+            kind = str(err.get("code") or "")
+            kind = kind if kind in ("config", "refused", "auth", "approval", "busy", "browser", "timeout", "error") else \
+                ("auth" if e.code in (401, 403) else "browser")
+            raise MuseError(kind, f"remote Muse node {base}: {err.get('message') or e}")
+        except MuseError:
+            raise
+        except Exception as e:      # noqa: BLE001 — không nối được / hết giờ
+            raise MuseError("browser", f"remote Muse node {base} unreachable: {str(e)[:160]}")
+
+    # Lượt đầu: chat/ảnh chờ trọn; video chỉ chờ 90 s (nút mới trả id ngay; nút cũ trả clip luôn nếu kịp dưới 100 s).
+    data = _http("POST", base + path, body, wait=REMOTE_POST_WAIT if want_videos else int(timeout) + 60)
+    if want_videos and not data.get("data") and data.get("id"):
+        job, deadline = str(data["id"]), time.time() + int(timeout) + 60
+        while True:
+            if time.time() > deadline:
+                raise MuseError("timeout", f"remote Muse node {base}: video job {job} did not finish within {int(timeout) + 60} s")
+            time.sleep(REMOTE_POLL)
+            data = _http("GET", f"{base}/v1/videos/jobs/{job}", None, wait=60)
+            if data.get("status") != "running":
+                break
     out = {"ok": True, "text": "", "images": [], "videos": [], "profile": prof}
     rows = data.get("data") or []
     if want_videos:

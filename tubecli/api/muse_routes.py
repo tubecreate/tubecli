@@ -284,36 +284,95 @@ class VideosRequest(BaseModel):
     thread_id: str = ""
     continue_from: bool = False
     timeout: Optional[int] = None
+    wait: Optional[bool] = True        # False = trả mã việc ngay, hỏi GET /v1/videos/jobs/{id} (tunnel Cloudflare cắt HTTP > 100 s)
 
     class Config:
         extra = "allow"
 
 
+# Việc quay clip chạy nền cho máy khác (9/10/2026): tunnel *.tubecreate.com trả 524 khi một HTTP quá ~100 s mà clip Muse
+# mất 75–200 s → 2/5 cảnh raft #318 rớt. Giờ máy gọi gửi wait=false, nhận {id}, rồi hỏi tiến độ; kết quả giữ JOB_TTL giây.
+_VIDEO_JOBS: dict = {}
+JOB_TTL = 1800
+
+
+def _prune_jobs() -> None:
+    now = time.time()
+    for k in [k for k, j in _VIDEO_JOBS.items() if now - float(j.get("created") or 0) > JOB_TTL]:
+        _VIDEO_JOBS.pop(k, None)
+
+
+def _clip_payload(clip: dict) -> dict:
+    with open(clip["path"], "rb") as f:
+        data = f.read()
+    return {"created": int(time.time()),
+            "data": [{"b64_json": base64.b64encode(data).decode("ascii"), "thread_id": clip.get("thread_id", ""),
+                      "width": clip.get("width"), "height": clip.get("height"), "duration": clip.get("duration")}]}
+
+
+def _cleanup_clip(refs: List[str], tmp: str) -> None:
+    _drop_files(refs)
+    try:
+        import shutil
+        shutil.rmtree(tmp, ignore_errors=True)
+    except Exception:      # noqa: BLE001
+        pass
+
+
+def _job_run(job_id: str, prompt: str, tmp: str, refs: List[str], ar: str, cont: bool, tid: str, timeout: int) -> None:
+    job = _VIDEO_JOBS.get(job_id)
+    if job is None:
+        return
+    try:
+        clip = muse.generate_video_clip(prompt, tmp, refs, ar, cont, tid, timeout)
+        job.update(status="done", result=_clip_payload(clip))
+    except muse.MuseError as e:
+        job.update(status="error", error=e)
+    except Exception as e:      # noqa: BLE001
+        job.update(status="error", error=muse.MuseError("error", str(e)[:200]))
+    finally:
+        _cleanup_clip(refs, tmp)
+
+
 @router.post("/v1/videos/generations")
 async def api_videos(req: VideosRequest):
     """MỘT clip Muse cho máy khác (nút Muse từ xa, 9/10/2026): {data: [{b64_json (mp4), thread_id, width, height,
-    duration}]}. Lỗi → {error: {code: kind}} để bên gọi dựng lại MuseError cùng kind."""
+    duration}]}. Lỗi → {error: {code: kind}} để bên gọi dựng lại MuseError cùng kind.
+    wait=false → {id, status: "running"} ngay; lấy kết quả ở GET /v1/videos/jobs/{id}."""
     if not (req.prompt or "").strip():
         return JSONResponse(status_code=400, content={"error": {"message": "prompt is required",
                                                                  "type": "invalid_request_error"}})
     refs = _decode_refs(req.reference_images)
     import tempfile
     tmp = tempfile.mkdtemp(prefix="muse_vid_")
+    args = (req.prompt, tmp, refs, req.aspect_ratio or "16:9", bool(req.continue_from), req.thread_id or "",
+            int(req.timeout or muse.VIDEO_TIMEOUT))
+    if req.wait is False:
+        import threading
+        _prune_jobs()
+        job_id = uuid.uuid4().hex[:12]
+        _VIDEO_JOBS[job_id] = {"status": "running", "created": time.time()}
+        threading.Thread(target=_job_run, args=(job_id,) + args, daemon=True, name=f"muse-job-{job_id}").start()
+        return {"id": job_id, "status": "running"}
     try:
-        clip = await asyncio.to_thread(muse.generate_video_clip, req.prompt, tmp, refs, req.aspect_ratio or "16:9",
-                                       bool(req.continue_from), req.thread_id or "",
-                                       int(req.timeout or muse.VIDEO_TIMEOUT))
-        with open(clip["path"], "rb") as f:
-            data = f.read()
-        return {"created": int(time.time()),
-                "data": [{"b64_json": base64.b64encode(data).decode("ascii"), "thread_id": clip.get("thread_id", ""),
-                          "width": clip.get("width"), "height": clip.get("height"), "duration": clip.get("duration")}]}
+        clip = await asyncio.to_thread(muse.generate_video_clip, *args)
+        return _clip_payload(clip)
     except muse.MuseError as e:
         return _error(e)
     finally:
-        _drop_files(refs)
-        try:
-            import shutil
-            shutil.rmtree(tmp, ignore_errors=True)
-        except Exception:      # noqa: BLE001
-            pass
+        _cleanup_clip(refs, tmp)
+
+
+@router.get("/v1/videos/jobs/{job_id}")
+async def api_video_job(job_id: str):
+    """Tiến độ / kết quả việc quay clip nền: {status: running} | {status: done, data: [...]} | lỗi {error: {code}} (mã HTTP theo kind)."""
+    _prune_jobs()
+    job = _VIDEO_JOBS.get(job_id)
+    if job is None:
+        return JSONResponse(status_code=404, content={"error": {"message": "unknown or expired video job", "type": "muse_error",
+                                                                 "code": "error"}})
+    if job.get("status") == "running":
+        return {"id": job_id, "status": "running"}
+    if job.get("status") == "error":
+        return _error(job["error"])
+    return {"id": job_id, "status": "done", **job["result"]}
