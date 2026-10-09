@@ -469,6 +469,30 @@ ok(R.aspect_from("1792x1024", None) == "16:9" and R.aspect_from("1024x1792", Non
 ar_seen = []
 M.generate_image_bytes = lambda prompt, ar="16:9", refs=None, timeout=300: ar_seen.append(ar) or b"\xff\xd8\xffIMG"
 r = c.post("/api/v1/muse/v1/images/generations", json={"prompt": "fox", "size": "1024x1792", "n": 2}).json()
+# hộp cài đặt: thử một nút từ xa trước khi lưu (POST /remotes/test) — khoá che «abc…xyz» + tên miền trần → khoá đã lưu
+_remote_seen = []
+
+
+def _fake_remote(node, prof, prompt, **kw):
+    _remote_seen.append((node["base_url"], node["key"]))
+    if node["key"] == "bad":
+        raise M.MuseError("auth", "remote Muse node refused the node key")
+    return {"ok": True, "text": "OK", "images": [], "videos": [], "profile": prof}
+
+
+M._ask_remote = _fake_remote
+M.set_settings(remotes=[{"base_url": "https://vps9.example.com", "key": "k-real-1234567890", "seats": 2}])
+rt = c.post("/api/v1/muse/remotes/test", json={"base_url": "vps9.example.com", "key": "k-r…890"}).json()
+ok(rt["ok"] and rt["base_url"] == "https://vps9.example.com/api/v1/muse" and _remote_seen[-1] == ("https://vps9.example.com/api/v1/muse", "k-real-1234567890"),
+   "/remotes/test: tên miền trần + khoá che → gọi đúng nút với khoá thật, trả ok + base_url chuẩn", (rt, _remote_seen[-1:]))
+rt2 = c.post("/api/v1/muse/remotes/test", json={"base_url": "https://vps9.example.com", "key": "bad"}).json()
+ok(not rt2["ok"] and rt2["kind"] == "auth" and "node key" in rt2["message"], "/remotes/test: khoá sai → ok=False, kind=auth, lý do", rt2)
+rt3 = c.post("/api/v1/muse/remotes/test", json={"base_url": "ftp://x", "key": "k"}).json()
+ok(not rt3["ok"] and rt3["kind"] == "config", "/remotes/test: địa chỉ không dùng được → kind=config", rt3)
+ps = c.put("/api/v1/muse/settings", json={"remotes": [{"base_url": "vps9.example.com/", "key": "k-r…890", "seats": 3}]}).json()
+ok(M.settings()["remotes"] == [{"base_url": "https://vps9.example.com/api/v1/muse", "key": "k-real-1234567890", "seats": 3}] and ps["remotes"][0]["key"] == "k-r…890",
+   "PUT settings: tên miền trần + khoá che → giữ khoá thật (so địa chỉ sau chuẩn hoá), GET vẫn che", M.settings()["remotes"])
+M.set_settings(remotes=[])
 # nút từ xa: /v1/videos/generations trả clip base64 + thread_id; ảnh tham chiếu base64 → file tạm → xoá
 vid_seen = []
 

@@ -79,23 +79,42 @@ async def api_get_settings():
             "max_lanes": muse.MAX_LANES, "max_remote_seats": muse.MAX_REMOTE_SEATS}
 
 
+def _unmask_remotes(remotes: List[Any]) -> List[dict]:
+    """Khoá bị che («abc…xyz») gửi lại y nguyên = giữ khoá cũ của nút cùng địa chỉ.
+
+    So địa chỉ SAU chuẩn hoá (_node_url): hộp cài đặt gửi tên miền trần mà lõi lưu …/api/v1/muse → trước đây
+    không khớp và khoá che bị lưu đè lên khoá thật (9/10/2026)."""
+    old = {r["base_url"]: r.get("key", "") for r in muse.settings().get("remotes") or []}
+    fixed = []
+    for r in remotes:
+        if not isinstance(r, dict):
+            continue
+        r = dict(r)
+        url = muse._node_url(str(r.get("base_url") or r.get("url") or ""))
+        if "…" in str(r.get("key") or "") and url in old:
+            r["key"] = old[url]
+        fixed.append(r)
+    return fixed
+
+
+class RemoteTestRequest(BaseModel):
+    base_url: str
+    key: Optional[str] = ""          # khoá che «abc…xyz» = dùng khoá đã lưu của nút cùng địa chỉ
+
+
+@router.post("/remotes/test")
+async def api_test_remote(req: RemoteTestRequest):
+    """Gọi thử MỘT câu tới một nút Muse từ xa (trước khi lưu, hoặc nút «Test» trên từng máy)."""
+    node = (_unmask_remotes([{"base_url": req.base_url, "key": req.key or ""}]) or [{}])[0]
+    return await asyncio.to_thread(muse.test_remote, node.get("base_url") or req.base_url, node.get("key") or "")
+
+
 @router.put("/settings")
 async def api_put_settings(req: MuseSettingsRequest):
     try:
         remotes = req.remotes
         if remotes is not None:
-            # khoá bị che («abc…xyz») gửi lại y nguyên = giữ khoá cũ của nút cùng base_url
-            old = {r["base_url"]: r.get("key", "") for r in muse.settings().get("remotes") or []}
-            fixed = []
-            for r in remotes:
-                if not isinstance(r, dict):
-                    continue
-                r = dict(r)
-                url = str(r.get("base_url") or r.get("url") or "").strip().rstrip("/")
-                if "…" in str(r.get("key") or "") and url in old:
-                    r["key"] = old[url]
-                fixed.append(r)
-            remotes = fixed
+            remotes = _unmask_remotes(remotes)
         muse.set_settings(profile=req.profile, turns_per_chat=req.turns_per_chat,
                           extra_profiles=req.extra_profiles, lanes=req.lanes, remotes=remotes, node_key=req.node_key)
         return _public_settings()

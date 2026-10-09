@@ -740,6 +740,7 @@ def status() -> dict:
     for p in st["pool"]:
         row = _profile_status(p, busy_by.get(p, 0) >= st["lanes"])
         row["down"] = _DOWN.get(p, 0) > now
+        row["last_used"] = _LAST_USED.get(p) or None      # epoch giây — hộp cài đặt hiện «used 2 min ago»
         out["pool"].append(row)
     first = out["pool"][0]
     out.update(running=first["running"], logged_in=first["logged_in"], verified=first["verified"],
@@ -1127,6 +1128,22 @@ def generate_video_clip(prompt: str, out_dir: str, reference_images: Optional[li
         said = " ".join(str(res.get("text") or "").split())[:240]
         raise MuseError(_no_output_kind(said), f"Muse did not make a video{': ' + said if said else '.'}")
     return {**vids[0], "thread_id": res.get("thread_id", "")}
+
+
+def test_remote(base_url: str, key: str, timeout: int = 60) -> dict:
+    """Gọi thử MỘT câu ngắn tới một nút Muse từ xa (chưa cần lưu): {ok, seconds, reply|message, kind, base_url}.
+
+    Hộp cài đặt bấm «Test» / «Test and add» cho từng máy (9/10/2026)."""
+    url = _node_url(base_url)
+    if not url:
+        return {"ok": False, "seconds": 0.0, "message": "Address must be a domain or http(s) URL.", "kind": "config", "base_url": base_url}
+    node = {"base_url": url, "key": str(key or "").strip(), "seats": 1}
+    t0 = time.time()
+    try:
+        res = _ask_remote(node, "remote?", "Reply with the single word OK.", timeout=timeout)
+        return {"ok": True, "seconds": round(time.time() - t0, 1), "reply": str(res.get("text") or "")[:80], "base_url": url}
+    except MuseError as e:
+        return {"ok": False, "seconds": round(time.time() - t0, 1), "message": str(e), "kind": e.kind, "base_url": url}
 
 
 def test_chat(timeout: int = 90) -> dict:

@@ -540,7 +540,20 @@ try:
     ok(False, "không hồ sơ, không nút → MuseError(config)")
 except M.MuseError as e:
     ok(e.kind == "config" and "remote" in str(e).lower(), "không hồ sơ, không nút → MuseError(config) nhắc cả nút từ xa", str(e))
+# test_remote(): thử một nút chưa lưu; status() pool có last_used cho hộp cài đặt
+M._ask_remote = fake_remote
+tr = M.test_remote("vps1.example.com", "k1")
+ok(tr["ok"] and tr["base_url"] == "https://vps1.example.com/api/v1/muse" and tr["reply"] == "remote hi" and tr["seconds"] >= 0,
+   "test_remote: tên miền trần → gọi nút, trả ok/reply/base_url chuẩn", tr)
+M._ask_remote = dead_remote
+tr2 = M.test_remote("https://vps1.example.com/api/v1/muse", "k1")
+ok(not tr2["ok"] and tr2["kind"] == "browser" and "unreachable" in tr2["message"], "test_remote: nút chết → ok=False, kind=browser", tr2)
+ok(not M.test_remote("", "k")["ok"] and M.test_remote("ftp://x", "k")["kind"] == "config", "test_remote: địa chỉ rỗng/ftp → config")
 M.set_settings(profile="chayagent", remotes=[])
+M.run_tool = lambda port, action, req=None, timeout=60: {"ok": True, "logged_in": True, "verified": True}
+M._LAST_USED["chayagent"] = 1234.5
+stp = M.status()
+ok(stp["pool"] and stp["pool"][0]["profile"] == "chayagent" and stp["pool"][0].get("last_used") == 1234.5, "status(): mỗi hồ sơ trong bể có last_used", stp["pool"][:1])
 ok(M.settings()["remotes"] == [], "xoá nút từ xa")
 
 print()
