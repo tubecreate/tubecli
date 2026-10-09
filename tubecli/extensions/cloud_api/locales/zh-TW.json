@@ -74,5 +74,11 @@
   "cloud_api.muse_extra_hint": "勾選其他瀏覽器設定檔，每個都登入不同的 muse.ai 帳號。請求會分配到所有帳號——3 個帳號可同時繪製 3 張圖片。",
   "cloud_api.muse_lanes": "每個帳號同時請求數",
   "cloud_api.muse_lanes_hint": "為安全起見請保持 1。簡短測試中 2 也能用，但同時送出大量請求的帳號可能被 Muse 降速或標記。",
-  "cloud_api.muse_saved_pool": "已儲存 — Muse 使用 {profile} 和另外 {n} 個帳號。"
+  "cloud_api.muse_saved_pool": "已儲存 — Muse 使用 {profile} 和另外 {n} 個帳號。",
+  "cloud_api.muse_remotes": "Remote Muse nodes (like 9Router)",
+  "cloud_api.muse_remotes_hint": "Other machines running TubeCLI with their own Muse accounts. One per line: base URL (…/api/v1/muse) | node key | seats. Each node adds that many parallel seats; the browsers run there, not here.",
+  "cloud_api.muse_node_key": "Node key of this machine",
+  "cloud_api.muse_node_key_hint": "Lets another TubeCLI use this machine's Muse accounts through /api/v1/muse/v1/*. Make a key, then paste it into that machine's remote-node line.",
+  "cloud_api.muse_node_key_new": "Make key",
+  "cloud_api.muse_node_key_made": "Node key made and saved — copy it now, it is shown only once."
 }

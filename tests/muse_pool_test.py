@@ -12,6 +12,7 @@ Kiểm (KHÔNG chạm trình duyệt / Muse thật: ensure_browser, run_tool, _c
   H. Muse gửi lại ảnh cũ của chat → vẽ lại trong chat mới
   I. lượt treo hết hạn → ĐÓNG phiên, hỏi lại trong chat mới (tối đa 3 lượt; ảnh / chuỗi clip cũng vậy)
   J. trình duyệt treo → đóng phiên (giải phóng RAM), mở lại, thử lại; 3 lần hỏng / chưa đăng nhập → một dòng Telegram
+  K. nút Muse TỪ XA («giống 9Router»): mỗi nút = thêm chỗ ngồi; lượt rơi vào đó gọi HTTP (giả); lỗi theo mã của nút
 
 Run:  python tests/muse_pool_test.py
 """
@@ -412,6 +413,108 @@ ok(real_alert("browser:x", "hello") is True and real_alert("browser:x", "again")
    "Telegram thật: cùng lý do chỉ báo một lần mỗi ALERT_EVERY giây", sent)
 M._telegram_target = lambda: ("", "")
 ok(real_alert("other", "x") is False and len(sent) == 1, "chưa cấu hình bot/chat → không gửi, không ném", sent)
+
+# ── K ─────────────────────────────────────────────────────────────────────────
+print("K. nút Muse từ xa (giống 9Router)")
+M.set_settings(profile="chayagent", extra_profiles=[], lanes=1, remotes=[{"base_url": "https://vps1.example.com/api/v1/muse/", "key": "k1", "seats": 2},
+                                                                        {"url": "ftp://bad", "key": "x"}, {"base_url": "http://vps2:5295/api/v1/muse", "seats": 99}])
+st = M.settings()
+ok(st["remotes"] == [{"base_url": "https://vps1.example.com/api/v1/muse", "key": "k1", "seats": 2},
+                     {"base_url": "http://vps2:5295/api/v1/muse", "key": "", "seats": M.MAX_REMOTE_SEATS}],
+   "remotes: bỏ dấu / cuối, bỏ URL không http(s), kẹp số chỗ", st["remotes"])
+try:
+    M.set_settings(node_key="short")
+    ok(False, "khoá node ngắn → ValueError")
+except ValueError:
+    ok(True, "khoá node < 16 ký tự → ValueError")
+M.set_settings(node_key="abcdefghijklmnop-QRSTUV")
+ok(M.node_key_ok("Bearer abcdefghijklmnop-QRSTUV") and M.node_key_ok("abcdefghijklmnop-QRSTUV") and not M.node_key_ok("Bearer nope")
+   and not M.node_key_ok(None), "node_key_ok: Bearer / trần, sai → False")
+M.set_settings(node_key="")
+ok(not M.node_key_ok("Bearer abcdefghijklmnop-QRSTUV"), "không có khoá node → mọi bearer bị từ chối")
+reset()
+remote_calls = []
+
+
+def fake_remote(node, prof, prompt, **kw):
+    remote_calls.append((node["base_url"], prof, kw.get("want_videos"), kw.get("thread_id")))
+    if kw.get("want_videos"):
+        p = str(TMP / f"rv_{len(remote_calls)}.mp4")
+        open(p, "wb").write(b"0" * 20000)
+        return {"ok": True, "text": "", "images": [], "videos": [{"path": p, "duration": 10, "width": 1248, "height": 704}],
+                "thread_id": f"{prof}:T-node", "profile": prof}
+    return {"ok": True, "text": "remote hi", "images": [], "videos": [], "profile": prof}
+
+
+M._ask_remote = fake_remote
+M.run_tool = lambda port, action, req=None, timeout=60: {"ok": True, "text": "local", "images": [], "thread_id": "T-" + BY_PORT[port]}
+M._LAST_USED.update({"chayagent": 9.0, "remote0": 1.0, "remote1": 2.0})
+r = M.ask("q")
+ok(r["text"] == "remote hi" and r["profile"] == "remote0" and remote_calls[0][0] == "https://vps1.example.com/api/v1/muse",
+   "nút từ xa là tài khoản trong bể: lượt rơi vào remote0 → gọi HTTP (giả), không mở trình duyệt", (r, remote_calls))
+reset()
+remote_calls.clear()
+M._LAST_USED.update({"chayagent": 1.0, "remote0": 9.0, "remote1": 9.0})
+ok(M.ask("q")["text"] == "local", "lâu chưa dùng nhất → chayagent (cục bộ) vẫn được chọn", M._LAST_USED)
+# chỗ ngồi: chayagent 1 + remote0 2 + remote1 6 = 9 lượt cùng lúc
+reset()
+busy_now = {"n": 0, "max": 0}
+
+
+def slow_remote(node, prof, prompt, **kw):
+    busy_now["n"] += 1
+    busy_now["max"] = max(busy_now["max"], busy_now["n"])
+    time.sleep(0.25)
+    busy_now["n"] -= 1
+    return {"ok": True, "text": "r", "images": [], "videos": [], "profile": prof}
+
+
+def slow_local(port, action, req=None, timeout=60):
+    busy_now["n"] += 1
+    busy_now["max"] = max(busy_now["max"], busy_now["n"])
+    time.sleep(0.25)
+    busy_now["n"] -= 1
+    return {"ok": True, "text": "l", "images": [], "thread_id": "T-" + BY_PORT[port]}
+
+
+M._ask_remote = slow_remote
+M.run_tool = slow_local
+ths = [threading.Thread(target=lambda: M.ask("q")) for _ in range(9)]
+t0 = time.time()
+for t in ths:
+    t.start()
+for t in ths:
+    t.join()
+ok(busy_now["max"] == 9 and time.time() - t0 < 0.9 and not M._BUSY, "9 chỗ ngồi (1 cục bộ + 2 + 6 từ xa) chạy cùng lúc, chỗ ngồi đã nhả", (busy_now, round(time.time() - t0, 2)))
+# clip từ xa: file về video_dir, chat phụ ghim vào nút
+reset()
+remote_calls.clear()
+M._ask_remote = fake_remote
+M.run_tool = lambda port, action, req=None, timeout=60: {"ok": False, "kind": "browser", "error": "local dead"}
+M.reset_browser = lambda p: True
+M._LAST_USED.update({"chayagent": 1.0, "remote0": 5.0, "remote1": 6.0})
+v = M.generate_video_clip("clip", str(TMP / "vd_remote"), [], "16:9")
+ok(v["path"].endswith(".mp4") and v["thread_id"] == "remote0:T-node" and any(c[1] == "remote0" for c in remote_calls),
+   "cục bộ hỏng → clip làm ở nút từ xa, thread_id mang tên nút", (v, remote_calls))
+remote_calls.clear()
+v2 = M.generate_video_clip("next", str(TMP / "vd_remote"), [], "16:9", continue_from=True, thread_id="remote0:T-node")
+ok(remote_calls and remote_calls[0][1] == "remote0" and remote_calls[0][3] == "remote0:T-node",
+   "chuỗi clip ghim chat phụ → đúng nút remote0", remote_calls)
+# nút không nối được → bỏ qua nút 10 phút, thử nút/tài khoản khác
+reset()
+M.run_tool = lambda port, action, req=None, timeout=60: {"ok": True, "text": "local ok", "images": [], "thread_id": "T-x"}
+
+
+def dead_remote(node, prof, prompt, **kw):
+    raise M.MuseError("browser", f"remote Muse node {node['base_url']} unreachable")
+
+
+M._ask_remote = dead_remote
+M._LAST_USED.update({"chayagent": 9.0, "remote0": 1.0, "remote1": 2.0})
+r = M.ask("q")
+ok(r["text"] == "local ok" and M._DOWN.get("remote0", 0) > time.time(), "nút chết → bỏ qua 10 phút, lượt sang tài khoản khác", (r.get("profile"), list(M._DOWN)))
+M.set_settings(remotes=[])
+ok(M.settings()["remotes"] == [], "xoá nút từ xa")
 
 print()
 print(f"{PASS} passed, {FAIL} failed")

@@ -113,7 +113,8 @@ ok(not r["ok"] and "Cannot find module" in r["error"], "không có dấu → l�
 r = M.parse_tool_output("__MUSE_RESULT__{bad__MUSE_END__")
 ok(not r["ok"] and "bad JSON" in r["error"], "JSON hỏng", r)
 ok(M.settings() == {"profile": "", "extra_profiles": [], "pool": [], "lanes": 1,
-                    "turns_per_chat": M.DEFAULT_TURNS_PER_CHAT}, "mặc định: chưa chọn hồ sơ, một lượt mỗi tài khoản")
+                    "turns_per_chat": M.DEFAULT_TURNS_PER_CHAT, "remotes": [], "node_key": ""},
+   "mặc định: chưa chọn hồ sơ, một lượt mỗi tài khoản, không nút từ xa")
 try:
     M.set_settings(profile="nope")
     ok(False, "hồ sơ không có → ValueError")
@@ -126,7 +127,8 @@ except ValueError:
     ok(True, "tên đi ngược thư mục → ValueError")
 ok(M.set_settings(profile="chayagent", turns_per_chat=999) == {"profile": "chayagent", "extra_profiles": [],
                                                                "pool": ["chayagent"], "lanes": 1,
-                                                               "turns_per_chat": M.MAX_TURNS_PER_CHAT},
+                                                               "turns_per_chat": M.MAX_TURNS_PER_CHAT,
+                                                               "remotes": [], "node_key": ""},
    "lưu hồ sơ + kẹp số lượt")
 ok(M.set_settings(turns_per_chat=0)["turns_per_chat"] == 1 and M.settings()["profile"] == "chayagent",
    "chỉ ghi khoá được truyền; số lượt ≥ 1")
@@ -463,6 +465,26 @@ ok(R.aspect_from("1792x1024", None) == "16:9" and R.aspect_from("1024x1792", Non
 ar_seen = []
 M.generate_image_bytes = lambda prompt, ar="16:9", refs=None, timeout=300: ar_seen.append(ar) or b"\xff\xd8\xffIMG"
 r = c.post("/api/v1/muse/v1/images/generations", json={"prompt": "fox", "size": "1024x1792", "n": 2}).json()
+# nút từ xa: /v1/videos/generations trả clip base64 + thread_id; ảnh tham chiếu base64 → file tạm → xoá
+vid_seen = []
+
+
+def fake_video(prompt, out_dir, refs=None, ar="16:9", continue_from=False, thread_id="", timeout=600):
+    vid_seen.append((prompt, [os.path.basename(x) for x in (refs or [])], ar, thread_id))
+    p = os.path.join(out_dir, "clip.mp4")
+    open(p, "wb").write(b"MP4DATA")
+    return {"path": p, "poster": "", "width": 1248, "height": 704, "duration": 10, "thread_id": "T-r"}
+
+
+M.generate_video_clip = fake_video
+rv = c.post("/api/v1/muse/v1/videos/generations", json={"prompt": "walk", "aspect_ratio": "16:9", "thread_id": "T-r",
+                                                          "reference_images": ["data:image/jpeg;base64," + base64.b64encode(b"\xff\xd8\xff" + b"x" * 200).decode()]}).json()
+ok(base64.b64decode(rv["data"][0]["b64_json"]) == b"MP4DATA" and rv["data"][0]["thread_id"] == "T-r" and vid_seen[0][2] == "16:9"
+   and vid_seen[0][3] == "T-r" and len(vid_seen[0][1]) == 1 and vid_seen[0][1][0].endswith(".jpg"),
+   "/v1/videos/generations: clip base64 + thread_id, ảnh tham chiếu base64 thành file tạm", (rv.get("data", [{}])[0].get("thread_id"), vid_seen))
+M.generate_video_clip = lambda *a, **k: (_ for _ in ()).throw(M.MuseError("refused", "no"))
+rv2 = c.post("/api/v1/muse/v1/videos/generations", json={"prompt": "x"})
+ok(rv2.status_code == 400 and rv2.json()["error"]["code"] == "refused", "lỗi Muse → {error: {code}} để bên gọi dựng lại MuseError")
 ok(len(r["data"]) == 2 and base64.b64decode(r["data"][0]["b64_json"]) == b"\xff\xd8\xffIMG" and ar_seen == ["9:16", "9:16"],
    "images/generations n=2, khung 9:16", r)
 r = c.get("/api/v1/muse/settings").json()

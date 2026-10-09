@@ -534,6 +534,15 @@ async def _require_login(request: Request, call_next):
             return await call_next(request)
     except Exception:
         pass  # a broken key check must refuse, not crash — fall through
+    # Nút Muse từ xa (9/10/2026 «giống 9Router»): máy khác gọi cổng OpenAI của Muse với khoá node của máy này.
+    # Chỉ các route /api/v1/muse/v1/*; khoá ≥ 16 ký tự, so sánh thời gian hằng — xem muse.node_key_ok.
+    try:
+        if request.url.path.startswith("/api/v1/muse/v1/"):
+            from tubecli.core import muse as _muse
+            if _muse.node_key_ok(request.headers.get("authorization")):
+                return await call_next(request)
+    except Exception:
+        pass
     try:
         from tubecli.core import auth
 

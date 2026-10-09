@@ -74,5 +74,11 @@
   "cloud_api.muse_extra_hint": "それぞれ別の muse.ai アカウントでログインした他のブラウザープロファイルにチェックを入れます。リクエストはすべてのアカウントに振り分けられ、3 アカウントなら 3 枚を同時に描きます。",
   "cloud_api.muse_lanes": "アカウントごとの同時リクエスト数",
   "cloud_api.muse_lanes_hint": "安全のため 1 のままにしてください。短いテストでは 2 でも動きましたが、多くのリクエストを同時に送るアカウントは Muse に遅くされたり、フラグを付けられたりする可能性があります。",
-  "cloud_api.muse_saved_pool": "保存しました — Muse は {profile} と追加の {n} アカウントを使います。"
+  "cloud_api.muse_saved_pool": "保存しました — Muse は {profile} と追加の {n} アカウントを使います。",
+  "cloud_api.muse_remotes": "Remote Muse nodes (like 9Router)",
+  "cloud_api.muse_remotes_hint": "Other machines running TubeCLI with their own Muse accounts. One per line: base URL (…/api/v1/muse) | node key | seats. Each node adds that many parallel seats; the browsers run there, not here.",
+  "cloud_api.muse_node_key": "Node key of this machine",
+  "cloud_api.muse_node_key_hint": "Lets another TubeCLI use this machine's Muse accounts through /api/v1/muse/v1/*. Make a key, then paste it into that machine's remote-node line.",
+  "cloud_api.muse_node_key_new": "Make key",
+  "cloud_api.muse_node_key_made": "Node key made and saved — copy it now, it is shown only once."
 }

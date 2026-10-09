@@ -74,5 +74,11 @@
   "cloud_api.muse_extra_hint": "각각 다른 muse.ai 계정으로 로그인된 다른 브라우저 프로필을 체크하세요. 요청이 모든 계정에 나뉘어, 계정 3개면 이미지 3장을 동시에 그립니다.",
   "cloud_api.muse_lanes": "계정당 동시 요청 수",
   "cloud_api.muse_lanes_hint": "안전하게 1로 두세요. 짧은 테스트에서는 2도 작동했지만, 한꺼번에 많은 요청을 보내는 계정은 Muse가 느리게 처리하거나 표시할 수 있습니다.",
-  "cloud_api.muse_saved_pool": "저장됨 — Muse가 {profile} 외 {n}개 계정을 사용합니다."
+  "cloud_api.muse_saved_pool": "저장됨 — Muse가 {profile} 외 {n}개 계정을 사용합니다.",
+  "cloud_api.muse_remotes": "Remote Muse nodes (like 9Router)",
+  "cloud_api.muse_remotes_hint": "Other machines running TubeCLI with their own Muse accounts. One per line: base URL (…/api/v1/muse) | node key | seats. Each node adds that many parallel seats; the browsers run there, not here.",
+  "cloud_api.muse_node_key": "Node key of this machine",
+  "cloud_api.muse_node_key_hint": "Lets another TubeCLI use this machine's Muse accounts through /api/v1/muse/v1/*. Make a key, then paste it into that machine's remote-node line.",
+  "cloud_api.muse_node_key_new": "Make key",
+  "cloud_api.muse_node_key_made": "Node key made and saved — copy it now, it is shown only once."
 }

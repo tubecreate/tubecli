@@ -52,6 +52,8 @@ class MuseSettingsRequest(BaseModel):
     turns_per_chat: Optional[int] = None
     extra_profiles: Optional[List[str]] = None   # tài khoản Muse PHỤ (mỗi hồ sơ một tài khoản) — vẽ song song
     lanes: Optional[int] = None                  # lượt cùng lúc MỖI tài khoản (1 = an toàn)
+    remotes: Optional[List[dict]] = None         # nút Muse từ xa [{base_url, key, seats}] («giống 9Router», 9/10/2026)
+    node_key: Optional[str] = None               # khoá để MÁY KHÁC gọi /api/v1/muse/v1/* của máy này
 
 
 @router.get("/status")
@@ -59,20 +61,55 @@ async def api_status():
     return await asyncio.to_thread(muse.status)
 
 
+def _public_settings() -> dict:
+    """Cài đặt cho giao diện: khoá nút từ xa che bớt, khoá node chỉ báo có/không + 4 ký tự cuối."""
+    st = muse.settings()
+    st["remotes"] = [{**r, "key": (r["key"][:3] + "…" + r["key"][-3:]) if len(r.get("key") or "") > 8 else ("…" if r.get("key") else "")}
+                     for r in st.get("remotes") or []]
+    nk = st.pop("node_key", "")
+    st["node_key_set"] = bool(nk)
+    st["node_key_tail"] = nk[-4:] if nk else ""
+    return st
+
+
 @router.get("/settings")
 async def api_get_settings():
-    return {**muse.settings(), "profiles": _profile_names(),
+    return {**_public_settings(), "profiles": _profile_names(),
             "default_turns_per_chat": muse.DEFAULT_TURNS_PER_CHAT, "max_turns_per_chat": muse.MAX_TURNS_PER_CHAT,
-            "max_lanes": muse.MAX_LANES}
+            "max_lanes": muse.MAX_LANES, "max_remote_seats": muse.MAX_REMOTE_SEATS}
 
 
 @router.put("/settings")
 async def api_put_settings(req: MuseSettingsRequest):
     try:
-        return muse.set_settings(profile=req.profile, turns_per_chat=req.turns_per_chat,
-                                 extra_profiles=req.extra_profiles, lanes=req.lanes)
+        remotes = req.remotes
+        if remotes is not None:
+            # khoá bị che («abc…xyz») gửi lại y nguyên = giữ khoá cũ của nút cùng base_url
+            old = {r["base_url"]: r.get("key", "") for r in muse.settings().get("remotes") or []}
+            fixed = []
+            for r in remotes:
+                if not isinstance(r, dict):
+                    continue
+                r = dict(r)
+                url = str(r.get("base_url") or r.get("url") or "").strip().rstrip("/")
+                if "…" in str(r.get("key") or "") and url in old:
+                    r["key"] = old[url]
+                fixed.append(r)
+            remotes = fixed
+        muse.set_settings(profile=req.profile, turns_per_chat=req.turns_per_chat,
+                          extra_profiles=req.extra_profiles, lanes=req.lanes, remotes=remotes, node_key=req.node_key)
+        return _public_settings()
     except ValueError as e:
         raise HTTPException(400, str(e))
+
+
+@router.post("/node-key")
+async def api_new_node_key():
+    """Tạo khoá node mới (máy khác dùng để gọi Muse của máy này) — trả khoá MỘT lần."""
+    import secrets
+    key = secrets.token_urlsafe(24)
+    muse.set_settings(node_key=key)
+    return {"node_key": key}
 
 
 @router.post("/test")
@@ -140,6 +177,8 @@ async def api_chat_completions(req: ChatRequest):
 
 
 class ImagesRequest(BaseModel):
+    reference_images: Optional[List[str]] = None   # nút từ xa gửi ảnh tham chiếu (data URL / base64) — 9/10/2026
+    thread_id: str = ""
     prompt: str
     model: str = muse.IMAGE_MODEL
     n: int = 1
@@ -165,18 +204,97 @@ def aspect_from(size: Optional[str], aspect: Optional[str]) -> str:
     return "9:16" if r <= 0.67 else "3:4"
 
 
+def _decode_refs(items) -> list:
+    """reference_images (data URL / base64) → file tạm; trả đường dẫn (bên gọi xoá)."""
+    import tempfile
+    paths = []
+    for s in (items or [])[:3]:
+        s = str(s or "")
+        if "," in s and s.startswith("data:"):
+            s = s.split(",", 1)[1]
+        try:
+            raw = base64.b64decode(s)
+        except Exception:      # noqa: BLE001
+            continue
+        if len(raw) < 100:
+            continue
+        fd, p = tempfile.mkstemp(prefix="muse_ref_", suffix=".png" if raw[:4] == b"\x89PNG" else ".jpg")
+        with os.fdopen(fd, "wb") as f:
+            f.write(raw)
+        paths.append(p)
+    return paths
+
+
+def _drop_files(paths) -> None:
+    for p in paths or []:
+        try:
+            os.remove(p)
+        except OSError:
+            pass
+
+
 @router.post("/v1/images/generations")
 async def api_images(req: ImagesRequest):
     if not (req.prompt or "").strip():
         return JSONResponse(status_code=400, content={"error": {"message": "prompt is required",
                                                                  "type": "invalid_request_error"}})
     ar = aspect_from(req.size, req.aspect_ratio)
+    refs = _decode_refs(req.reference_images)
     out = []
     try:
         for _ in range(max(1, min(4, int(req.n or 1)))):
-            data = await asyncio.to_thread(muse.generate_image_bytes, req.prompt, ar)
+            if refs or req.thread_id:
+                data = await asyncio.to_thread(muse.generate_image_bytes, req.prompt, ar, refs or None,
+                                               muse.IMAGE_TIMEOUT, req.thread_id or "")
+            else:
+                data = await asyncio.to_thread(muse.generate_image_bytes, req.prompt, ar)
             out.append({"b64_json": base64.b64encode(data).decode("ascii"), "revised_prompt": req.prompt})
     except muse.MuseError as e:
         if not out:
+            _drop_files(refs)
             return _error(e)
+    finally:
+        _drop_files(refs)
     return {"created": int(time.time()), "data": out}
+
+
+class VideosRequest(BaseModel):
+    prompt: str = ""
+    aspect_ratio: str = "16:9"
+    reference_images: Optional[List[str]] = None       # data URL / base64
+    thread_id: str = ""
+    continue_from: bool = False
+    timeout: Optional[int] = None
+
+    class Config:
+        extra = "allow"
+
+
+@router.post("/v1/videos/generations")
+async def api_videos(req: VideosRequest):
+    """MỘT clip Muse cho máy khác (nút Muse từ xa, 9/10/2026): {data: [{b64_json (mp4), thread_id, width, height,
+    duration}]}. Lỗi → {error: {code: kind}} để bên gọi dựng lại MuseError cùng kind."""
+    if not (req.prompt or "").strip():
+        return JSONResponse(status_code=400, content={"error": {"message": "prompt is required",
+                                                                 "type": "invalid_request_error"}})
+    refs = _decode_refs(req.reference_images)
+    import tempfile
+    tmp = tempfile.mkdtemp(prefix="muse_vid_")
+    try:
+        clip = await asyncio.to_thread(muse.generate_video_clip, req.prompt, tmp, refs, req.aspect_ratio or "16:9",
+                                       bool(req.continue_from), req.thread_id or "",
+                                       int(req.timeout or muse.VIDEO_TIMEOUT))
+        with open(clip["path"], "rb") as f:
+            data = f.read()
+        return {"created": int(time.time()),
+                "data": [{"b64_json": base64.b64encode(data).decode("ascii"), "thread_id": clip.get("thread_id", ""),
+                          "width": clip.get("width"), "height": clip.get("height"), "duration": clip.get("duration")}]}
+    except muse.MuseError as e:
+        return _error(e)
+    finally:
+        _drop_files(refs)
+        try:
+            import shutil
+            shutil.rmtree(tmp, ignore_errors=True)
+        except Exception:      # noqa: BLE001
+            pass

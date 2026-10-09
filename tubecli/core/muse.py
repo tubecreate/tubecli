@@ -114,10 +114,33 @@ def _clamp_lanes(v) -> int:
     return max(1, min(MAX_LANES, n))
 
 
-def settings() -> dict:
-    """{profile, extra_profiles, pool, lanes, turns_per_chat}. profile "" = chưa chọn hồ sơ nào.
+MAX_REMOTE_SEATS = 6
+REMOTE_PREFIX = "remote"
+NODE_KEY_MIN = 16
 
-    pool = hồ sơ chính + hồ sơ phụ (không trùng), theo thứ tự; chưa có hồ sơ chính thì pool rỗng."""
+
+def _clean_remotes(raw) -> List[dict]:
+    """[{base_url, key, seats}] — nút Muse từ xa (TubeCLI khác, như 9Router): base_url http(s) tới /api/v1/muse."""
+    out: List[dict] = []
+    for r in (raw if isinstance(raw, list) else []):
+        if not isinstance(r, dict):
+            continue
+        url = str(r.get("base_url") or r.get("url") or "").strip().rstrip("/")
+        if not url.startswith(("http://", "https://")):
+            continue
+        try:
+            seats = int(r.get("seats") or 1)
+        except (TypeError, ValueError):
+            seats = 1
+        out.append({"base_url": url, "key": str(r.get("key") or "").strip(), "seats": max(1, min(MAX_REMOTE_SEATS, seats))})
+    return out
+
+
+def settings() -> dict:
+    """{profile, extra_profiles, pool, lanes, turns_per_chat, remotes, node_key}. profile "" = chưa chọn hồ sơ nào.
+
+    pool = hồ sơ chính + hồ sơ phụ (không trùng), theo thứ tự; chưa có hồ sơ chính thì pool rỗng.
+    remotes = nút Muse từ xa (9/10/2026, «giống 9Router»): mỗi nút thêm `seats` chỗ ngồi vào bể."""
     try:
         from tubecli.config import read_global_settings
         g = read_global_settings()
@@ -132,7 +155,19 @@ def settings() -> dict:
             pool.append(p)
     return {"profile": profile, "extra_profiles": pool[1:], "pool": pool,
             "lanes": _clamp_lanes(g.get("muse_lanes")),
-            "turns_per_chat": _clamp_turns(g.get("muse_turns_per_chat"))}
+            "turns_per_chat": _clamp_turns(g.get("muse_turns_per_chat")),
+            "remotes": _clean_remotes(g.get("muse_remotes")),
+            "node_key": str(g.get("muse_node_key") or "").strip()}
+
+
+def node_key_ok(authorization: Optional[str]) -> bool:
+    """Máy khác gọi /api/v1/muse/v1/* với `Authorization: Bearer <muse_node_key>` của máy này (≥ NODE_KEY_MIN ký tự)."""
+    import hmac
+    key = settings().get("node_key") or ""
+    tok = str(authorization or "").strip()
+    if tok.lower().startswith("bearer "):
+        tok = tok[7:].strip()
+    return bool(key) and len(key) >= NODE_KEY_MIN and bool(tok) and hmac.compare_digest(key, tok)
 
 
 def _profiles_dir() -> str:
@@ -148,9 +183,17 @@ def _check_profile(p: str) -> str:
 
 
 def set_settings(profile: Optional[str] = None, turns_per_chat: Optional[int] = None,
-                 extra_profiles: Optional[List[str]] = None, lanes: Optional[int] = None) -> dict:
+                 extra_profiles: Optional[List[str]] = None, lanes: Optional[int] = None,
+                 remotes: Optional[List[dict]] = None, node_key: Optional[str] = None) -> dict:
     """Chỉ ghi khoá được truyền. Hồ sơ phải có thật (tên gõ sai = mọi lượt hỏng mà trông như đã cấu hình)."""
     from tubecli.config import set_global_setting
+    if remotes is not None:
+        set_global_setting("muse_remotes", _clean_remotes(remotes))
+    if node_key is not None:
+        nk = str(node_key).strip()
+        if nk and len(nk) < NODE_KEY_MIN:
+            raise ValueError(f"The node key must be at least {NODE_KEY_MIN} characters.")
+        set_global_setting("muse_node_key", nk)
     if profile is not None:
         # Đổi hồ sơ = đổi tài khoản: pick_thread thấy state["profile"] khác nên tự mở chat phụ mới.
         set_global_setting("muse_profile", _check_profile(profile))
@@ -349,6 +392,85 @@ def reset_browser(profile: str) -> bool:
     logger.warning("muse: browser session of %s closed — %d process(es) killed%s", profile, len(procs),
                    "" if not left else f", {len(left)} still alive")
     return not left
+
+
+def _ask_remote(node: dict, prof: str, prompt: str, *, files=None, want_images=False, image_dir="", max_images=1,
+                want_videos=False, video_dir="", max_videos=1, thread_id="", timeout=CHAT_TIMEOUT) -> dict:
+    """Một lượt ở NÚT TỪ XA (TubeCLI khác, như 9Router): clip → POST /v1/videos/generations, ảnh → /v1/images/generations,
+    chữ → /v1/chat/completions. File đính kèm gửi base64; clip/ảnh nhận về ghi ra video_dir/image_dir. Trả dict cùng
+    dạng với muse_tool ({ok, text, images, videos, thread_id, profile}). Lỗi của nút ({error: {code}}) → MuseError cùng
+    kind; không nối được → MuseError("browser") để lớp trên bỏ qua nút 10 phút rồi thử nút/tài khoản khác."""
+    import urllib.request
+    import urllib.error
+    base = str(node.get("base_url") or "").rstrip("/")
+    headers = {"Content-Type": "application/json", "User-Agent": "TubeCLI-muse-node/1",
+               "Accept": "application/json"}
+    if node.get("key"):
+        headers["Authorization"] = f"Bearer {node['key']}"
+    refs = []
+    for p in list(files or [])[:3]:
+        try:
+            with open(str(p), "rb") as f:
+                raw = f.read()
+            mime = "image/png" if str(p).lower().endswith(".png") else "image/jpeg"
+            refs.append(f"data:{mime};base64," + base64.b64encode(raw).decode("ascii"))
+        except OSError:
+            continue
+    # chat phụ của nút: id lưu ở đây là "<prof>:<id trên nút>"
+    tid = str(thread_id or "")
+    if tid.startswith(prof + ":"):
+        tid = tid[len(prof) + 1:]
+    if want_videos:
+        path, body = "/v1/videos/generations", {"prompt": prompt, "reference_images": refs, "thread_id": tid,
+                                                 "timeout": int(timeout)}
+    elif want_images:
+        path, body = "/v1/images/generations", {"prompt": prompt, "reference_images": refs, "thread_id": tid, "n": 1}
+    else:
+        path, body = "/v1/chat/completions", {"model": CHAT_MODEL, "messages": [{"role": "user", "content": prompt}]}
+    req = urllib.request.Request(base + path, data=json.dumps(body).encode("utf-8"), headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=int(timeout) + 60) as r:
+            data = json.loads(r.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        try:
+            err = json.loads(e.read().decode("utf-8")).get("error") or {}
+        except Exception:      # noqa: BLE001
+            err = {}
+        kind = str(err.get("code") or "")
+        kind = kind if kind in ("config", "refused", "auth", "approval", "busy", "browser", "timeout", "error") else \
+            ("auth" if e.code in (401, 403) else "browser")
+        raise MuseError(kind, f"remote Muse node {base}: {err.get('message') or e}")
+    except Exception as e:      # noqa: BLE001 — không nối được / hết giờ
+        raise MuseError("browser", f"remote Muse node {base} unreachable: {str(e)[:160]}")
+    out = {"ok": True, "text": "", "images": [], "videos": [], "profile": prof}
+    rows = data.get("data") or []
+    if want_videos:
+        os.makedirs(video_dir or ".", exist_ok=True)
+        for i, row in enumerate(rows[:max(1, max_videos)]):
+            b64 = row.get("b64_json")
+            if not b64:
+                continue
+            p = os.path.join(video_dir or ".", f"muse_remote_{int(time.time())}_{i}.mp4")
+            with open(p, "wb") as f:
+                f.write(base64.b64decode(b64))
+            out["videos"].append({"path": p, "poster": "", "width": row.get("width"), "height": row.get("height"),
+                                  "duration": row.get("duration")})
+            if row.get("thread_id"):
+                out["thread_id"] = f"{prof}:{row['thread_id']}"
+    elif want_images:
+        os.makedirs(image_dir or ".", exist_ok=True)
+        for i, row in enumerate(rows[:max(1, max_images)]):
+            b64 = row.get("b64_json")
+            if not b64:
+                continue
+            p = os.path.join(image_dir or ".", f"muse_remote_{int(time.time())}_{i}.jpg")
+            with open(p, "wb") as f:
+                f.write(base64.b64decode(b64))
+            out["images"].append({"path": p})
+    else:
+        ch = (data.get("choices") or [{}])[0]
+        out["text"] = str(((ch.get("message") or {}).get("content")) or "")
+    return out
 
 
 def _telegram_target() -> tuple:
@@ -595,21 +717,29 @@ def status() -> dict:
     return out
 
 
-def _acquire(pool: List[str], lanes: int, want: str = "", timeout: float = QUEUE_WAIT):
+def _acquire(pool: List[str], lanes: int, want: str = "", timeout: float = QUEUE_WAIT,
+             remotes: Optional[List[dict]] = None):
     """Giữ MỘT chỗ ngồi → (hồ sơ, khoá chỗ). Chọn tài khoản ít lượt đang chạy nhất, rồi lâu chưa dùng nhất — các
     lượt xoay vòng qua mọi tài khoản. Tài khoản đang hỏng (_DOWN) bị bỏ qua, trừ khi tài khoản nào cũng hỏng.
-    want: chat phụ của tài khoản nào thì PHẢI chạy ở tài khoản đó."""
+    want: chat phụ của tài khoản nào thì PHẢI chạy ở tài khoản đó.
+    remotes: nút Muse từ xa — mỗi nút là một «tài khoản» tên remote<i> với `seats` chỗ ngồi (9/10/2026)."""
+    seats: Dict[str, int] = {p: max(1, lanes) for p in pool}
+    names = list(pool)
+    for i, r in enumerate(remotes or []):
+        nm = f"{REMOTE_PREFIX}{i}"
+        names.append(nm)
+        seats[nm] = max(1, int(r.get("seats") or 1))
     deadline = time.time() + timeout
     with _POOL:
         while True:
             now = time.time()
-            live = [want] if want else ([p for p in pool if _DOWN.get(p, 0) <= now] or list(pool))
+            live = [want] if want else ([p for p in names if _DOWN.get(p, 0) <= now] or list(names))
             load: Dict[str, int] = {}
             for p in _BUSY.values():
                 load[p] = load.get(p, 0) + 1
             free = []
             for p in live:
-                for i in range(max(1, lanes)):
+                for i in range(seats.get(p, max(1, lanes))):
                     k = p if i == 0 else f"{p}#{i + 1}"
                     if k not in _BUSY:
                         free.append((load.get(p, 0), _LAST_USED.get(p, 0.0), k, p))
@@ -649,14 +779,31 @@ def ask(prompt: str, *, want_images: bool = False, files: Optional[List[str]] = 
         raise MuseError("config", "Muse is not set up: pick the browser profile that is signed in to muse.ai "
                                   "in Cloud API Keys → Muse.")
     pool = st["pool"]
+    remotes = st.get("remotes") or []
     own = bool(thread_id)
     pinned = own and thread_id != "new"
     want = (_THREAD_OWNER.get(thread_id) or profile) if pinned else ""
-    if want and want not in pool:
+    if want and want not in pool and not (want.startswith(REMOTE_PREFIX) and want in {f"{REMOTE_PREFIX}{i}" for i in range(len(remotes))}):
         want = ""
-    prof, key = _acquire(pool, st["lanes"], want)
+    prof, key = _acquire(pool, st["lanes"], want, remotes=remotes) if remotes else _acquire(pool, st["lanes"], want)
     failed: Optional[MuseError] = None
-    try:
+    if prof.startswith(REMOTE_PREFIX):
+        # Chỗ ngồi TỪ XA (9/10/2026 «giống 9Router»): gọi HTTP tới nút, không có trình duyệt ở đây
+        try:
+            node = remotes[int(prof[len(REMOTE_PREFIX):])]
+            res = _ask_remote(node, prof, prompt, files=files, want_images=want_images, image_dir=image_dir,
+                              max_images=max_images, want_videos=want_videos, video_dir=video_dir,
+                              max_videos=max_videos, thread_id=thread_id, timeout=timeout)
+            if res.get("thread_id"):
+                _THREAD_OWNER[str(res["thread_id"])] = prof
+            _DOWN.pop(prof, None)
+            _release(key)
+            return res
+        except MuseError as e:
+            failed = e
+            _release(key)
+    else:
+      try:
         port = ensure_browser(prof, launch=launch)
         slot = _slot_state(_load_state(), key)
         thread = thread_id if own else pick_thread(slot, prof, st["turns_per_chat"], fresh)
@@ -681,11 +828,11 @@ def ask(prompt: str, *, want_images: bool = False, files: Optional[List[str]] = 
         _DOWN.pop(prof, None)
         res["profile"] = prof
         return res
-    except MuseError as e:
+      except MuseError as e:
         failed = e
-    finally:
+      finally:
         _release(key)
-    if failed.kind in ("browser", "auth") and len(pool) > 1:
+    if failed.kind in ("browser", "auth") and (len(pool) + len(remotes)) > 1:
         _DOWN[prof] = time.time() + DOWN_SECONDS
     if failed.kind == "browser" and launch and _attempt < MUSE_ATTEMPTS:
         # Trình duyệt treo/đóng («cannot attach to the browser on CDP port…» — 8/10/2026 làm #302/#306 mất clip): ĐÓNG

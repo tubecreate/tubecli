@@ -477,6 +477,7 @@ const EXT_REGISTRY = [
     { id:'content_tracker', tab:'ext-tracker',      icon:'monitoring', name:'Content Tracker', type:'static' },
     { id:'file_browser',    tab:'ext-file-manager', icon:'folder',     name:'Files',           type:'static' },
     { id:'media_library',   tab:'ext-media-library', icon:'perm_media', name:'media_library',   type:'static' },
+    { id:'content_queue',   tab:'ext-content-queue', icon:'queue_play_next', name:'content_queue', type:'static' },
 ];
 
 // ── IDs that cannot be grouped (core nav) ──
@@ -2940,6 +2941,15 @@ async function _renderMusePanel() {
         <label style="display:block;width:220px;font-size:.78rem;margin-top:8px;" title="${esc(T('cloud_api.muse_lanes_hint'))}">${esc(T('cloud_api.muse_lanes'))}
             <input id="muse-lanes-input" type="number" min="1" max="${st.max_lanes || 3}" value="${st.lanes || 1}" style="width:100%;margin-top:3px;"></label>
         <div class="text-muted" style="font-size:.74rem;margin-top:4px;">${esc(T('cloud_api.muse_lanes_hint'))}</div>
+        <div style="margin-top:10px;font-size:.78rem;font-weight:600;">${esc(T('cloud_api.muse_remotes'))}</div>
+        <div class="text-muted" style="font-size:.74rem;margin:2px 0 4px;">${esc(T('cloud_api.muse_remotes_hint'))}</div>
+        <textarea id="muse-remotes-input" rows="3" style="width:100%;font-family:monospace;font-size:.76rem;" placeholder="https://vps1.example.com/api/v1/muse | key | 3">${esc((st.remotes || []).map(r => `${r.base_url} | ${r.key || ''} | ${r.seats || 1}`).join('\n'))}</textarea>
+        <div style="margin-top:8px;font-size:.78rem;font-weight:600;">${esc(T('cloud_api.muse_node_key'))}</div>
+        <div class="text-muted" style="font-size:.74rem;margin:2px 0 4px;">${esc(T('cloud_api.muse_node_key_hint'))}</div>
+        <div style="display:flex;gap:6px;align-items:center;">
+            <input id="muse-node-key-input" type="text" placeholder="${st.node_key_set ? '…' + esc(st.node_key_tail || '') : ''}" style="flex:1;font-family:monospace;font-size:.76rem;">
+            <button class="btn-sm" type="button" onclick="window.newMuseNodeKey(this)">${esc(T('cloud_api.muse_node_key_new'))}</button>
+        </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">
             <button class="btn-sm" type="button" style="background:#5276EB;color:#fff;border:none;" onclick="window.saveMuseSettings(this)">${esc(T('cloud_api.muse_save'))}</button>
             <button class="btn-sm" type="button" onclick="window.checkMuseStatus(this)">${esc(T('cloud_api.muse_check'))}</button>
@@ -2969,9 +2979,17 @@ window.saveMuseSettings = async function(btn) {
     const lanes = parseInt(document.getElementById('muse-lanes-input')?.value || '0', 10) || null;
     const extra_profiles = Array.from(document.querySelectorAll('#muse-extra-list .muse-extra-cb:checked'))
         .map(cb => cb.value).filter(n => n && n !== profile);
+    // nút Muse từ xa: mỗi dòng «base_url | key | số chỗ» (khoá hiện «abc…xyz» thì giữ khoá cũ)
+    const remotes = (document.getElementById('muse-remotes-input')?.value || '').split('\n')
+        .map(l => l.split('|').map(x => x.trim())).filter(p => p[0])
+        .map(p => ({ base_url: p[0], key: p[1] || '', seats: parseInt(p[2] || '1', 10) || 1 }));
+    const nodeKeyEl = document.getElementById('muse-node-key-input');
+    const node_key = nodeKeyEl && nodeKeyEl.value.trim() ? nodeKeyEl.value.trim() : null;
     btn.disabled = true;
     try {
-        const r = await apiPut('/api/v1/muse/settings', { profile, turns_per_chat: turns, extra_profiles, lanes });
+        const body = { profile, turns_per_chat: turns, extra_profiles, lanes, remotes };
+        if (node_key !== null) body.node_key = node_key;
+        const r = await apiPut('/api/v1/muse/settings', body);
         if (r && r.profile !== undefined && !r.detail) {
             const more = (r.extra_profiles || []).length;
             _museSay(true, !r.profile ? T('cloud_api.muse_cleared')
@@ -2983,6 +3001,17 @@ window.saveMuseSettings = async function(btn) {
         } else {
             _museSay(false, '❌ ' + ((r && (r.detail || r.message)) || 'save failed'));
         }
+    } catch (e) { _museSay(false, '❌ ' + e.message); }
+    btn.disabled = false;
+};
+
+window.newMuseNodeKey = async function(btn) {
+    btn.disabled = true;
+    try {
+        const r = await apiPost('/api/v1/muse/node-key', {});
+        const el = document.getElementById('muse-node-key-input');
+        if (r && r.node_key) { if (el) el.value = r.node_key; _museSay(true, T('cloud_api.muse_node_key_made')); }
+        else _museSay(false, '❌ ' + ((r && (r.detail || r.message)) || 'failed'));
     } catch (e) { _museSay(false, '❌ ' + e.message); }
     btn.disabled = false;
 };
