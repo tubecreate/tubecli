@@ -717,19 +717,24 @@ def status() -> dict:
     Các trường cấp ngoài là của hồ sơ CHÍNH (như trước); `pool` có một dòng cho mỗi tài khoản."""
     st = settings()
     profile = st["profile"]
+    remotes = st.get("remotes") or []
     busy_by = _busy_by_profile()
-    seats = len(st["pool"]) * st["lanes"]
-    out = {"provider": PROVIDER, "configured": bool(profile), "profile": profile,
+    remote_seats = sum(int(r.get("seats") or 1) for r in remotes)
+    seats = len(st["pool"]) * st["lanes"] + remote_seats
+    # configured = có hồ sơ ở máy này HOẶC có nút từ xa (chỉ-remote vẫn là đã cấu hình, 9/10/2026)
+    out = {"provider": PROVIDER, "configured": bool(profile) or bool(remotes), "profile": profile,
            "extra_profiles": st["extra_profiles"], "lanes": st["lanes"],
            "turns_per_chat": st["turns_per_chat"], "running": False, "logged_in": None, "verified": False,
            "models": CHAT_MODELS, "image_models": IMAGE_MODELS,
+           "remote_nodes": len(remotes), "remote_seats": remote_seats, "remote_only": bool(remotes) and not profile,
            "busy": bool(seats) and sum(busy_by.values()) >= seats, "message": "", "pool": []}
     slot = _slot_state(_load_state(), profile) if profile else {}
     if slot.get("thread"):
         out["thread"] = slot.get("thread")
         out["thread_turns"] = int(slot.get("turns") or 0)
     if not profile:
-        out["message"] = "Pick the browser profile that is signed in to muse.ai."
+        out["message"] = (f"No browser profile on this machine — using {len(remotes)} remote Muse node(s), {remote_seats} seat(s)."
+                          if remotes else "Pick the browser profile that is signed in to muse.ai, or add a remote Muse node.")
         return out
     now = time.time()
     for p in st["pool"]:
@@ -800,11 +805,13 @@ def ask(prompt: str, *, want_images: bool = False, files: Optional[List[str]] = 
     Chưa đăng nhập: bỏ qua tài khoản ấy và thử lại MỘT lần ở tài khoản khác; hết → Telegram + MuseError."""
     st = settings()
     profile = st["profile"]
-    if not profile:
-        raise MuseError("config", "Muse is not set up: pick the browser profile that is signed in to muse.ai "
-                                  "in Cloud API Keys → Muse.")
     pool = st["pool"]
     remotes = st.get("remotes") or []
+    # CHỈ nút từ xa, không hồ sơ nào ở máy này (9/10/2026 user: «người dùng chỉ remote mà không dùng browser local»)
+    # → vẫn chạy: bể cục bộ rỗng, mọi chỗ ngồi là remote<i>.
+    if not profile and not remotes:
+        raise MuseError("config", "Muse is not set up: pick the browser profile that is signed in to muse.ai "
+                                  "in Cloud API Keys → Muse, or add a remote Muse node.")
     own = bool(thread_id)
     pinned = own and thread_id != "new"
     want = (_THREAD_OWNER.get(thread_id) or profile) if pinned else ""

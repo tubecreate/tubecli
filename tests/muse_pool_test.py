@@ -520,7 +520,27 @@ M._ask_remote = dead_remote
 M._LAST_USED.update({"chayagent": 9.0, "remote0": 1.0, "remote1": 2.0})
 r = M.ask("q")
 ok(r["text"] == "local ok" and M._DOWN.get("remote0", 0) > time.time(), "nút chết → bỏ qua 10 phút, lượt sang tài khoản khác", (r.get("profile"), list(M._DOWN)))
+# CHỈ nút từ xa, không hồ sơ ở máy này (9/10/2026 user: «người dùng chỉ remote mà không dùng browser local»)
+reset()
+remote_calls.clear()
+M._ask_remote = fake_remote
+M.run_tool = lambda port, action, req=None, timeout=60: (_ for _ in ()).throw(AssertionError("local browser must not be used"))
+M.set_settings(profile="", extra_profiles=[], remotes=[{"base_url": "https://vps1.example.com", "key": "k1", "seats": 2}])
+stt = M.status()
+ok(stt["configured"] and stt["remote_only"] and stt["remote_nodes"] == 1 and stt["remote_seats"] == 2 and "remote" in stt["message"].lower(),
+   "chỉ-remote: status() configured=True, remote_only, nêu số nút/chỗ", {k: stt[k] for k in ("configured", "remote_only", "remote_nodes", "remote_seats", "message")})
+r = M.ask("q")
+ok(r["text"] == "remote hi" and r["profile"] == "remote0" and remote_calls and remote_calls[0][1] == "remote0",
+   "chỉ-remote: ask() chạy ở nút từ xa, không mở trình duyệt cục bộ", (r.get("profile"), remote_calls))
+v = M.generate_video_clip("clip", str(TMP / "vd_remote_only"), [], "16:9")
+ok(v["path"].endswith(".mp4") and v["thread_id"].startswith("remote0:"), "chỉ-remote: clip video qua nút", v.get("thread_id"))
 M.set_settings(remotes=[])
+try:
+    M.ask("q")
+    ok(False, "không hồ sơ, không nút → MuseError(config)")
+except M.MuseError as e:
+    ok(e.kind == "config" and "remote" in str(e).lower(), "không hồ sơ, không nút → MuseError(config) nhắc cả nút từ xa", str(e))
+M.set_settings(profile="chayagent", remotes=[])
 ok(M.settings()["remotes"] == [], "xoá nút từ xa")
 
 print()
