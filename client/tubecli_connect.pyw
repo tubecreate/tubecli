@@ -79,7 +79,10 @@ if GH_PROXY and not GH_PROXY.endswith("/"):
     GH_PROXY += "/"
 RAW = f"{GH_PROXY}https://raw.githubusercontent.com/tubecreate/tubecli/main"
 INSTALL_PS1 = f"{RAW}/install.ps1"
-INSTALL_SH = f"{RAW}/install-cn.sh" if GH_PROXY else f"{RAW}/install.sh"
+# install-cn.sh chỉ biết Linux (apt/dnf/yum, Node bản linux). macOS ở Trung Quốc (9/10/2026) dùng install.sh
+# thường nhưng clone qua proxy: install.sh đọc TUBECLI_REPO_URL, install.ps1 nhận -RepoUrl (xem install_command).
+INSTALL_SH = f"{RAW}/install-cn.sh" if (GH_PROXY and IS_LINUX) else f"{RAW}/install.sh"
+REPO_URL = f"{GH_PROXY}https://github.com/tubecreate/tubecli.git"
 
 
 def cpu_arch() -> str:
@@ -500,14 +503,18 @@ def repair_deps(d: str, say=None) -> bool:
 def install_command(lang: str = "vi") -> list:
     """Lệnh gọi trình cài CHÍNH THỨC của từng hệ. Không tự dựng bản cài riêng: một
     bản thứ hai là một bộ bug thứ hai."""
+    # Mạng chặn GitHub (TUBECLI_GH_PROXY): trình cài vẫn `git clone` thẳng github.com nếu không được bảo —
+    # Windows qua -RepoUrl, install.sh qua biến TUBECLI_REPO_URL (install-cn.sh tự lo đường đi của nó).
     if IS_WIN:
+        repo = f" -RepoUrl {REPO_URL}" if GH_PROXY else ""
         ps = ("$ErrorActionPreference='Stop'; "
               f"$s = irm {INSTALL_PS1}; "
-              f"& ([scriptblock]::Create($s)) -Lang {lang} -NonInteractive")
+              f"& ([scriptblock]::Create($s)) -Lang {lang} -NonInteractive{repo}")
         return ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps]
     # bash -s -- truyền tham số cho script đọc từ stdin. --non-interactive vì ở đây
     # không có ai ngồi trước bàn phím: client đang chạy sau một cửa sổ đồ hoạ.
-    sh = f"curl -fsSL {INSTALL_SH} | bash -s -- --lang {lang} --non-interactive"
+    env = f"TUBECLI_REPO_URL={REPO_URL} " if (GH_PROXY and INSTALL_SH.endswith("/install.sh")) else ""
+    sh = f"curl -fsSL {INSTALL_SH} | {env}bash -s -- --lang {lang} --non-interactive"
     return ["bash", "-lc", sh]
 
 

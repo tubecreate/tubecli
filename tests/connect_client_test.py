@@ -435,6 +435,28 @@ check("macOS/Linux cài bằng install.sh qua bash",
 check("truyền ngôn ngữ và không hỏi han (không ai ngồi trước bàn phím)",
       "--lang vi" in _sh[-1] and "--non-interactive" in _sh[-1], _sh[-1])
 check("Linux cũng đúng lệnh ấy", _lin.install_command("en")[-1].endswith("--lang en --non-interactive"))
+check("không proxy: Windows không truyền -RepoUrl, POSIX không đặt TUBECLI_REPO_URL",
+      "-RepoUrl" not in _win.install_command("vi")[-1] and "TUBECLI_REPO_URL" not in _sh[-1])
+
+# Mạng chặn GitHub (TUBECLI_GH_PROXY, máy ở Trung Quốc đại lục — 9/10/2026): trình cài vẫn `git clone` thẳng
+# github.com nếu không được bảo. Windows → -RepoUrl qua proxy; macOS → install.sh (install-cn.sh chỉ biết
+# Linux: apt/dnf/yum) + TUBECLI_REPO_URL qua proxy; Linux → install-cn.sh tự lo đường đi.
+os.environ["TUBECLI_GH_PROXY"] = "https://gh-proxy.com/"
+try:
+    _pw, _pm, _pl = _load("win32"), _load("darwin"), _load("linux")
+finally:
+    os.environ.pop("TUBECLI_GH_PROXY", None)
+_pw_cmd, _pm_cmd, _pl_cmd = _pw.install_command("vi")[-1], _pm.install_command("vi")[-1], _pl.install_command("vi")[-1]
+check("TQ Windows: install.ps1 qua proxy + -RepoUrl qua proxy",
+      "irm https://gh-proxy.com/https://raw.githubusercontent.com/tubecreate/tubecli/main/install.ps1" in _pw_cmd
+      and _pw_cmd.endswith("-NonInteractive -RepoUrl https://gh-proxy.com/https://github.com/tubecreate/tubecli.git"), _pw_cmd)
+check("TQ macOS: install.sh (KHÔNG install-cn.sh) + TUBECLI_REPO_URL qua proxy",
+      "/main/install.sh | TUBECLI_REPO_URL=https://gh-proxy.com/https://github.com/tubecreate/tubecli.git bash -s --" in _pm_cmd
+      and "install-cn" not in _pm_cmd, _pm_cmd)
+check("TQ Linux: install-cn.sh qua proxy, không cần TUBECLI_REPO_URL",
+      "gh-proxy.com/https://raw.githubusercontent.com/tubecreate/tubecli/main/install-cn.sh | bash -s --" in _pl_cmd
+      and "TUBECLI_REPO_URL" not in _pl_cmd, _pl_cmd)
+check("TQ: cloudflared cũng tải qua proxy", _pl.GH_PROXY == "https://gh-proxy.com/" and _pl.RAW.startswith("https://gh-proxy.com/"))
 
 # Khởi động cùng máy: ba cơ chế khác hẳn nhau.
 check("Windows dùng thư mục Startup",
