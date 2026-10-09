@@ -122,7 +122,7 @@
         const tp = $('model-test-panel'); if (tp) tp.style.display = 'none';
         $('modal-edit-models').classList.remove('hidden');
         // Provider chỉ có tab Models (Gemini, OpenAI…) → hộp cao vừa nội dung, không cao 86vh trống.
-        $('modal-edit-models').querySelector('.modal-content').classList.toggle('pv-compact', tabs().length === 1);
+        $('modal-edit-models').querySelector('.modal-content').classList.toggle('pv-compact', !PV.meta.browser_session);
         renderHead(); renderTabs(); renderPanes(); renderFoot();
         if (PV.meta.base_url_editable) { _renderEndpointPanel(); const ep = $('provider-endpoint-panel'); if (ep) $('pv-pane-endpoint').appendChild(ep); }
         _renderModelsSourceNote();
