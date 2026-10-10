@@ -890,6 +890,11 @@ def _is_cancel(e: BaseException) -> bool:
 # phút mất hàng giờ — miễn là còn nhích, ta còn chờ; trần này chỉ để không treo
 # mãi khi Studio kẹt mà vẫn báo "running".
 MAX_WAIT_FACTOR = 8
+# Pha quay clip Muse (video mở đầu, clip từng cảnh): lõi chờ MỘT clip tới 15 phút rồi đóng phiên, thử lại — một cảnh kẹt
+# ăn 30–45 phút mà không cảnh nào xong. 10/10/2026: #332 bị cắt ở 1800 s «No progress» trong khi lô vẫn chạy và xong
+# 13/16 clip ngay sau đó. Trong pha này mới tính trì trệ sau CLIP_STALL_SEC.
+CLIP_PHASES = ("shot videos", "opening video")
+CLIP_STALL_SEC = 3600
 
 
 def _poll_studio(status_path: str, timeout_sec: int, state: Dict, step: str,
@@ -912,12 +917,13 @@ def _poll_studio(status_path: str, timeout_sec: int, state: Dict, step: str,
     last_pct = -1
     last_phase = ""
     last_seen = "no answer yet"
+    stall = timeout_sec
     while True:
         if state["_cancelled"]():
             raise _cancel_exc()
         now = time.time()
-        if now - last_change > timeout_sec:
-            raise RuntimeError(f"No progress for {timeout_sec}s waiting for {status_path} (last: {last_seen})")
+        if now - last_change > stall:
+            raise RuntimeError(f"No progress for {stall}s waiting for {status_path} (last: {last_seen})")
         if now - started > max_wait:
             raise RuntimeError(f"Gave up after {max_wait}s waiting for {status_path} (last: {last_seen})")
         try:
@@ -933,6 +939,7 @@ def _poll_studio(status_path: str, timeout_sec: int, state: Dict, step: str,
         total = data.get("total") or 0
         done = data.get("done") or 0
         sig = (status, done, total, str(data.get("current_shot") or ""), str(data.get("phase_note") or ""))
+        stall = max(timeout_sec, CLIP_STALL_SEC) if str(data.get("phase") or "") in CLIP_PHASES else timeout_sec
         if sig != last_sig:
             last_sig, last_change = sig, time.time()
             last_seen = f"{status} {done}/{total}" + (f" · {sig[3][:60]}" if sig[3] else "")
