@@ -390,7 +390,10 @@ def _maybe_publish(agent_id: str, run_id: str, outcome: str, trigger: str = "") 
 
     token_id = str(getattr(agent, "publish_token_id", "") or "")
     channel_id = str(getattr(agent, "publish_channel_id", "") or "")
-    publish = publish_on and bool(token_id) and bool(channel_id)
+    method = str(getattr(agent, "publish_method", "script") or "script")
+    # Đường API cần token + kênh (videos.insert đăng vào kênh của token). Đường TRÌNH DUYỆT (10/10/2026) thì không:
+    # hồ sơ đã đăng nhập YouTube là đủ, kênh bỏ trống = kênh mặc định của tài khoản trong hồ sơ.
+    publish = publish_on and (method != "api" or (bool(token_id) and bool(channel_id)))
     if publish_on and not publish:
         # Công tắc đăng bật mà chưa chọn kênh là LỖI CẤU HÌNH, không phải "chưa tới
         # lượt": người dùng đang tin rằng video vẫn được đăng. Kêu to. Có bật «tự dựng
@@ -454,8 +457,15 @@ def _maybe_publish(agent_id: str, run_id: str, outcome: str, trigger: str = "") 
                 "publish_channel_id": channel_id,
                 "publish_channel_name": str(getattr(agent, "publish_channel_name", "") or ""),
                 "publish_privacy": str(getattr(agent, "publish_privacy", "public") or "public"),
-                "publish_method": str(getattr(agent, "publish_method", "script") or "script"),
+                "publish_method": method,
                 "publish_monetize": bool(getattr(agent, "publish_monetize", False)),
+                # Hồ sơ trình duyệt đăng bài ("" = tự chọn hồ sơ đã đăng nhập YouTube) + hẹn giờ theo khung hằng
+                # ngày của agent (10/10/2026).
+                "publish_profile": str(getattr(agent, "publish_profile", "") or ""),
+                "publish_when": str(getattr(agent, "publish_when", "now") or "now"),
+                "publish_slots": str(getattr(agent, "publish_slots", "") or ""),
+                "publish_tz": str(getattr(agent, "publish_tz", "") or ""),
+                "publish_tz_offset": getattr(agent, "publish_tz_offset", ""),
             })
         preset = str(getattr(agent, "content_video_preset", "") or "")
         if preset:
@@ -494,4 +504,4 @@ def _maybe_publish(agent_id: str, run_id: str, outcome: str, trigger: str = "") 
             (task or {}).get("seq", "?"), count)
     return "queued: task #%s from %d new page(s) to %s" % (
         (task or {}).get("seq", "?"), count,
-        options["publish_channel_name"] or channel_id)
+        options["publish_channel_name"] or channel_id or "the profile's default channel")

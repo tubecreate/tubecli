@@ -2035,6 +2035,7 @@ const CODEX = (() => {
     $('cx-v-drive-share').value = lsGet(CV_DRIVE_SHARE_KEY) === 'private' ? 'private' : 'public';
     $('cx-v-thumb').checked = lsGet(CV_THUMB_KEY) === '1';
     $('cx-v-thumb-style').value = lsGet(CV_THUMB_STYLE_KEY) || '';
+    resetYtForm();
     state.googleTokens = null;          // nạp lại mỗi lần mở: có thể vừa cấp quyền tài khoản mới
     $('cx-v-preset').innerHTML = '<option value="">…</option>';
     $('cx-v-preset').disabled = true;
@@ -2614,6 +2615,223 @@ const CODEX = (() => {
   function onVideoDriveToken() { renderDriveHint(); }
   function onVideoDriveShare() { lsSet(CV_DRIVE_SHARE_KEY, $('cx-v-drive-share').value === 'private' ? 'private' : 'public'); }
 
+  // ── «Upload to YouTube» khi video xong (10/10/2026) ──
+  // Hai đường: hồ sơ trình duyệt trên máy (YouTube Studio — bật được kiếm tiền, không cần OAuth) hoặc YouTube API
+  // (tài khoản Auth Manager). Công khai ngay / khung giờ hằng ngày (khung trống kế tiếp của kênh) / giờ tự chọn — video
+  // vẫn tải lên NGAY, YouTube tự công khai đúng giờ. Giờ theo múi giờ của trình duyệt này (gửi kèm publish_tz).
+  const CV_YT_KEY = 'codex.cvYt';                    // '1' | '0'
+  const CV_YT_METHOD_KEY = 'codex.cvYtMethod';       // script | api
+  const CV_YT_PROFILE_KEY = 'codex.cvYtProfile';
+  const CV_YT_CHANNEL_KEY = 'codex.cvYtChannel';     // token_id|channel_id
+  const CV_YT_PRIVACY_KEY = 'codex.cvYtPrivacy';
+  const CV_YT_WHEN_KEY = 'codex.cvYtWhen';           // now | slots | at
+  const CV_YT_SLOTS_KEY = 'codex.cvYtSlots';
+  const CV_YT_MONETIZE_KEY = 'codex.cvYtMonetize';
+  const CV_YT_MIN_AHEAD_MS = 15 * 60 * 1000;         // khớp publish_schedule.MIN_AHEAD_SEC
+
+  function ytTz() {
+    try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) { return ''; }
+  }
+
+  /** «08:00, 19h30, 7pm» → ['08:00','19:00','19:30'] — cùng luật với publish_schedule.parse_slots. */
+  function ytParseSlots(text) {
+    const out = new Set();
+    String(text || '').split(/[,;\n]+|\s+(?=\d)/).forEach((tok) => {
+      const m = tok.trim().match(/^(\d{1,2})(?:\s*[:hH.]\s*(\d{2})?)?\s*([aApP][mM])?$/);
+      if (!m) return;
+      let h = parseInt(m[1], 10);
+      const mi = parseInt(m[2] || '0', 10);
+      const ap = (m[3] || '').toLowerCase();
+      if (ap) { if (h < 1 || h > 12) return; h = (h % 12) + (ap === 'pm' ? 12 : 0); }
+      if (h > 23 || mi > 59) return;
+      out.add((h < 10 ? '0' : '') + h + ':' + (mi < 10 ? '0' : '') + mi);
+    });
+    return [...out].sort().slice(0, 12);
+  }
+
+  async function loadYtTargets() {
+    // Hồ sơ trình duyệt (có cờ đã đăng nhập YouTube/Google) và kênh của các tài khoản YouTube trong Auth Manager.
+    // Kênh tải theo TOKEN — nhiều token dùng chung một credential, tra theo credential là bốc nhầm tài khoản.
+    state.ytProfiles = null;
+    state.ytChannels = null;
+    renderYt();
+    const profiles = request('/api/v1/browser/profiles').then((d) => {
+      state.ytProfiles = ((d && d.profiles) || []).filter(p => p && p.name && !/^rent_/.test(p.name));
+    }).catch(() => { state.ytProfiles = false; });
+    const channels = (async () => {
+      try {
+        const acc = await request('/api/v1/video_manager/accounts?provider=youtube');
+        const out = [];
+        for (const a of (acc && acc.accounts) || []) {
+          if (!a || !a.token_id || a.status === 'revoked') continue;
+          try {
+            const c = await request('/api/v1/video_manager/channels?provider=youtube&token_id=' + encodeURIComponent(a.token_id));
+            for (const ch of (c && c.channels) || []) {
+              if (ch && ch.id) out.push({ token_id: a.token_id, channel_id: ch.id, name: ch.title || ch.id, email: a.email || '' });
+            }
+          } catch (e) { /* một token hết hạn không xoá sổ các kênh còn lại */ }
+        }
+        state.ytChannels = out;
+      } catch (e) {
+        state.ytChannels = false;       // chưa cài Video Manager / không đọc được Auth Manager
+      }
+    })();
+    await Promise.all([profiles, channels]);
+    renderYt();
+  }
+
+  function renderYt() {
+    const box = $('cx-v-yt');
+    if (!box) return;
+    const on = !!box.checked;
+    $('cx-v-yt-wrap').classList.toggle('hidden', !on);
+    if (!on) return;
+    const method = $('cx-v-yt-method').value === 'api' ? 'api' : 'script';
+    $('cx-v-yt-profile-field').classList.toggle('hidden', method !== 'script');
+    $('cx-v-yt-monetize-row').classList.toggle('hidden', method !== 'script');
+    $('cx-v-yt-method-hint').textContent = t(method === 'api' ? 'codex.cv_yt_method_api_hint' : 'codex.cv_yt_method_script_hint');
+
+    const psel = $('cx-v-yt-profile');
+    const profs = state.ytProfiles;
+    const prevP = psel.value || lsGet(CV_YT_PROFILE_KEY);
+    if (profs === null) {
+      psel.innerHTML = `<option value="">${esc(t('codex.cv_drive_loading'))}</option>`;
+    } else {
+      const yt = (profs || []).filter(p => (p.logins || []).some(x => x === 'youtube' || x === 'google'));
+      const rest = (profs || []).filter(p => !yt.includes(p));
+      const opt = p => `<option value="${esc(p.name)}">${esc(p.name)}</option>`;
+      psel.innerHTML = `<option value="">${esc(t('codex.cv_yt_profile_auto'))}</option>`
+        + (yt.length ? `<optgroup label="${esc(t('codex.cv_yt_profile_signed_in'))}">${yt.map(opt).join('')}</optgroup>` : '')
+        + (rest.length ? `<optgroup label="${esc(t('codex.cv_yt_profile_other'))}">${rest.map(opt).join('')}</optgroup>` : '');
+      psel.value = (profs || []).some(p => p.name === prevP) ? prevP : '';
+    }
+
+    const csel = $('cx-v-yt-channel');
+    const hint = $('cx-v-yt-channel-hint');
+    const chans = state.ytChannels;
+    const prevC = csel.value || lsGet(CV_YT_CHANNEL_KEY);
+    hint.classList.remove('warn');
+    hint.textContent = '';
+    if (chans === null) {
+      csel.innerHTML = `<option value="">${esc(t('codex.cv_drive_loading'))}</option>`;
+    } else {
+      const list = chans || [];
+      const first = method === 'script' ? t('codex.cv_yt_channel_default') : t('codex.cv_yt_channel_pick');
+      csel.innerHTML = `<option value="">${esc(first)}</option>` + list.map(c =>
+        `<option value="${esc(c.token_id + '|' + c.channel_id)}">${esc(c.name)}${c.email ? ' · ' + esc(c.email) : ''}</option>`).join('');
+      csel.value = list.some(c => c.token_id + '|' + c.channel_id === prevC) ? prevC : '';
+      if (method === 'api' && !list.length) {
+        hint.textContent = t(chans === false ? 'codex.cv_yt_channel_no_vm' : 'codex.cv_yt_channel_none');
+        hint.classList.add('warn');
+      } else if (method === 'script') {
+        hint.textContent = t('codex.cv_yt_channel_script_hint');
+      }
+    }
+    renderYtWhen();
+  }
+
+  function renderYtWhen() {
+    const when = $('cx-v-yt-when').value || 'now';
+    $('cx-v-yt-slots-field').classList.toggle('hidden', when !== 'slots');
+    $('cx-v-yt-at-field').classList.toggle('hidden', when !== 'at');
+    const hint = $('cx-v-yt-when-hint');
+    hint.classList.remove('warn');
+    if (when === 'now') { hint.textContent = ''; return; }
+    if ($('cx-v-yt-privacy').value !== 'public') {
+      hint.textContent = t('codex.cv_yt_when_needs_public');
+      hint.classList.add('warn');
+      return;
+    }
+    const tz = ytTz() || t('codex.cv_yt_tz_local');
+    if (when === 'slots') {
+      const slots = ytParseSlots($('cx-v-yt-slots').value);
+      hint.textContent = slots.length
+        ? t('codex.cv_yt_slots_hint', { slots: slots.join(', '), tz: tz })
+        : t('codex.cv_yt_slots_empty');
+      if (!slots.length) hint.classList.add('warn');
+      return;
+    }
+    const at = $('cx-v-yt-at').value ? new Date($('cx-v-yt-at').value).getTime() : 0;
+    const ok = at && at - Date.now() >= CV_YT_MIN_AHEAD_MS;
+    hint.textContent = t(ok ? 'codex.cv_yt_at_hint' : 'codex.cv_yt_at_bad', { tz: tz });
+    if (!ok) hint.classList.add('warn');
+  }
+
+  function onVideoYt() {
+    lsSet(CV_YT_KEY, $('cx-v-yt').checked ? '1' : '0');
+    if ($('cx-v-yt').checked && state.ytProfiles === undefined) loadYtTargets();
+    renderYt();
+  }
+  function onVideoYtMethod() { renderYt(); }
+  function onVideoYtWhen() { renderYtWhen(); }
+
+  /** Đọc mục YouTube của form → options cho pipeline, hoặc {error, focus} khi thiếu thứ bắt buộc; null = tắt. */
+  function ytOptions() {
+    const box = $('cx-v-yt');
+    if (!box || !box.checked) return null;
+    const method = $('cx-v-yt-method').value === 'api' ? 'api' : 'script';
+    const chan = $('cx-v-yt-channel').value || '';
+    const privacy = $('cx-v-yt-privacy').value || 'public';
+    const when = $('cx-v-yt-when').value || 'now';
+    if (method === 'api' && !chan) return { error: t('codex.toast_video_yt_channel_required'), focus: 'cx-v-yt-channel' };
+    const o = { publish: true, publish_method: method, publish_privacy: privacy, publish_when: when,
+                publish_tz: ytTz(), publish_tz_offset: -new Date().getTimezoneOffset() };
+    if (chan) {
+      const [tok, cid] = chan.split('|');
+      const c = (state.ytChannels || []).find(x => x.token_id === tok && x.channel_id === cid);
+      o.publish_token_id = tok;
+      o.publish_channel_id = cid;
+      if (c) o.publish_channel_name = c.name;
+    }
+    if (method === 'script') {
+      const prof = $('cx-v-yt-profile').value || '';
+      if (prof) o.publish_profile = prof;
+      o.publish_monetize = !!$('cx-v-yt-monetize').checked;
+    }
+    if (when !== 'now' && privacy !== 'public') return { error: t('codex.cv_yt_when_needs_public'), focus: 'cx-v-yt-privacy' };
+    if (when === 'slots') {
+      const slots = ytParseSlots($('cx-v-yt-slots').value);
+      if (!slots.length) return { error: t('codex.cv_yt_slots_empty'), focus: 'cx-v-yt-slots' };
+      o.publish_slots = slots.join(', ');
+    } else if (when === 'at') {
+      const at = $('cx-v-yt-at').value ? new Date($('cx-v-yt-at').value).getTime() : 0;
+      if (!at || at - Date.now() < CV_YT_MIN_AHEAD_MS) return { error: t('codex.cv_yt_at_bad', { tz: ytTz() }), focus: 'cx-v-yt-at' };
+      o.publish_at_ms = at;
+    }
+    return o;
+  }
+
+  function rememberYt() {
+    if (!$('cx-v-yt')) return;
+    lsSet(CV_YT_KEY, $('cx-v-yt').checked ? '1' : '0');
+    lsSet(CV_YT_METHOD_KEY, $('cx-v-yt-method').value || 'script');
+    lsSet(CV_YT_PROFILE_KEY, $('cx-v-yt-profile').value || '');
+    lsSet(CV_YT_CHANNEL_KEY, $('cx-v-yt-channel').value || '');
+    lsSet(CV_YT_PRIVACY_KEY, $('cx-v-yt-privacy').value || 'public');
+    lsSet(CV_YT_WHEN_KEY, $('cx-v-yt-when').value || 'now');
+    lsSet(CV_YT_SLOTS_KEY, ($('cx-v-yt-slots').value || '').slice(0, 200));
+    lsSet(CV_YT_MONETIZE_KEY, $('cx-v-yt-monetize').checked ? '1' : '0');
+  }
+
+  function resetYtForm() {
+    if (!$('cx-v-yt')) return;
+    $('cx-v-yt').checked = lsGet(CV_YT_KEY) === '1';
+    $('cx-v-yt-method').value = lsGet(CV_YT_METHOD_KEY) === 'api' ? 'api' : 'script';
+    const pv = lsGet(CV_YT_PRIVACY_KEY);
+    $('cx-v-yt-privacy').value = ['public', 'unlisted', 'private'].includes(pv) ? pv : 'public';
+    const wv = lsGet(CV_YT_WHEN_KEY);
+    $('cx-v-yt-when').value = ['now', 'slots', 'at'].includes(wv) ? wv : 'now';
+    $('cx-v-yt-slots').value = lsGet(CV_YT_SLOTS_KEY) || '';
+    $('cx-v-yt-at').value = '';
+    $('cx-v-yt-monetize').checked = lsGet(CV_YT_MONETIZE_KEY) === '1';
+    $('cx-v-yt-profile').innerHTML = '';
+    $('cx-v-yt-channel').innerHTML = '';
+    state.ytProfiles = undefined;       // nạp lại mỗi lần mở form (có thể vừa đăng nhập / cấp quyền kênh mới)
+    state.ytChannels = undefined;
+    if ($('cx-v-yt').checked) loadYtTargets();
+    renderYt();
+  }
+
   // ── Độ dài video: theo bài dán (mặc định) / theo mẫu / tự chọn phút ──
   const CV_LENGTH_KEY = 'codex.cvLength';
   const CV_MINUTES_KEY = 'codex.cvMinutes';
@@ -2934,6 +3152,13 @@ const CODEX = (() => {
       $('cx-v-drive-token').focus();
       return;
     }
+    const yt = ytOptions();
+    if (yt && yt.error) {
+      toast(yt.error, 'error');
+      const f = $(yt.focus);
+      if (f) f.focus();
+      return;
+    }
     // Mỗi dòng một link → mỗi link một video. Cả loạt vào HÀNG ĐỢI: chạy lần lượt, không dựng song song.
     const links = (($('cx-v-split') || {}).checked === false) ? [] : cvLinkLines(content);
     const batch = links.length >= 2 ? links : [content];
@@ -2950,6 +3175,7 @@ const CODEX = (() => {
     }
     const review = !!$('cx-v-review').checked;
     rememberNewTaskForm();
+    rememberYt();
     const title = ($('cx-v-title').value || '').trim();
     const options = { preset: preset };
     if (title) options.title = title;
@@ -2981,6 +3207,8 @@ const CODEX = (() => {
     }
     const thumbStyleText = (($('cx-v-thumb-style') || {}).value || '').trim().slice(0, 600);
     if (thumbStyleText) options.thumbnail_style = thumbStyleText;
+    // Đăng YouTube khi xong: cách đăng, kênh, chế độ hiển thị, giờ công khai (ngay / khung hằng ngày / giờ tự chọn).
+    if (yt) Object.assign(options, yt);
 
     const btns = [$('cx-create-btn'), $('cx-queue-btn')];
     btns.forEach(b => { b.disabled = true; });
@@ -3154,5 +3382,6 @@ const CODEX = (() => {
     openNewTask, submitNewTask, queueVideo, setNewKind, onExtFiles, onExtField, saveExtTemplate, onVideoPreset, onVideoAgent, onVideoContent, onVideoLength, onVideoScript, onVideoKeepTheme, onVideoInstructions, planFromModal, closeModal, onBackdrop,
     onVideoDrive, onVideoDriveToken, onVideoDriveShare, laneChoice, onVideoSplit, openDriveSync, startDriveSync, syncThenDelete, resumeLane,
     openClone, onCloneLang, startClone, openRetry, startRetry,
+    onVideoYt, onVideoYtMethod, onVideoYtWhen,
   };
 })();

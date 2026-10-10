@@ -290,6 +290,73 @@
             </div>
           </div>
 
+          <!-- Đăng YouTube khi video xong (10/10/2026): qua hồ sơ trình duyệt trên máy (YouTube Studio) hoặc YouTube API
+               (tài khoản Auth Manager); công khai ngay, theo khung giờ hằng ngày (khung trống kế tiếp của kênh) hoặc giờ tự chọn. -->
+          <label class="cx-check">
+            <input type="checkbox" id="cx-v-yt" onchange="CODEX.onVideoYt()">
+            <span>
+              <strong data-i18n="codex.field_video_yt">Upload to YouTube</strong>
+              <em data-i18n="codex.field_video_yt_hint">When the video is done, upload it to YouTube — public right away, or scheduled for one of your daily publish times</em>
+            </span>
+          </label>
+          <div class="hidden" id="cx-v-yt-wrap">
+            <div class="cx-field-row">
+              <div class="cx-field">
+                <label for="cx-v-yt-method" data-i18n="codex.field_video_yt_method">Upload with</label>
+                <select id="cx-v-yt-method" onchange="CODEX.onVideoYtMethod()">
+                  <option value="script" data-i18n="codex.cv_yt_method_script">A browser profile on this machine (YouTube Studio)</option>
+                  <option value="api" data-i18n="codex.cv_yt_method_api">YouTube API (an Auth Manager account)</option>
+                </select>
+                <div class="cx-field-meta cx-len-hint" id="cx-v-yt-method-hint"></div>
+              </div>
+              <div class="cx-field" id="cx-v-yt-profile-field">
+                <label for="cx-v-yt-profile" data-i18n="codex.field_video_yt_profile">Browser profile</label>
+                <select id="cx-v-yt-profile"></select>
+              </div>
+            </div>
+            <div class="cx-field-row">
+              <div class="cx-field">
+                <label for="cx-v-yt-channel" data-i18n="codex.field_video_yt_channel">Channel</label>
+                <select id="cx-v-yt-channel"></select>
+                <div class="cx-field-meta cx-len-hint" id="cx-v-yt-channel-hint" aria-live="polite"></div>
+              </div>
+              <div class="cx-field">
+                <label for="cx-v-yt-privacy" data-i18n="codex.field_video_yt_privacy">Visibility</label>
+                <select id="cx-v-yt-privacy" onchange="CODEX.onVideoYtWhen()">
+                  <option value="public" data-i18n="codex.cv_yt_privacy_public">Public</option>
+                  <option value="unlisted" data-i18n="codex.cv_yt_privacy_unlisted">Unlisted</option>
+                  <option value="private" data-i18n="codex.cv_yt_privacy_private">Private</option>
+                </select>
+              </div>
+            </div>
+            <div class="cx-field-row">
+              <div class="cx-field">
+                <label for="cx-v-yt-when" data-i18n="codex.field_video_yt_when">When it goes public</label>
+                <select id="cx-v-yt-when" onchange="CODEX.onVideoYtWhen()">
+                  <option value="now" data-i18n="codex.cv_yt_when_now">Right away</option>
+                  <option value="slots" data-i18n="codex.cv_yt_when_slots">At the next free daily time</option>
+                  <option value="at" data-i18n="codex.cv_yt_when_at">At a date and time I pick</option>
+                </select>
+              </div>
+              <div class="cx-field hidden" id="cx-v-yt-slots-field">
+                <label for="cx-v-yt-slots" data-i18n="codex.field_video_yt_slots">Daily publish times</label>
+                <input type="text" id="cx-v-yt-slots" maxlength="200" placeholder="08:00, 19:00" oninput="CODEX.onVideoYtWhen()">
+              </div>
+              <div class="cx-field hidden" id="cx-v-yt-at-field">
+                <label for="cx-v-yt-at" data-i18n="codex.field_video_yt_at">Goes public at</label>
+                <input type="datetime-local" id="cx-v-yt-at" onchange="CODEX.onVideoYtWhen()">
+              </div>
+            </div>
+            <div class="cx-field-meta cx-len-hint" id="cx-v-yt-when-hint" aria-live="polite"></div>
+            <label class="cx-check" id="cx-v-yt-monetize-row">
+              <input type="checkbox" id="cx-v-yt-monetize">
+              <span>
+                <strong data-i18n="codex.field_video_yt_monetize">Turn on monetization</strong>
+                <em data-i18n="codex.field_video_yt_monetize_hint">For channels in the YouTube Partner Program. Only the browser profile route can do this.</em>
+              </span>
+            </label>
+          </div>
+
           <!-- Ảnh đại diện: prompt LUÔN viết (nút copy trên thẻ + dòng trong Sheet). Bật ô này thì model ảnh vẽ luôn từ
                prompt đó, ảnh hook làm tham chiếu, rồi lên Drive cùng video. Ô style thay dòng STYLE của prompt. -->
           <label class="cx-check">

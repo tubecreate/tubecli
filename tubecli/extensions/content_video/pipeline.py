@@ -135,6 +135,14 @@ DEFAULTS: Dict[str, Any] = {
     "publish_script": "youtube_upload",   # slug script trình duyệt
     "publish_monetize": False,            # chỉ đường script làm được
     "publish_privacy": "public",   # public | unlisted | private
+    # Hẹn giờ công khai (10/10/2026, xem publish_schedule.py): "now" | "slots" (khung giờ hằng ngày, khung trống kế
+    # tiếp của kênh) | "at" (mốc tự chọn publish_at_ms). Video vẫn tải lên NGAY; YouTube tự công khai đúng giờ.
+    # Giờ khung theo múi giờ người đặt: publish_tz (IANA) + publish_tz_offset (phút lệch UTC, dự phòng thiếu tzdata).
+    "publish_when": "now",
+    "publish_slots": "",
+    "publish_at_ms": 0,
+    "publish_tz": "",
+    "publish_tz_offset": "",
     # Ghi đè phần SEO do model sinh; để trống thì _seo_for tự viết.
     "seo_title": "",
     "seo_description": "",
@@ -5569,6 +5577,80 @@ def ensure_schedule_guard(steps: List[Dict]) -> bool:
     return True
 
 
+# Hẹn giờ theo khung giờ hằng ngày (10/10/2026): pipeline gửi MỐC TUYỆT ĐỐI {{schedule_epoch}} (ms). Hai bước này
+# đổi nó sang ngày/giờ theo múi giờ CỦA CHÍNH TRÌNH DUYỆT rồi ghi đè {{schedule_date}}/{{schedule_time}} (runner thay
+# biến lúc chạy từng bước) — hồ sơ ShardX hay giả múi giờ theo proxy, mà Studio hiểu giờ gõ vào theo múi giờ đó.
+# Không có mốc thì giữ nguyên chữ cũ (script người dùng tự gõ ngày giờ vẫn chạy như trước).
+SCHEDULE_LOCAL_DATE_LABEL = "t2:schedule-local-date — đổi mốc hẹn giờ sang NGÀY theo múi giờ trình duyệt"
+SCHEDULE_LOCAL_TIME_LABEL = "t2:schedule-local-time — đổi mốc hẹn giờ sang GIỜ theo múi giờ trình duyệt"
+SCHEDULE_LOCAL_DATE_CODE = (
+    "(() => { const ms = Number('{{schedule_epoch}}'); if (!(ms > 0)) return '{{schedule_date}}'; "
+    "const d = new Date(ms); const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']; "
+    "return M[d.getMonth()] + ' ' + d.getDate() + ', ' + d.getFullYear(); })()"
+)
+SCHEDULE_LOCAL_TIME_CODE = (
+    "(() => { const ms = Number('{{schedule_epoch}}'); if (!(ms > 0)) return '{{schedule_time}}'; "
+    "const d = new Date(ms); const p = (n) => (n < 10 ? '0' : '') + n; "
+    "return p(d.getHours()) + ':' + p(d.getMinutes()); })()"
+)
+
+
+def schedule_local_steps() -> List[Dict[str, Any]]:
+    return [{"type": "evaluate", "label": SCHEDULE_LOCAL_DATE_LABEL,
+             "params": {"code": SCHEDULE_LOCAL_DATE_CODE, "save_as": "schedule_date"}, "on_error": "skip"},
+            {"type": "evaluate", "label": SCHEDULE_LOCAL_TIME_LABEL,
+             "params": {"code": SCHEDULE_LOCAL_TIME_CODE, "save_as": "schedule_time"}, "on_error": "skip"}]
+
+
+def _walk_steps(steps: List[Dict]):
+    for s in steps or []:
+        if not isinstance(s, dict):
+            continue
+        yield s
+        p = s.get("params") or {}
+        for k in ("then_steps", "else_steps", "steps"):
+            if isinstance(p.get(k), list):
+                yield from _walk_steps(p[k])
+
+
+def _schedule_inner(steps: List[Dict]) -> Optional[List[Dict]]:
+    """Danh sách bước TRONG nhóm hẹn giờ (bước t2:schedule-guard), None nếu script không có nhóm đó."""
+    for s in _walk_steps(steps):
+        if str(s.get("label") or "").startswith("t2:schedule-guard"):
+            inner = (s.get("params") or {}).get("then_steps")
+            return inner if isinstance(inner, list) else None
+    return None
+
+
+def _first_using(var: str) -> Callable[[List[Dict]], Optional[int]]:
+    """Vị trí bước đầu tiên (không phải bước t2: của pipeline) đọc biến {{var}}."""
+    def at(steps: List[Dict]) -> Optional[int]:
+        for i, s in enumerate(steps):
+            if isinstance(s, dict) and not str(s.get("label") or "").startswith("t2:") \
+                    and ("{{%s}}" % var) in json.dumps(s.get("params") or {}, ensure_ascii=False):
+                return i
+        return None
+    return at
+
+
+def ensure_schedule_local(steps: List[Dict]) -> bool:
+    """Chèn (hoặc làm mới) hai bước t2:schedule-local-* ngay trước bước dựng ngày / dựng giờ trong nhóm hẹn giờ."""
+    inner = _schedule_inner(steps)
+    if inner is None:
+        return False
+    date_step, time_step = schedule_local_steps()
+    changed = _place_step(inner, "t2:schedule-local-date", date_step, _first_using("schedule_date"))
+    return _place_step(inner, "t2:schedule-local-time", time_step, _first_using("schedule_time")) or changed
+
+
+def script_can_schedule(steps: List[Dict]) -> bool:
+    """Script có đủ đường hẹn giờ do pipeline điều khiển (nhóm hẹn giờ + bước đổi mốc sang giờ trình duyệt)."""
+    inner = _schedule_inner(steps) or []
+    labels = [str(s.get("label") or "") for s in inner if isinstance(s, dict)]
+    return any(x.startswith("t2:schedule-local-date") for x in labels) \
+        and any(x.startswith("t2:schedule-local-time") for x in labels)
+
+
 def _before_verify(steps: List[Dict]) -> Optional[int]:
     """Cú bấm dự phòng phải đứng TRƯỚC bước xác minh — xác minh chạy trước thì nó
     đọc trạng thái của một cú bấm chưa xảy ra."""
@@ -5625,6 +5707,18 @@ def ensure_upload_script(slug: str) -> bool:
         return False
 
 
+def _script_schedules(slug: str) -> bool:
+    """Script `slug` trong kho có đường hẹn giờ do pipeline điều khiển (gọi SAU ensure_thumbnail_branch)."""
+    try:
+        from tubecli.extensions.browser_scripts.script_routes import _store
+
+        script = _store().get_script(slug) or {}
+    except Exception as e:      # noqa: BLE001
+        logger.info(f"[ContentVideo] script store unavailable: {e}")
+        return False
+    return script_can_schedule(list(script.get("steps") or []))
+
+
 def ensure_thumbnail_branch(slug: str) -> bool:
     """Chèn (hoặc làm mới) các bước do pipeline sở hữu trong script `slug`:
     t2:open-upload ngay sau bước mở trang, t2:thumbnail sau bước điền mô tả,
@@ -5644,6 +5738,7 @@ def ensure_thumbnail_branch(slug: str) -> bool:
     changed = _place_step(steps, "t2:wait-upload", wait_upload_step(), _before_done) or changed
     changed = _place_step(steps, "t2:clear-overlays", clear_overlays_step(), _before_done) or changed
     changed = ensure_schedule_guard(steps) or changed
+    changed = ensure_schedule_local(steps) or changed
     changed = _place_step(steps, "t2:publish-click", publish_click_step(), _before_verify) or changed
     changed = _place_step(steps, "t2:verify-publish", verify_publish_step(), _before_close) or changed
     if not changed:
@@ -5961,6 +6056,11 @@ def _publish_via_script(state: Dict, options: Dict, privacy: str) -> None:
     upload_url = ("https://studio.youtube.com/channel/%s/videos/upload?d=ud" % channel["id"]
                   if channel["id"] else "https://www.youtube.com/upload")
     monetize = "1" if options.get("publish_monetize") else "0"
+    sched = state.get("publish_schedule") or {}
+    if sched and not _script_schedules(slug):
+        raise RuntimeError(
+            f"The browser upload script “{slug}” has no scheduling steps, so it cannot set a publish time — "
+            "choose “Right away”, or upload with the YouTube API instead.")
     variables = {
         "video_path": str(state["video_path"]),
         "title": seo["title"][:100],
@@ -5968,8 +6068,12 @@ def _publish_via_script(state: Dict, options: Dict, privacy: str) -> None:
         "upload_url": upload_url,
         "visibility_radio": _STUDIO_RADIO.get(privacy, "PUBLIC"),
         "monetize": monetize,
-        # Hẹn giờ là việc của người dùng trên Studio; lượt tự động đăng ngay.
-        "schedule": "0", "schedule_date": "", "schedule_time": "",
+        # Hẹn giờ: mốc tuyệt đối (ms) — bước t2:schedule-local đổi sang ngày/giờ theo múi giờ của trình duyệt;
+        # schedule_date/time chỉ là bản dự phòng theo múi giờ người đặt.
+        "schedule": "1" if sched else "0",
+        "schedule_date": str(sched.get("studio_date") or ""),
+        "schedule_time": str(sched.get("studio_time") or ""),
+        "schedule_epoch": str(int(sched["at"]) * 1000) if sched else "",
         # Ảnh đại diện tuỳ chỉnh: script chỉ chạy nhánh tải thumbnail khi thumbnail_set = 1
         # (bước condition), không có thì bỏ qua sạch — không bắt buộc.
         "thumbnail_path": str(state.get("thumbnail_path") or ""),
@@ -5980,7 +6084,8 @@ def _publish_via_script(state: Dict, options: Dict, privacy: str) -> None:
     # đã nằm sẵn trên video.
     state["thumbnail_via_script"] = variables["thumbnail_set"] == "1"
     say("publish", "running",
-        "opening YouTube Studio as “%s”%s" % (profile, " · monetised" if monetize == "1" else ""))
+        "opening YouTube Studio as “%s”%s%s" % (profile, " · monetised" if monetize == "1" else "",
+                                               " · scheduled " + sched["label"] if sched else ""))
     try:
         res = _run_upload_script(state, options, slug, variables, profile)
     except Exception as e:
@@ -6019,7 +6124,7 @@ def _publish_via_script(state: Dict, options: Dict, privacy: str) -> None:
         "via": "script",
         "monetized": monetize == "1",
     }
-    say("publish", "running", "published via YouTube Studio")
+    say("publish", "running", "scheduled via YouTube Studio" if sched else "published via YouTube Studio")
     _attach_thumbnail_after_script(state, options, seo["title"])
 
 
@@ -6030,13 +6135,80 @@ def _publish_now(state: Dict, options: Dict) -> None:
         state.setdefault("warnings", []).append(f"Unknown privacy {privacy!r} — published as public.")
         privacy = "public"
     method = str(options.get("publish_method") or DEFAULTS["publish_method"]).strip().lower()
-    if method == "api":
-        _publish_via_api(state, options, privacy)
+    sched = _publish_schedule(state, options, privacy)
+    state["publish_schedule"] = sched
+    try:
+        if method == "api":
+            _publish_via_api(state, options, privacy)
+        else:
+            if method not in ("script", ""):
+                state.setdefault("warnings", []).append(
+                    f"Unknown publish method {method!r} — used the browser script.")
+            _publish_via_script(state, options, privacy)
+    except BaseException:
+        # Đăng hỏng (hay huỷ) ⇒ trả khung giờ: video sau của kênh này dùng được nó.
+        if sched:
+            from tubecli.extensions.content_video import publish_schedule as PS
+
+            PS.release(sched["key"], sched["at"], str(state.get("task_id") or ""))
+        raise
+    sched = state.get("publish_schedule")       # _api_schedule xoá nó khi YouTube không nhận giờ
+    if sched and state.get("published"):
+        state["published"]["scheduled_at"] = sched["iso"]
+        state["published"]["scheduled_label"] = sched["label"]
+
+
+def _schedule_key(state: Dict, options: Dict) -> str:
+    """Sổ khung giờ theo KÊNH: hai video cùng kênh không chung một khung. Chưa biết kênh (đường trình duyệt dùng
+    kênh mặc định của tài khoản) thì theo hồ sơ / tài khoản / agent."""
+    for k, prefix in (("publish_channel_id", ""), ("publish_channel_name", "name:"), ("publish_profile", "profile:"),
+                      ("publish_token_id", "token:")):
+        v = str(options.get(k) or "").strip()
+        if v:
+            return prefix + v
+    agent = state.get("agent")
+    return "agent:" + str(getattr(agent, "id", "") or "default")
+
+
+def _publish_schedule(state: Dict, options: Dict, privacy: str) -> Optional[Dict[str, Any]]:
+    """Giờ công khai của lượt đăng này, hoặc None = đăng ngay. Chỉ video CÔNG KHAI mới hẹn giờ được (YouTube: video
+    hẹn giờ ở chế độ riêng tư tới đúng giờ thì tự thành công khai)."""
+    when = str(options.get("publish_when") or "now").strip().lower()
+    if when not in ("slots", "at"):
+        return None
+    from tubecli.extensions.content_video import publish_schedule as PS
+
+    warn = state.setdefault("warnings", []).append
+    if privacy != "public":
+        warn(f"Scheduled publishing only works for public videos — this one was uploaded right away as {privacy}.")
+        return None
+    tz = PS.resolve_tz(options.get("publish_tz") or "", options.get("publish_tz_offset"))
+    key = _schedule_key(state, options)
+    task_id = str(state.get("task_id") or "")
+    now = time.time()
+    if when == "at":
+        try:
+            at = int(float(options.get("publish_at_ms") or 0) / 1000)
+        except (TypeError, ValueError):
+            at = 0
+        if at < now + PS.MIN_AHEAD_SEC:
+            warn("The chosen publish time has passed (or is less than 15 minutes away) — the video went public "
+                 "right away.")
+            return None
+        PS.book_at(key, at, task_id)
     else:
-        if method not in ("script", ""):
-            state.setdefault("warnings", []).append(
-                f"Unknown publish method {method!r} — used the browser script.")
-        _publish_via_script(state, options, privacy)
+        slots = PS.parse_slots(options.get("publish_slots"))
+        if not slots:
+            warn("No daily publish times were set — the video went public right away.")
+            return None
+        at = PS.book_next(key, slots, task_id, tz)
+        if not at:
+            raise RuntimeError(f"Every daily publish time in the next {PS.HORIZON_DAYS} days is already taken for "
+                               "this channel — add more times or publish right away.")
+    label = PS.when_label(at, tz)
+    state["_say"]("publish", "running", f"scheduled to go public {label}")
+    return {"at": at, "iso": PS.iso_utc(at), "label": label, "key": key,
+            **{"studio_" + k: v for k, v in PS.studio_date_time(at, tz).items()}}
 
 
 def _publish_via_api(state: Dict, options: Dict, privacy: str) -> None:
@@ -6097,13 +6269,15 @@ def _publish_via_api(state: Dict, options: Dict, privacy: str) -> None:
             say("publish", "running", f"{pct}% uploaded", pct)
             last[0] = pct
 
+    sched = state.get("publish_schedule") or {}
     say("publish", "running", f"uploading to “{channel.get('name') or 'YouTube'}”")
     try:
         res = uploader.upload_video(
             file_path=state["video_path"], access_token=token,
             title=seo["title"], description=seo["description"], tags=seo["tags"],
             category_id="22",                 # People & Blogs — mặc định của video_manager
-            privacy=privacy, progress_callback=on_progress,
+            # Hẹn giờ: YouTube chỉ nhận publishAt trên video RIÊNG TƯ, tới giờ thì nó tự thành công khai.
+            privacy="private" if sched else privacy, progress_callback=on_progress,
         ) or {}
     except InterruptedError:
         raise _cancel_exc()
@@ -6134,8 +6308,41 @@ def _publish_via_api(state: Dict, options: Dict, privacy: str) -> None:
         "channel_id": actual_id or str(channel.get("id") or channel_id),
         "channel_name": channel_name,
     }
-    say("publish", "running", f"published: {state['published']['url']}")
+    if sched:
+        _api_schedule(state, uploader, token, state["published"]["video_id"], sched)
+    say("publish", "running", f"{'scheduled' if sched else 'published'}: {state['published']['url']}")
     _attach_thumbnail(state, token, state["published"]["video_id"])
+
+
+def _api_schedule(state: Dict, uploader, token: str, video_id: str, sched: Dict) -> None:
+    """Đặt status.publishAt cho video vừa tải lên (riêng tư). Video_manager chưa nhận publishAt ở videos.insert nên
+    làm bằng một lượt videos.update (50 quota). Giữ nguyên các trường status khác: update part=status mà thiếu
+    trường nào thì YouTube đặt trường đó về mặc định."""
+    try:
+        svc = uploader._build_service(token)
+        cur = svc.videos().list(part="status", id=video_id).execute() or {}
+        items = cur.get("items") or []
+        if not items:
+            raise RuntimeError("YouTube does not show the video yet")
+        st = dict(items[0].get("status") or {})
+        body = {k: st[k] for k in ("embeddable", "license", "publicStatsViewable", "selfDeclaredMadeForKids",
+                                   "containsSyntheticMedia") if k in st}
+        body.update(privacyStatus="private", publishAt=sched["iso"])
+        out = svc.videos().update(part="status", body={"id": video_id, "status": body}).execute() or {}
+        got = str((out.get("status") or {}).get("publishAt") or "")
+        if not got:
+            raise RuntimeError("YouTube accepted the change but returned no publish time")
+    except Exception as e:      # noqa: BLE001
+        # Video ĐÃ nằm trên kênh ở chế độ riêng tư — không mất, chỉ chưa có giờ công khai. Nói thẳng, không ném:
+        # ném thì lượt Retry thấy "đã đăng" và bỏ qua, mà người dùng tưởng video sẽ tự lên.
+        state["publish_schedule"] = None
+        state["published"]["privacy"] = "private"
+        state.setdefault("warnings", []).append(
+            f"Uploaded as PRIVATE, but YouTube did not accept the publish time {sched['label']} ({str(e)[:160]}) — "
+            "set the schedule in YouTube Studio. An unverified Google OAuth app keeps every upload private.")
+        from tubecli.extensions.content_video import publish_schedule as PS
+
+        PS.release(sched["key"], sched["at"], str(state.get("task_id") or ""))
 
 
 def _remember_published(state: Dict) -> None:
@@ -9140,6 +9347,8 @@ def _render_result(state: Dict, options: Dict, notes: List[str], skipped_jobs: L
     if published.get("url"):
         lines.append(f"- **Published**: {published['url']} ({published.get('privacy', '')})"
                      + (f" → {published['channel_name']}" if published.get("channel_name") else ""))
+    if published.get("scheduled_label"):
+        lines.append(f"- **Goes public**: {published['scheduled_label']} — uploaded now, YouTube publishes it then")
     if state.get("video_path"):
         lines.append(f"- **Video**: `{state['video_path']}`")
     if state.get("thumbnail_path"):

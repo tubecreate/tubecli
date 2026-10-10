@@ -54,9 +54,28 @@ PUBLISH_DEFAULTS = {
     "auto_video": False,
     "youtube_subs_per_run": 2,
     "research_prompt": "",
+    # Đăng YouTube hẹn giờ (10/10/2026, xem content_video/publish_schedule.py): publish_profile = hồ sơ trình duyệt
+    # đăng bài ("" = tự chọn hồ sơ đã đăng nhập YouTube); publish_when "now" | "slots" (khung trống kế tiếp trong
+    # publish_slots «08:00, 19:00»); giờ khung theo múi giờ người đặt: publish_tz (IANA) + publish_tz_offset (phút
+    # lệch UTC, "" = chưa có — dùng khi máy thiếu dữ liệu múi giờ).
+    "publish_profile": "",
+    "publish_when": "now",
+    "publish_slots": "",
+    "publish_tz": "",
+    "publish_tz_offset": "",
 }
 RESEARCH_PROMPT_MAX = 2000
 YOUTUBE_SUBS_MAX = 5
+PUBLISH_WHEN_CHOICES = ("now", "slots")
+
+
+def _slots_text(value: Any) -> str:
+    try:
+        from tubecli.extensions.content_video.publish_schedule import slots_text
+
+        return slots_text(value)
+    except Exception:       # noqa: BLE001 — extension vắng thì vẫn giữ chữ, cắt ngắn
+        return str(value or "").strip()[:200]
 
 
 def coerce_publish_value(key: str, value: Any) -> Any:
@@ -75,6 +94,21 @@ def coerce_publish_value(key: str, value: Any) -> Any:
             return PUBLISH_DEFAULTS[key]
     if key == "research_prompt":
         return str(value or "").strip()[:RESEARCH_PROMPT_MAX]
+    if key == "publish_profile":
+        return str(value or "").strip()[:200]
+    if key == "publish_when":
+        w = str(value or "").strip().lower()
+        return w if w in PUBLISH_WHEN_CHOICES else PUBLISH_DEFAULTS[key]
+    if key == "publish_slots":
+        return _slots_text(value)
+    if key == "publish_tz":
+        tz = str(value or "").strip()[:64]
+        return tz if re.fullmatch(r"[A-Za-z0-9_+\-/:]*", tz) else ""
+    if key == "publish_tz_offset":
+        try:
+            return "" if value in (None, "") else max(-840, min(840, int(float(value))))
+        except (TypeError, ValueError):
+            return ""
     if key == "publish_method":
         m = str(value or "").strip().lower()
         return m if m in PUBLISH_METHOD_CHOICES else PUBLISH_DEFAULTS[key]
@@ -237,6 +271,12 @@ class Agent:
         auto_video: bool = False,
         youtube_subs_per_run: int = 2,
         research_prompt: str = "",
+        # ── Đăng YouTube hẹn giờ (10/10/2026) — xem PUBLISH_DEFAULTS ──
+        publish_profile: str = "",
+        publish_when: str = "now",
+        publish_slots: str = "",
+        publish_tz: str = "",
+        publish_tz_offset: Any = "",
         # Schedule Settings
         schedule_enabled: bool = False,
         schedule_repeat: str = "Daily",
@@ -325,6 +365,11 @@ class Agent:
             "auto_video": auto_video,
             "youtube_subs_per_run": youtube_subs_per_run,
             "research_prompt": research_prompt,
+            "publish_profile": publish_profile,
+            "publish_when": publish_when,
+            "publish_slots": publish_slots,
+            "publish_tz": publish_tz,
+            "publish_tz_offset": publish_tz_offset,
         }).items():
             setattr(self, _k, _v)
 
@@ -401,6 +446,11 @@ class Agent:
             "auto_video": bool(getattr(self, "auto_video", False)),
             "youtube_subs_per_run": getattr(self, "youtube_subs_per_run", 2),
             "research_prompt": getattr(self, "research_prompt", "") or "",
+            "publish_profile": getattr(self, "publish_profile", "") or "",
+            "publish_when": getattr(self, "publish_when", "now") or "now",
+            "publish_slots": getattr(self, "publish_slots", "") or "",
+            "publish_tz": getattr(self, "publish_tz", "") or "",
+            "publish_tz_offset": getattr(self, "publish_tz_offset", ""),
             "schedule_enabled": getattr(self, "schedule_enabled", False),
             "schedule_repeat": getattr(self, "schedule_repeat", "Daily"),
             "schedule_interval": getattr(self, "schedule_interval", 60),

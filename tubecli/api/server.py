@@ -2186,6 +2186,18 @@ class PublishSettingsBase(BaseModel):
             raise ValueError("publish_method must be one of " + ", ".join(PUBLISH_METHOD_CHOICES))
         return m
 
+    @field_validator("publish_when", check_fields=False)
+    @classmethod
+    def _publish_when_known(cls, v):
+        if v is None:
+            return v
+        from tubecli.core.agent import PUBLISH_WHEN_CHOICES
+
+        w = str(v).strip().lower()
+        if w not in PUBLISH_WHEN_CHOICES:
+            raise ValueError("publish_when must be one of " + ", ".join(PUBLISH_WHEN_CHOICES))
+        return w
+
     @field_validator("publish_privacy", check_fields=False)
     @classmethod
     def _publish_privacy_known(cls, v):
@@ -2262,6 +2274,12 @@ class AgentCreateRequest(PublishSettingsBase):
     auto_video: Optional[bool] = False
     youtube_subs_per_run: Optional[int] = Field(2, ge=0, le=5)
     research_prompt: Optional[str] = Field("", max_length=4000)
+    # Đăng YouTube hẹn giờ (10/10/2026): xem core/agent.py PUBLISH_DEFAULTS.
+    publish_profile: Optional[str] = Field("", max_length=200)
+    publish_when: Optional[str] = "now"
+    publish_slots: Optional[str] = Field("", max_length=400)
+    publish_tz: Optional[str] = Field("", max_length=64)
+    publish_tz_offset: Optional[int] = Field(None, ge=-840, le=840)
     schedule_enabled: Optional[bool] = False
     schedule_repeat: Optional[str] = "Daily"
     schedule_interval: Optional[int] = 60
@@ -2341,6 +2359,11 @@ class AgentUpdateRequest(PublishSettingsBase):
     auto_video: Optional[bool] = None
     youtube_subs_per_run: Optional[int] = Field(None, ge=0, le=5)
     research_prompt: Optional[str] = Field(None, max_length=4000)
+    publish_profile: Optional[str] = Field(None, max_length=200)
+    publish_when: Optional[str] = None
+    publish_slots: Optional[str] = Field(None, max_length=400)
+    publish_tz: Optional[str] = Field(None, max_length=64)
+    publish_tz_offset: Optional[int] = Field(None, ge=-840, le=840)
     schedule_enabled: Optional[bool] = None
     schedule_repeat: Optional[str] = None
     schedule_interval: Optional[int] = None

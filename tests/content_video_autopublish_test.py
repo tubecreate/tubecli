@@ -286,11 +286,12 @@ check("C không có agent_id → nói rõ",
       A.maybe_publish_after_run("", "run-1", "completed") == "skip: no agent id")
 r = fire(agent(auto_publish=False))
 check("C công tắc tắt", r == "skip: auto video and auto-publish off", r)   # 10/10/2026: hai công tắc
-r = fire(agent(publish_token_id=""))
-check("C bật mà chưa có token → KHÔNG im lặng",
+# Đường API cần token + kênh; đường trình duyệt thì không (10/10/2026 — xem nhóm O).
+r = fire(agent(publish_token_id="", publish_method="api"))
+check("C bật (API) mà chưa có token → KHÔNG im lặng",
       r == "skip: auto-publish armed but no YouTube token chosen", r)
-r = fire(agent(publish_channel_id=""))
-check("C bật mà chưa chọn kênh → KHÔNG im lặng",
+r = fire(agent(publish_channel_id="", publish_method="api"))
+check("C bật (API) mà chưa chọn kênh → KHÔNG im lặng",
       r == "skip: auto-publish armed but no YouTube channel chosen", r)
 check("C chưa chọn kênh thì không queue gì", not PLAN_CALLS)
 # trần ngày
@@ -837,12 +838,23 @@ check("O   lượt chỉ dựng: publish=False, không mang token/kênh", o.get(
 check("O   vẫn là lượt của cò súng (autopublish=True ⇒ dời mốc) + cửa sổ corpus đủ hai đầu",
       o.get("autopublish") is True and o.get("high_water") == "2026-09-04T03:00:00+00:00", o)
 check("O   nhãn task «Auto video»", PLAN_CALLS[-1]["job_label"] == A.JOB_LABEL_VIDEO == "Auto video", PLAN_CALLS[-1])
-r = fresh(auto_publish=True, auto_video=True, publish_channel_id="")
-check("O tự đăng bật mà THIẾU kênh + có tự dựng → dựng, không bỏ cả lượt",
+# Đường API cần token + kênh (videos.insert đăng vào kênh của token). Đường trình duyệt thì không — xem dưới.
+r = fresh(auto_publish=True, auto_video=True, publish_channel_id="", publish_method="api")
+check("O tự đăng API mà THIẾU kênh + có tự dựng → dựng, không bỏ cả lượt",
       r.startswith("queued:") and PLAN_CALLS[-1]["options"]["publish"] is False, r)
-r = fresh(auto_publish=True, auto_video=False, publish_channel_id="")
-check("O tự đăng thiếu kênh, KHÔNG tự dựng → dừng như cũ (kêu to)",
+r = fresh(auto_publish=True, auto_video=False, publish_channel_id="", publish_method="api")
+check("O tự đăng API thiếu kênh, KHÔNG tự dựng → dừng như cũ (kêu to)",
       r == "skip: auto-publish armed but no YouTube channel chosen" and not PLAN_CALLS, r)
+# 10/10/2026: đường TRÌNH DUYỆT chỉ cần hồ sơ đã đăng nhập YouTube; kênh trống = kênh mặc định của tài khoản.
+r = fresh(auto_publish=True, auto_video=False, publish_channel_id="", publish_channel_name="", publish_token_id="",
+          publish_method="script", publish_profile="yt_prof", publish_when="slots", publish_slots="19:00, 8",
+          publish_tz="Asia/Ho_Chi_Minh", publish_tz_offset=420)
+o = (PLAN_CALLS[-1] if PLAN_CALLS else {}).get("options", {})
+check("O tự đăng qua TRÌNH DUYỆT không cần token/kênh → vẫn đăng", r.startswith("queued:") and o.get("publish") is True
+      and "default channel" in r, r)
+check("O   hồ sơ + hẹn giờ theo khung đi tới task", o.get("publish_profile") == "yt_prof"
+      and o.get("publish_when") == "slots" and o.get("publish_slots") == "08:00, 19:00"
+      and o.get("publish_tz") == "Asia/Ho_Chi_Minh" and o.get("publish_tz_offset") == 420, o)
 r = fresh(auto_publish=True, auto_video=True)
 o = PLAN_CALLS[-1]["options"]
 check("O có kênh → đăng như cũ (publish=True + đủ thông tin kênh)",
