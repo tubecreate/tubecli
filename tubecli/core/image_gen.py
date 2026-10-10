@@ -533,10 +533,33 @@ def nr_image_bytes(content_type: str, raw: bytes) -> bytes:
     return base64.b64decode(b64)
 
 
+# Mạng chập chờn tới 9Router (10/10/2026 #334: DNS hụt vài giây — «URLError: getaddrinfo failed» — làm hỏng 14/15 ảnh cả
+# lô, video ra 13 s): lỗi MẠNG (không phải trả lời HTTP của 9Router) → nghỉ rồi thử lại, tối đa NR_NET_WAITS lần.
+NR_NET_WAITS = (5.0, 15.0, 30.0)
+_NET_GLITCH = ("urlerror", "getaddrinfo", "connectionreseterror", "connectionabortederror", "remotedisconnected",
+               "timeouterror", "timed out", "incompleteread", "temporary failure in name resolution")
+
+
+def _net_glitch(e: Exception) -> bool:
+    msg = str(e).lower()
+    return (isinstance(e, ProviderError) and e.kind == "error" and not msg.startswith("http ")
+            and any(k in msg for k in _NET_GLITCH))
+
+
 async def _nr_generate(r: dict, prompt: str, aspect_ratio: str, timeout: int) -> bytes:
     headers = {**(r.get("headers") or {}), "Content-Type": "application/json"}
-    ct, raw = await _post_any(f"{r['base']}/images/generations", nr_request(r["model"], prompt, aspect_ratio), headers, timeout)
-    return nr_image_bytes(ct, raw)
+    for attempt in range(len(NR_NET_WAITS) + 1):
+        try:
+            ct, raw = await _post_any(f"{r['base']}/images/generations", nr_request(r["model"], prompt, aspect_ratio),
+                                      headers, timeout)
+            return nr_image_bytes(ct, raw)
+        except ProviderError as e:
+            if attempt >= len(NR_NET_WAITS) or not _net_glitch(e):
+                raise
+            logger.warning("9router: network glitch (%s) — retry %d/%d in %.0f s", str(e)[:120], attempt + 1,
+                           len(NR_NET_WAITS), NR_NET_WAITS[attempt])
+            await _sleep(NR_NET_WAITS[attempt])
+    raise ProviderError("error", "9router: unreachable")     # không tới được: vòng trên luôn trả hoặc ném
 
 
 # ── Muse (muse.ai) ────────────────────────────────────────────────────────────
