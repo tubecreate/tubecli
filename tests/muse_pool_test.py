@@ -343,7 +343,7 @@ except M.MuseError:
     pass
 ok(n_img == M.MUSE_ATTEMPTS and len(hung) == 2 * M.MUSE_ATTEMPTS and len(resets) == 2 * (M.MUSE_ATTEMPTS - 1),
    "ảnh / chat riêng (chuỗi clip) treo → cũng đóng phiên + thử lại", (hung, resets))
-ok(M.VIDEO_TIMEOUT == 900, "một lượt quay chờ tối đa 15 phút")
+ok(M.VIDEO_TIMEOUT == 180, "một lượt quay chờ tối đa 3 phút (user 10/10/2026), xem mục N")
 
 # ── J ─────────────────────────────────────────────────────────────────────────
 print("J. trình duyệt treo → đóng phiên, mở lại, thử lại; 3 lần hỏng → Telegram")
@@ -663,6 +663,73 @@ ok(v["path"].endswith(".mp4") and calls_m == ["remote0", "chayagent"] and M._NO_
    "nút từ xa bị chặn khu vực → clip quay ở chayagent", (calls_m, M._NO_VIDEO))
 M._NO_VIDEO.clear()
 M.set_settings(remotes=[])
+
+# ── N ─────────────────────────────────────────────────────────────────────────
+print("N. cờ chặn tới ngày hôm sau + lượt video 3 phút, chỉ gọi một lần (10/10/2026)")
+lt = time.localtime()
+midnight = time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday + 1, 0, 0, 0, 0, 0, -1))
+ok(M.VIDEO_TIMEOUT == 180 and abs(M._region_until() - midnight) < 2, "VIDEO_TIMEOUT 180 s; cờ chặn hết hạn 0 giờ hôm sau",
+   (M.VIDEO_TIMEOUT, M._region_until(), midnight))
+reset()
+M._NO_VIDEO.clear()
+M.set_settings(profile="chayagent", extra_profiles=["muse2"], remotes=[])
+calls_m.clear()
+M.run_tool = region_tool
+M._LAST_USED.update({"chayagent": 1.0, "muse2": 9.0})
+M.generate_video_clip("clip n1", str(TMP / "vd_region"), [], "16:9")
+saved = json.loads(STATE.read_text(encoding="utf-8")).get("no_video") or {}
+ok(abs(saved.get("chayagent", 0) - midnight) < 2 and abs(M._NO_VIDEO["chayagent"] - midnight) < 2,
+   "bị chặn → cờ tới 0 giờ hôm sau, LƯU trong muse_state.json", saved)
+M._save_slot("muse2", {"profile": "muse2", "thread": "T-x", "turns": 1})
+ok("chayagent" in (json.loads(STATE.read_text(encoding="utf-8")).get("no_video") or {}), "ghi chat phụ không xoá cờ chặn")
+M._NO_VIDEO.clear()
+M._NO_VIDEO_LOADED["done"] = False
+ok(M.status()["pool"] and M._NO_VIDEO.get("chayagent", 0) > time.time(), "khởi động lại → nạp lại cờ từ file", M._NO_VIDEO)
+row = {r["profile"]: r for r in M.status()["pool"]}
+ok(abs((row["chayagent"].get("video_blocked_until") or 0) - midnight) < 2, "status(): video_blocked_until", row["chayagent"])
+# lượt video KẸT (quá hạn, không video, không lỗi) → đóng phiên, KHÔNG thử lại cùng tài khoản; chuyển chỗ khác MỘT lần
+reset()
+M._NO_VIDEO.clear()
+STATE.write_text("{}", encoding="utf-8")
+M._NO_VIDEO_LOADED["done"] = True
+calls_t, resets_t = [], []
+
+
+def hang_tool(port, action, req=None, timeout=60, hung=("chayagent",)):
+    prof = BY_PORT[port]
+    calls_t.append((prof, timeout))
+    if (req or {}).get("want_videos") and prof in hung:
+        return {"ok": False, "kind": "timeout", "error": f"no answer within {timeout} s"}
+    p = str(TMP / f"hv_{len(calls_t)}.mp4")
+    open(p, "wb").write(b"0" * 20000)
+    return {"ok": True, "text": "", "images": [], "videos": [{"path": p}], "thread_id": "T-" + prof}
+
+
+M.run_tool = hang_tool
+M.reset_browser = lambda p: resets_t.append(p) or True
+M._LAST_USED.update({"chayagent": 1.0, "muse2": 9.0})
+v = M.generate_video_clip("clip n2", str(TMP / "vd_hang"), [], "16:9")
+ok(v["path"].endswith(".mp4") and [c[0] for c in calls_t] == ["chayagent", "muse2"] and resets_t == ["chayagent"]
+   and calls_t[0][1] == 180 and not M._NO_VIDEO, "kẹt 3 phút → đóng phiên chayagent, clip sang muse2 (không gắn cờ ngày)",
+   (calls_t, resets_t, M._NO_VIDEO))
+calls_t.clear(), resets_t.clear()
+M.run_tool = lambda port, action, req=None, timeout=60: hang_tool(port, action, req, timeout, hung=("chayagent", "muse2"))
+try:
+    M.generate_video_clip("clip n3", str(TMP / "vd_hang"), [], "16:9")
+    ok(False, "mọi chỗ kẹt → MuseError")
+except M.MuseError as e:
+    ok(e.kind == "timeout" and len(calls_t) == 2 and sorted(resets_t) == ["chayagent", "muse2"],
+       "mọi chỗ kẹt → đúng 2 lượt gọi (mỗi chỗ một lần) rồi ném timeout", (calls_t, resets_t))
+# lượt CHỮ quá hạn vẫn thử lại như cũ (chỉ video là gọi một lần)
+calls_t.clear(), resets_t.clear()
+M.RESET_WAIT = 0
+M.run_tool = lambda port, action, req=None, timeout=60: (calls_t.append(BY_PORT[port]) or
+                                                          {"ok": False, "kind": "timeout", "error": "slow"})
+try:
+    M.ask("q", timeout=5)
+except M.MuseError:
+    pass
+ok(len(calls_t) == M.MUSE_ATTEMPTS, "lượt chữ quá hạn vẫn thử lại tới MUSE_ATTEMPTS", calls_t)
 
 print()
 print(f"{PASS} passed, {FAIL} failed")

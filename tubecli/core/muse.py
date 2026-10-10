@@ -90,10 +90,11 @@ _HUNG_RESET: Dict[str, float] = {}  # khoá chỗ ngồi → lúc người gác 
 _WATCHDOG: Dict[str, Any] = {"thread": None}
 _DOWN: Dict[str, float] = {}        # hồ sơ → hết hạn bỏ qua
 # CHẶN KHU VỰC cho video (10/10/2026, #333 cảnh 19303: «video generation isn't available in your region» — IP của trình
-# duyệt ở VN lúc bị chặn lúc không; chữ và ảnh vẫn chạy): hồ sơ ấy không nhận lượt VIDEO trong REGION_DOWN giây, clip
-# đó quay lại MỘT lần ở chỗ ngồi khác (tài khoản khác / nút từ xa) thay vì thành ảnh tĩnh.
-REGION_DOWN = 1800
+# duyệt ở VN lúc bị chặn lúc không; chữ và ảnh vẫn chạy): hồ sơ ấy không nhận lượt VIDEO tới 0 GIỜ NGÀY HÔM SAU (user
+# 10/10/2026 «gắn cờ cho đến ngày hôm sau check lại»), cờ LƯU trong muse_state.json (khởi động lại không mất); clip đó
+# quay lại MỘT lần ở chỗ ngồi khác (tài khoản khác / nút từ xa) thay vì thành ảnh tĩnh.
 _NO_VIDEO: Dict[str, float] = {}    # hồ sơ → hết hạn bỏ qua cho lượt video
+_NO_VIDEO_LOADED = {"done": False}
 _THREAD_OWNER: Dict[str, str] = {}  # chat phụ → hồ sơ (chat của tài khoản A không mở được ở tài khoản B)
 _STATE_LOCK = threading.Lock()
 
@@ -307,7 +308,41 @@ def _save_slot(key: str, slot: dict) -> None:
         slots = d.get("slots") if isinstance(d.get("slots"), dict) else (
             {d["profile"]: d} if d.get("profile") else {})
         slots[key] = slot
-        _save_state({"slots": slots})
+        out = {"slots": slots}
+        if isinstance(d.get("no_video"), dict):
+            out["no_video"] = d["no_video"]          # cờ chặn video theo ngày — không được mất khi ghi chat phụ
+        _save_state(out)
+
+
+def _region_until(now: Optional[float] = None) -> float:
+    """0 giờ (giờ máy) ngày hôm sau — hết hạn cờ chặn khu vực."""
+    lt = time.localtime(now if now is not None else time.time())
+    return time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday + 1, 0, 0, 0, 0, 0, -1))
+
+
+def _no_video_load() -> None:
+    """Cờ chặn video đã lưu → _NO_VIDEO (một lần mỗi tiến trình; cờ hết hạn bỏ qua)."""
+    if _NO_VIDEO_LOADED["done"]:
+        return
+    _NO_VIDEO_LOADED["done"] = True
+    saved = _load_state().get("no_video")
+    now = time.time()
+    for p, until in (saved.items() if isinstance(saved, dict) else []):
+        try:
+            if float(until) > now:
+                _NO_VIDEO[str(p)] = max(float(until), _NO_VIDEO.get(str(p), 0.0))
+        except (TypeError, ValueError):
+            continue
+
+
+def _no_video_set(prof: str, until: float) -> None:
+    _no_video_load()
+    _NO_VIDEO[prof] = until
+    now = time.time()
+    with _STATE_LOCK:
+        d = _load_state()
+        d["no_video"] = {p: t for p, t in _NO_VIDEO.items() if t > now}
+        _save_state(d)
 
 
 def pick_thread(state: dict, profile: str, turns_per_chat: int, fresh: bool = False) -> str:
@@ -772,10 +807,12 @@ def status() -> dict:
                           if remotes else "Pick the browser profile that is signed in to muse.ai, or add a remote Muse node.")
         return out
     now = time.time()
+    _no_video_load()
     for p in st["pool"]:
         row = _profile_status(p, busy_by.get(p, 0) >= st["lanes"])
         row["down"] = _DOWN.get(p, 0) > now
         row["video_blocked"] = _NO_VIDEO.get(p, 0) > now  # Muse báo chặn khu vực cho video — tạm không giao clip
+        row["video_blocked_until"] = _NO_VIDEO.get(p) if row["video_blocked"] else None
         row["last_used"] = _LAST_USED.get(p) or None      # epoch giây — hộp cài đặt hiện «used 2 min ago»
         row["last_ok"] = _LAST_OK.get(p) or None          # lần tạo thành công gần nhất (người gác treo dựa vào nó)
         with _POOL:
@@ -890,8 +927,12 @@ def _start_watchdog() -> None:
 def ask(prompt: str, *, want_images: bool = False, files: Optional[List[str]] = None,
         image_dir: str = "", max_images: int = 1, timeout: int = CHAT_TIMEOUT, fresh: bool = False,
         launch: bool = True, want_videos: bool = False, video_dir: str = "", max_videos: int = 1,
-        thread_id: str = "", _failover: bool = True, _attempt: int = 1) -> dict:
+        thread_id: str = "", _failover: bool = True, _attempt: int = 1, avoid: Optional[set] = None) -> dict:
     """Một lượt hỏi Muse → kết quả của muse_tool (text, images, videos, thread_id, profile…). Ném MuseError.
+
+    avoid: chỗ ngồi tránh cho lượt này (lượt video quay lại sau khi chỗ trước kẹt / bị chặn khu vực).
+    Lượt VIDEO quá hạn (VIDEO_TIMEOUT) KHÔNG thử lại ở đây — đóng phiên rồi ném «timeout» ngay; generate_video_clip
+    chuyển cảnh sang chỗ ngồi khác một lần.
 
     thread_id: gõ vào ĐÚNG chat phụ này (chuỗi clip nối tiếp phải ở cùng một chat để Muse giữ mạch), bỏ qua
     chat phụ dùng chung; "" = chat phụ dùng chung như thường. Chat phụ thuộc về tài khoản đã mở nó.
@@ -913,7 +954,10 @@ def ask(prompt: str, *, want_images: bool = False, files: Optional[List[str]] = 
     want = (_THREAD_OWNER.get(thread_id) or profile) if pinned else ""
     if want and want not in pool and not (want.startswith(REMOTE_PREFIX) and want in {f"{REMOTE_PREFIX}{i}" for i in range(len(remotes))}):
         want = ""
-    skip = {p for p, t in _NO_VIDEO.items() if t > time.time()} if want_videos else set()
+    skip = set()
+    if want_videos:
+        _no_video_load()
+        skip = {p for p, t in _NO_VIDEO.items() if t > time.time()} | set(avoid or ())
     prof, key = _acquire(pool, st["lanes"], want, remotes=remotes, skip=skip) if remotes \
         else _acquire(pool, st["lanes"], want, skip=skip)
     failed: Optional[MuseError] = None
@@ -978,12 +1022,20 @@ def ask(prompt: str, *, want_images: bool = False, files: Optional[List[str]] = 
         time.sleep(RESET_WAIT)
         return ask(prompt, want_images=want_images, files=files, image_dir=image_dir, max_images=max_images,
                    timeout=timeout, fresh=fresh, launch=launch, want_videos=want_videos, video_dir=video_dir,
-                   max_videos=max_videos, thread_id=thread_id, _failover=_failover, _attempt=_attempt + 1)
+                   max_videos=max_videos, thread_id=thread_id, _failover=_failover, _attempt=_attempt + 1,
+                   avoid=avoid)
     if failed.kind == "auth" and len(pool) > 1 and _failover and not pinned:
         logger.warning("muse: account %s unusable (%s) — trying another account", prof, failed)
         return ask(prompt, want_images=want_images, files=files, image_dir=image_dir, max_images=max_images,
                    timeout=timeout, fresh=fresh, launch=launch, want_videos=want_videos, video_dir=video_dir,
-                   max_videos=max_videos, thread_id=thread_id, _failover=False, _attempt=_attempt)
+                   max_videos=max_videos, thread_id=thread_id, _failover=False, _attempt=_attempt, avoid=avoid)
+    if failed.kind == "timeout" and want_videos:
+        # user 10/10/2026: «chỉ check trong 1 lần gọi sau 3 phút ko thấy trả về video hoặc báo lỗi thì bỏ qua» — lượt
+        # video quá VIDEO_TIMEOUT: đóng phiên (có thể kẹt, giải phóng RAM) rồi ném NGAY, không ngồi thử lại cùng tài khoản.
+        logger.warning("muse: %s made no video within %s s — closing its session, giving the clip up here", prof, timeout)
+        if not prof.startswith(REMOTE_PREFIX):
+            reset_browser(prof)
+        raise failed
     if failed.kind == "timeout" and launch and _attempt < MUSE_ATTEMPTS:
         # Lượt treo quá hạn (video 15 phút, chữ/ảnh 5 phút) mà không ra gì: phiên có thể kẹt → ĐÓNG HẲN phiên (dọn RAM),
         # mở lại, thử lại trong chat MỚI (chat riêng ghim tài khoản thì giữ chat) — user 9/10/2026: «sau 15 phút thử không
@@ -994,7 +1046,8 @@ def ask(prompt: str, *, want_images: bool = False, files: Optional[List[str]] = 
         time.sleep(RESET_WAIT)
         return ask(prompt, want_images=want_images, files=files, image_dir=image_dir, max_images=max_images,
                    timeout=timeout, fresh=(fresh or not own), launch=launch, want_videos=want_videos, video_dir=video_dir,
-                   max_videos=max_videos, thread_id=thread_id, _failover=_failover, _attempt=_attempt + 1)
+                   max_videos=max_videos, thread_id=thread_id, _failover=_failover, _attempt=_attempt + 1,
+                   avoid=avoid)
     if (failed.kind == "browser" and launch) or failed.kind == "auth":
         # hết đường thử lại — báo người vận hành (user 8/10/2026: «nếu 3 lần lỗi báo cho telegram»)
         _alert(f"{failed.kind}:{prof}", _alert_text(failed, prof, _attempt))
@@ -1114,7 +1167,7 @@ _REFUSAL_RE = re.compile(r"\b(can'?t|cannot|unable to|won'?t|not able to|sorry|p
 # không phải từ chối nội dung.
 _TRANSIENT_RE = re.compile(r"gặp vấn đề|vui lòng thử lại|đã xảy ra lỗi|try again|temporarily unavailable|"
                            r"something went wrong|an error occurred|ran into a problem|technical (?:issue|problem)", re.I)
-# «video generation isn't available in your region» / «… không khả dụng ở khu vực của bạn» — xem REGION_DOWN.
+# «video generation isn't available in your region» / «… không khả dụng ở khu vực của bạn» — xem _region_until (cờ tới 0 giờ hôm sau).
 _REGION_RE = re.compile(r"\b(?:available|supported|offered|unavailable)\s+in\s+your\s+(?:region|country|area|location)\b"
                         r"|(?:ở|tại|trong)\s+(?:khu vực|quốc gia|vùng)\s+của bạn", re.I)
 
@@ -1190,9 +1243,10 @@ def generate_image_bytes(prompt: str, aspect_ratio: str = "16:9", reference_imag
 
 # ── video ─────────────────────────────────────────────────────────────────────
 # Đo 2/10/2026: image→video 9:16 → 704×1104, 10 s cố định, h264 + aac, ~6 MB, ~90 s. Muse không nhận độ dài khác.
-# Một lượt quay chờ tối đa 15 phút (user 9/10/2026: «sau 15 phút thử không thành công thì reset phiên») — hết hạn thì
-# ask() ĐÓNG HẲN phiên rồi thử lại, xem bên dưới.
-VIDEO_TIMEOUT = 900
+# Một lượt quay chờ tối đa 3 phút (user 10/10/2026: «chỉ check trong 1 lần gọi sau 3 phút ko thấy trả về video hoặc báo
+# lỗi thì bỏ qua»; trước là 15 phút + thử lại 3 lần ở cùng tài khoản — #334 có clip kẹt 30 phút). Đo #334: clip thường
+# 1:40–2:20. Hết hạn: ask() đóng phiên, ném «timeout»; generate_video_clip chuyển cảnh sang chỗ ngồi khác MỘT lần.
+VIDEO_TIMEOUT = 180
 
 
 def video_request(prompt: str, aspect_ratio: str = "9:16", continue_from: bool = False) -> str:
@@ -1224,15 +1278,17 @@ def generate_video_clip(prompt: str, out_dir: str, reference_images: Optional[li
                         timeout: int = VIDEO_TIMEOUT) -> dict:
     """MỘT clip Muse → {path, poster, width, height, duration, thread_id}. Ném MuseError.
 
-    Tài khoản báo bị chặn khu vực cho video → tránh nó REGION_DOWN giây và quay lại MỘT lần ở chỗ ngồi khác (chat mới:
-    chat phụ ghim tài khoản bị chặn; continue_from vẫn gửi khung cuối nên mạch không đứt)."""
+    Chỗ ngồi KẸT (quá VIDEO_TIMEOUT không ra video, không báo lỗi) hay BỊ CHẶN KHU VỰC → quay lại MỘT lần ở chỗ ngồi khác
+    (chat mới nếu chat phụ ghim chỗ cũ; continue_from vẫn gửi khung cuối nên mạch không đứt). Bị chặn khu vực thì chỗ đó
+    còn bị gắn cờ không nhận video tới 0 giờ hôm sau (_no_video_set)."""
     refs = [p for p in (reference_images or []) if p and os.path.isfile(str(p))][:3]
     os.makedirs(out_dir, exist_ok=True)
+    avoid: set = set()
     for turn in range(2):
         prof = ""
         try:
             res = ask(video_request(prompt, aspect_ratio, continue_from), want_videos=True, files=refs, video_dir=out_dir,
-                      max_videos=1, timeout=timeout, thread_id=thread_id)
+                      max_videos=1, timeout=timeout, thread_id=thread_id, avoid=avoid or None)
             vids = [v for v in (res.get("videos") or []) if isinstance(v, dict) and v.get("path")]
             if vids:
                 return {**vids[0], "thread_id": res.get("thread_id", "")}
@@ -1241,15 +1297,20 @@ def generate_video_clip(prompt: str, out_dir: str, reference_images: Optional[li
             prof = str(res.get("profile") or "")
         except MuseError as e:
             err, prof = e, str(getattr(e, "profile", "") or "")
-        if turn or not prof or not _REGION_RE.search(str(err)):
+        region = bool(prof) and bool(_REGION_RE.search(str(err)))
+        hung = bool(prof) and getattr(err, "kind", "") == "timeout"
+        if turn or not (region or hung):
             raise err
-        _NO_VIDEO[prof] = time.time() + REGION_DOWN
+        if region:
+            _no_video_set(prof, _region_until())
+        avoid = {prof}
         st = settings()
         seats = list(st["pool"]) + [f"{REMOTE_PREFIX}{i}" for i in range(len(st.get("remotes") or []))]
-        if not [p for p in seats if _NO_VIDEO.get(p, 0) <= time.time()]:
+        if not [p for p in seats if p not in avoid and _NO_VIDEO.get(p, 0) <= time.time()]:
             raise err
-        logger.warning("muse: %s cannot make videos in its region — skipping it for video for %d s and retrying the "
-                       "clip on another seat", prof, REGION_DOWN)
+        logger.warning("muse: %s %s — retrying the clip once on another seat", prof,
+                       "cannot make videos in its region (flagged until tomorrow)" if region
+                       else f"made no video within {timeout} s")
         if thread_id and _THREAD_OWNER.get(thread_id, prof) == prof:
             thread_id = ""
     raise err      # không tới được: vòng trên luôn trả hoặc ném

@@ -3452,6 +3452,11 @@ def _step_images(state: Dict, options: Dict) -> None:
             # Thiếu ảnh vì HẾT QUOTA: dựng tiếp là video thiếu cảnh — dừng, chờ quota rồi vẽ nốt phần thiếu.
             _pause_for_quota(state, "Generate shot images",
                              f"{len(errors)}/{total} shot(s) not drawn — {last[:200]}")
+        if total and len(errors) * 2 > total:
+            # Thiếu QUÁ NỬA ảnh (10/10/2026 #334: DNS hụt → 14/15 ảnh hỏng, bước dựng vẫn chạy 10 phút ra video 13 s):
+            # dừng ở đây — chạy lại task thì chỉ vẽ nốt phần thiếu, không dựng một video hỏng.
+            raise RuntimeError(f"only {ok}/{total} shot images were drawn — not assembling a video with most scenes "
+                               f"missing" + (f": {last[:300]}" if last else "") + ". Retry once the image provider works.")
         state["_say"]("images", "running", f"{len(errors)} shot(s) without image" + (f" — {last[:120]}" if last else ""))
         state.setdefault("warnings", []).append(
             f"{len(errors)}/{total} shot(s) could not be drawn" + (f": {last[:200]}" if last else "")

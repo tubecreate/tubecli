@@ -90,6 +90,19 @@ ok(any("2 shot(s) without image — content policy" in m for _, _, m in said), "
 ok(st["warnings"] and "2/10 shot(s) could not be drawn: content policy" in st["warnings"][0], "cảnh báo ghi vào lượt", st["warnings"])
 ok(st["image_errors"] == 2, "image_errors = 2")
 
+print("── C2. thiếu QUÁ NỬA ảnh → dừng, không dựng video hỏng ─────")
+with_poll({"status": "completed", "done": 15, "total": 15, "errors": list(range(2, 16)), "ok": 1,
+           "last_error": "URLError: <urlopen error [Errno 11001] getaddrinfo failed>"})
+st, said = state()
+try:
+    P._step_images(st, {}); ok(False, "14/15 hỏng phải ném")
+except RuntimeError as e:
+    ok("only 1/15 shot images were drawn" in str(e) and "getaddrinfo" in str(e), "14/15 hỏng (#334) → bước lỗi, không dựng", e)
+with_poll({"status": "completed", "done": 10, "total": 10, "errors": [1, 2, 3, 4, 5], "ok": 5, "last_error": "x"})
+st, said = state()
+P._step_images(st, {})
+ok(st["image_errors"] == 5, "đúng một nửa → vẫn dựng (có cảnh báo)")
+
 print("── D. đủ ảnh ───────────────────────────────────────────────")
 with_poll({"status": "completed", "done": 10, "total": 10, "errors": [], "ok": 10})
 st, said = state()
