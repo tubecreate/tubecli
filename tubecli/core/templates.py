@@ -34,6 +34,12 @@ STYLE_PRESET_TEXT = {"3d": "Semi-realistic 3D CG render", "anime": "2D anime ill
 # wizVideoLength ↔ giây ("standard" = video YouTube thường, không cố định → 0 = tự động)
 _WIZ_LENGTHS = (("short_60s", 60), ("short_3m", 180), ("standard", 0), ("long_10m", 600))
 
+# DÀN NHÂN VẬT của mẫu (10/10/2026, kho nhân vật tubecli.core.characters): t["cast"] = [slug…] ở cấp mẫu, mọi studio
+# đọc được. Trình hướng dẫn (phần "wizard") chở nó qua khoá chuỗi `wizCast` = "slug1,slug2" — nhờ vậy gói xuất/nhập
+# và Chợ (chỉ chở khoá wiz* giá trị đơn) mang dàn theo mà không phải đổi định dạng gói.
+CAST_KEY = "wizCast"
+MAX_CAST = 12
+
 _LOCK = threading.RLock()
 
 
@@ -191,6 +197,17 @@ def _apply(section: str, d: dict, field: str, value: Any) -> None:
             d["subtitles"] = bool(value)
 
 
+def parse_cast(value: Any) -> List[str]:
+    """«a, b» / ["a", "b"] → ["a", "b"] (slug kho nhân vật, bỏ trùng, giữ thứ tự)."""
+    items = value if isinstance(value, (list, tuple)) else str(value or "").split(",")
+    out: List[str] = []
+    for v in items:
+        v = re.sub(r"[^a-z0-9_]+", "", str(v or "").strip().lower())
+        if v and v not in out:
+            out.append(v)
+    return out[:MAX_CAST]
+
+
 # ── bản ghi ──────────────────────────────────────────────────────────────────
 
 def _find(items: List[dict], key: str) -> Optional[dict]:
@@ -246,6 +263,10 @@ def save_section(name: str, section: str, data: dict, *, origin: str = "", repla
         sec = t.setdefault("sections", {}).get(section) or {}
         seen = section_view(t, section)          # bản studio này đang thấy trước khi lưu
         raw = dict(data) if replace else {**(sec.get("data") or {}), **data}
+        if section == "wizard" and CAST_KEY in raw:
+            if CAST_KEY in data or "cast" not in t:
+                t["cast"] = parse_cast(raw[CAST_KEY])
+            raw.pop(CAST_KEY)
         shared = t.setdefault("shared", {})
         # Chỉ trường người dùng THỰC SỰ đổi mới vào phần chung: trình hướng dẫn gửi lại cả bộ khoá, mà ánh xạ thô hơn
         # (thể loại explainer, độ dài theo nấc) — không lọc thì lưu lại không đổi gì cũng đè «ad / 30 s» của Pod Studio.
@@ -266,6 +287,18 @@ def delete_template(key: str) -> bool:
             return False
         _save([x for x in items if x is not t])
         return True
+
+
+def set_cast(key: str, cast: Any) -> Optional[dict]:
+    """Đặt dàn nhân vật của mẫu (danh sách slug kho nhân vật; rỗng = bỏ dàn)."""
+    with _LOCK:
+        items = _load()
+        t = _find(items, key)
+        if not t:
+            return None
+        t["cast"], t["updated_at"] = parse_cast(cast), _now()
+        _save(items)
+        return t
 
 
 def rename_template(key: str, new_name: str) -> Optional[dict]:
@@ -300,6 +333,8 @@ def section_view(t: dict, section: str) -> dict:
     # kiểu hình: câu tả trước, khoá sau (khoá thắng khi câu tả không nói rõ kiểu)
     for f in sorted(changed, key=lambda x: (x != "style", x)):
         _apply(section, out, f, shared[f])
+    if section == "wizard" and t.get("cast"):
+        out[CAST_KEY] = ",".join(t["cast"])
     return out
 
 
@@ -307,7 +342,8 @@ def summary(t: dict, section: str = "") -> dict:
     """Bản gọn cho API/giao diện: id, tên, nguồn, mốc, phần chung, studio nào đã lưu phần riêng (+ view nếu hỏi)."""
     out = {"id": t.get("id"), "name": t.get("name"), "origin": t.get("origin") or "",
            "created_at": t.get("created_at") or "", "updated_at": t.get("updated_at") or "",
-           "shared": dict(t.get("shared") or {}), "sections": sorted((t.get("sections") or {}).keys())}
+           "shared": dict(t.get("shared") or {}), "sections": sorted((t.get("sections") or {}).keys()),
+           "cast": list(t.get("cast") or [])}
     if section:
         out["view"] = section_view(t, section)
     return out

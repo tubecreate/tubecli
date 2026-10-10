@@ -4,6 +4,7 @@
   GET    /api/v1/templates/{id_or_name}?section=…     một mẫu
   POST   /api/v1/templates                             {name, section, data, origin?} — lưu phần riêng (gộp khoá)
   POST   /api/v1/templates/{id_or_name}/rename         {name}
+  POST   /api/v1/templates/{id_or_name}/cast           {cast: [slug kho nhân vật]} — dàn nhân vật của mẫu
   DELETE /api/v1/templates/{id_or_name}
 
 Content Studio vẫn có /api/v1/studio/presets (đọc/ghi qua kho này); Pod Studio có /api/v1/pod_studio/presets và
@@ -12,7 +13,7 @@ Content Studio vẫn có /api/v1/studio/presets (đọc/ghi qua kho này); Pod S
 """
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
@@ -31,6 +32,10 @@ class SaveBody(BaseModel):
 
 class RenameBody(BaseModel):
     name: str
+
+
+class CastBody(BaseModel):
+    cast: List[str] = []
 
 
 def _section(section: str) -> str:
@@ -77,6 +82,15 @@ async def rename(key: str, body: RenameBody, request: Request):
         t = T.rename_template(key, body.name)
     except ValueError as e:
         raise HTTPException(409, str(e))
+    if not t:
+        raise HTTPException(404, f"Template «{key}» not found")
+    return {"success": True, "template": T.summary(t)}
+
+
+@router.post("/{key:path}/cast")
+async def set_cast(key: str, body: CastBody, request: Request):
+    _deny_guest(request)
+    t = T.set_cast(key, body.cast)
     if not t:
         raise HTTPException(404, f"Template «{key}» not found")
     return {"success": True, "template": T.summary(t)}

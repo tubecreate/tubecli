@@ -6011,6 +6011,10 @@ app.include_router(_muse_router)
 from tubecli.api.templates_routes import router as _templates_router
 app.include_router(_templates_router)
 
+# Kho NHÂN VẬT chung (10/10/2026): hồ sơ + sheet của một nhân vật dùng lại qua mọi video; mẫu mang dàn nhân vật.
+from tubecli.api.characters_routes import router as _characters_router
+app.include_router(_characters_router)
+
 # Gọi THỬ model chat (nút «Thử gọi» của bảng chọn AI trên Flow, 26/9/2026): đi đúng đường agent đi.
 from tubecli.api.ai_routes import router as _ai_router
 app.include_router(_ai_router)
