@@ -9345,7 +9345,9 @@ def _render_result(state: Dict, options: Dict, notes: List[str], skipped_jobs: L
              f"{state.get('shot_count', 0)} shots · {length}", ""]
     published = state.get("published") or {}
     if published.get("url"):
-        lines.append(f"- **Published**: {published['url']} ({published.get('privacy', '')})"
+        # Hẹn giờ: video nằm RIÊNG TƯ tới đúng giờ — ghi «public» ở đây là nói trước một việc chưa xảy ra.
+        lines.append(f"- **Published**: {published['url']} "
+                     f"({'scheduled — private until then' if published.get('scheduled_label') else published.get('privacy', '')})"
                      + (f" → {published['channel_name']}" if published.get("channel_name") else ""))
     if published.get("scheduled_label"):
         lines.append(f"- **Goes public**: {published['scheduled_label']} — uploaded now, YouTube publishes it then")
@@ -9409,7 +9411,8 @@ def _render_result(state: Dict, options: Dict, notes: List[str], skipped_jobs: L
     if published.get("url"):
         # "Request changes" trên một lượt ĐÃ đăng không sửa được video đang
         # sống: nó dựng lại VÀ đẩy thêm một video công khai thứ hai lên kênh.
-        lines.append(f"- **Already live** at {published['url']} — this run has published. "
+        lines.append(f"- **{'Already uploaded' if published.get('scheduled_label') else 'Already live'}** at "
+                     f"{published['url']} — this run has published. "
                      "**Request changes** re-renders *and uploads a second video*; to change "
                      "what is up, edit or delete it on YouTube instead.")
     else:
