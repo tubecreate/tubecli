@@ -2067,6 +2067,12 @@ def _step_script(state: Dict, options: Dict) -> None:
         f"{words} words in total — that is about {minutes_of(words)} minutes read aloud. "
         "Do not pad: if the material runs thin, go deeper on what it actually says "
         "rather than repeating it.\n" + length_rule(words) + "\n"
+        # Giới thiệu nhân vật (user 10/10/2026 xem bài Lão Tử, Quỷ Cốc Tử: «không cần phải nói thời điểm thời chiến
+        # quốc, hành văn cần tự nhiên hơn» — trước đó cả loạt mở bằng «Hơn hai nghìn năm trước, ở nước Chu…»)
+        "When a thinker or historical figure enters the story, never introduce them with a stock formula of time "
+        "and place (\"More than two thousand years ago, in the state of Zhou, there lived…\", \"In the Warring "
+        "States period…\"): bring them in naturally through what they said or did that matters to this scene, the "
+        "way one friend tells another; give the era only if the story truly needs it, later and in a few words.\n"
         "Rules: open with a hook; one idea per scene; plain spoken language; no markdown, "
         "no bullet lists, no scene numbers; close with one final line."
     )
