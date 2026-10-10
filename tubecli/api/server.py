@@ -667,6 +667,11 @@ def check_and_generate_daily_keywords(agent, now_dt):
     combined_topics = list(dict.fromkeys([str(t) for t in interests + focus_areas if t]))
 
     history_text = "\n".join(recent_history_titles[:15]) if recent_history_titles else "No history yet (First day running)."
+    # Đề bài nghiên cứu của chủ agent (agent.research_prompt, 10/10/2026): có thì MỌI từ khoá trong ngày phải phục vụ nó
+    # — trước đây từ khoá chỉ bám mô tả + sở thích (mà giao diện không sửa được) nên trôi dần khỏi chủ đề kênh.
+    research_brief = str(getattr(agent, "research_prompt", "") or "").strip()
+    research_block = (f"\nRESEARCH BRIEF from the owner (what this agent researches every day — every query must serve "
+                      f"it):\n\"{research_brief}\"\n" if research_brief else "")
 
     # Language instruction for keyword generation
     agent_language = getattr(agent, "language", "auto") or "auto"
@@ -700,7 +705,7 @@ Description / Profession of the agent:
 
 Agent's interests and focus topics:
 {json.dumps(combined_topics, ensure_ascii=False)}
-
+{research_block}
 Here is the agent's recent web browsing history (last visited pages):
 {history_text}
 
@@ -708,7 +713,7 @@ Your task is to generate a progressive and evolved set of search queries/keyword
 Rules for evolution and progression:
 1. Progress from basic/foundational concepts to more advanced, specific, and deeper concepts based on what has been browsed.
 2. Avoid repeating exactly the same queries or topics already found in the recent history.
-3. Align the topics with the agent's profession and specific interest areas.
+3. Align the topics with the research brief (when given), the agent's profession and specific interest areas.
 4. Provide exactly 5 distinct search queries for each of the following time periods: "morning", "afternoon", "evening", "night".
 5. Return the result in raw JSON format matching this EXACT structure (output ONLY the JSON block, no explanations):
 {{
@@ -1671,6 +1676,8 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
         "enable_scraping": getattr(agent, "enable_scraping", False) or behavior == "checkEmails",
         "scraper_text_limit": getattr(agent, "scraper_text_limit", 10000),
         "language": getattr(agent, "language", "auto") or "auto",
+        # Đề bài nghiên cứu (10/10/2026): AI duyệt web (chế độ giống người) chọn kết quả / trang phục vụ nó.
+        "research_brief": str(getattr(agent, "research_prompt", "") or "").strip(),
     }
     
     if agent.auth:
@@ -2251,6 +2258,10 @@ class AgentCreateRequest(PublishSettingsBase):
     # mất cấu hình kênh.
     publish_min_pages: Optional[int] = Field(3, ge=1)
     publish_max_per_day: Optional[int] = Field(2, ge=0)
+    # Thu thập → tự tạo video (10/10/2026): xem core/agent.py PUBLISH_DEFAULTS.
+    auto_video: Optional[bool] = False
+    youtube_subs_per_run: Optional[int] = Field(2, ge=0, le=5)
+    research_prompt: Optional[str] = Field("", max_length=4000)
     schedule_enabled: Optional[bool] = False
     schedule_repeat: Optional[str] = "Daily"
     schedule_interval: Optional[int] = 60
@@ -2327,6 +2338,9 @@ class AgentUpdateRequest(PublishSettingsBase):
     publish_monetize: Optional[bool] = None
     publish_min_pages: Optional[int] = Field(None, ge=1)
     publish_max_per_day: Optional[int] = Field(None, ge=0)
+    auto_video: Optional[bool] = None
+    youtube_subs_per_run: Optional[int] = Field(None, ge=0, le=5)
+    research_prompt: Optional[str] = Field(None, max_length=4000)
     schedule_enabled: Optional[bool] = None
     schedule_repeat: Optional[str] = None
     schedule_interval: Optional[int] = None

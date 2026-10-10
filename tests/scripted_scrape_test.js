@@ -102,6 +102,20 @@ const makeEnv = ({ url, isContentPage = true, scraping = true, scraped = new Set
     await e.fn('browse');
     assert.strictEqual(e.calls.scanned, 0, 'tên miền bị chặn không được quét: ' + u);
   }
+  // video YouTube (10/10/2026): GHI lượt xem đúng một lần (lõi lấy phụ đề lúc lượt chạy khép sổ — core/youtube_harvest),
+  // không quét, không cào; trang tìm kiếm YouTube / Google thì không ghi gì
+  for (const u of ['https://www.youtube.com/watch?v=abc', 'https://www.youtube.com/shorts/abc']) {
+    e = makeEnv({ url: u });
+    await e.fn('click_result');
+    await e.fn('browse');
+    assert.strictEqual(e.calls.recorded, 1, 'video YouTube phải được ghi lượt xem đúng một lần: ' + u);
+    assert.strictEqual(e.calls.scanned + e.calls.extract, 0, 'video YouTube không quét / cào: ' + u);
+  }
+  for (const u of ['https://www.youtube.com/results?search_query=x', 'https://www.google.com/search?q=x']) {
+    e = makeEnv({ url: u });
+    await e.fn('browse');
+    assert.strictEqual(e.calls.recorded, 0, 'trang tìm kiếm không ghi lượt xem: ' + u);
+  }
 
   // không phải bài viết → quét rồi thôi
   e = makeEnv({ url: 'https://vnexpress.net/trang-chu', isContentPage: false });

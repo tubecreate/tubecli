@@ -1400,6 +1400,14 @@ def instructions_note(options: Dict) -> str:
             if txt else "")
 
 
+def research_note(agent) -> str:
+    """Đề bài nghiên cứu của agent (agent.research_prompt, 10/10/2026) — GÓC NHÌN của video làm từ KHO đã thu thập:
+    cùng đề bài đã lái từ khoá hằng ngày và AI duyệt web, nên kịch bản không trôi khỏi chủ đề kênh."""
+    txt = " ".join(str(getattr(agent, "research_prompt", "") or "").split())[:INSTRUCTIONS_MAX]
+    return (f"\n\nThe channel's research brief (what its agent researches every day) — shape the video's angle around "
+            f"it, using only facts from the material: {txt}" if txt else "")
+
+
 def _truthy(value, default: bool = True) -> bool:
     if value is None or value == "":
         return default
@@ -2040,6 +2048,8 @@ def _step_script(state: Dict, options: Dict) -> None:
             f"{what} into a narrated video script. {write_in}"
         )
     system_prompt += instructions_note(options)
+    if not pasted and not reference:
+        system_prompt += research_note(agent)
     fmt = (
         "Format, exactly:\n"
         "TITLE: <a punchy title>\n\n"
@@ -7947,6 +7957,11 @@ def run_auto(payload: Dict[str, Any],
     outcome, error_text = "completed", ""
     try:
         _run_steps(AUTO_STEPS, state, options, say, cancelled, notes, skipped_jobs)
+        # Lượt CHỈ DỰNG của cò súng (agent.auto_video, chưa chọn kênh — 10/10/2026): không có upload để chờ, nên
+        # video dựng xong là lúc dời mốc + tính vào trần ngày. Thiếu bước này, đúng mớ bài ấy châm ngòi lại ở mọi
+        # lượt chạy sau ⇒ cùng một corpus đẻ video lặp tới khi cạn trần ngày.
+        if options.get("autopublish") and not options.get("publish") and state.get("video_path"):
+            _commit_autopublish(state, options)
     except Exception as e:
         outcome = "failed" if _is_cancel(e) else "error"
         error_text = str(e)[:500]

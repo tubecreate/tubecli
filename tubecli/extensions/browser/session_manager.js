@@ -863,6 +863,8 @@ async loadBlacklist() {
       // Track if the session has already performed a search — AI must not search again
       alreadySearched: this.actionHistory.some(a => a.action === 'search' && a.status === 'success'),
       currentActivity: this.agentContext?.current_activity || 'browse',
+      // Đề bài nghiên cứu của chủ agent (agent.research_prompt, 10/10/2026) — undefined khi không có.
+      researchBrief: this.agentContext?.research_brief || undefined,
       // Chip đăng nhập của HỒ SƠ đang lái (server đọc từ cookie store thật) —
       // AI phiên chỉ được dùng mạng xã hội có trong danh sách này. undefined =
       // phiên manual không mang thông tin này, đừng phán "chưa đăng nhập gì".
@@ -1199,7 +1201,8 @@ ${this.stats.class === 'Supporter' ? '- Focus on watching/liking.' : ''}
     return `SYSTEM: You are an autonomous browser agent.
 OBJECTIVE: Generate a high-level behavioral plan (SKELETON) to achieve the User Goal.
 User Goal: "${this.userGoal}"
-
+${context.researchBrief ? `RESEARCH BRIEF (what this agent researches — choose results and pages that serve it, read them fully): "${context.researchBrief}"
+` : ''}
 ${statsContext}
 Current Context: ${JSON.stringify(context, null, 2)}${contextHint}
 ${popupInfo}

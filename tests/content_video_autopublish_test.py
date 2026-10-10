@@ -285,7 +285,7 @@ check("C agent không tồn tại → nói tên", r == "skip: agent ma-khong-co 
 check("C không có agent_id → nói rõ",
       A.maybe_publish_after_run("", "run-1", "completed") == "skip: no agent id")
 r = fire(agent(auto_publish=False))
-check("C công tắc tắt", r == "skip: auto-publish off", r)
+check("C công tắc tắt", r == "skip: auto video and auto-publish off", r)   # 10/10/2026: hai công tắc
 r = fire(agent(publish_token_id=""))
 check("C bật mà chưa có token → KHÔNG im lặng",
       r == "skip: auto-publish armed but no YouTube token chosen", r)
@@ -814,6 +814,69 @@ check("N   nên nó thấy sổ MỚI và bị chống dội, không xếp thêm
       str(second.get("r", "")).startswith("skip: debounced"), second.get("r"))
 check("N ĐÚNG MỘT task cho hai lượt kết thúc cùng lúc", len(PLAN_CALLS) == 1, PLAN_CALLS)
 print("N nguyen khoi: giữ khoá trọn cả quyết định → hai lượt kết thúc cùng lúc vẫn một video")
+
+# ── O. Tự dựng video (agent.auto_video, 10/10/2026) ──────────────────────────
+# «Agent thu thập đủ dữ liệu thì tự tạo video, auto public sẽ đăng»: auto_video dựng video DÙ chưa chọn kênh (không
+# đăng gì, video chờ duyệt); có auto_publish + kênh thì đăng như cũ. Lượt chỉ dựng dời mốc khi video dựng xong.
+P.create_auto_task = _plain_create
+ROWS[:] = [{"scraped_at": "2026-09-04T0%d:00:00+00:00" % i, "has_content": True, "_today": True} for i in (1, 2, 3)]
+
+
+def fresh(**kw):
+    reset_store()
+    PLAN_CALLS[:] = []
+    CODEX.tasks.clear()
+    return fire(agent(**kw))
+
+
+r = fresh(auto_publish=False, auto_video=True, publish_token_id="", publish_channel_id="")
+o = (PLAN_CALLS[-1] if PLAN_CALLS else {}).get("options", {})
+check("O chỉ bật tự dựng, chưa có kênh → VẪN xếp video", r.startswith("queued:") and "render only" in r, r)
+check("O   lượt chỉ dựng: publish=False, không mang token/kênh", o.get("publish") is False
+      and not any(k in o for k in ("publish_token_id", "publish_channel_id", "publish_privacy")), o)
+check("O   vẫn là lượt của cò súng (autopublish=True ⇒ dời mốc) + cửa sổ corpus đủ hai đầu",
+      o.get("autopublish") is True and o.get("high_water") == "2026-09-04T03:00:00+00:00", o)
+check("O   nhãn task «Auto video»", PLAN_CALLS[-1]["job_label"] == A.JOB_LABEL_VIDEO == "Auto video", PLAN_CALLS[-1])
+r = fresh(auto_publish=True, auto_video=True, publish_channel_id="")
+check("O tự đăng bật mà THIẾU kênh + có tự dựng → dựng, không bỏ cả lượt",
+      r.startswith("queued:") and PLAN_CALLS[-1]["options"]["publish"] is False, r)
+r = fresh(auto_publish=True, auto_video=False, publish_channel_id="")
+check("O tự đăng thiếu kênh, KHÔNG tự dựng → dừng như cũ (kêu to)",
+      r == "skip: auto-publish armed but no YouTube channel chosen" and not PLAN_CALLS, r)
+r = fresh(auto_publish=True, auto_video=True)
+o = PLAN_CALLS[-1]["options"]
+check("O có kênh → đăng như cũ (publish=True + đủ thông tin kênh)",
+      o["publish"] is True and o["publish_channel_id"] == "UC123" and o["publish_token_id"] == "tok-1"
+      and PLAN_CALLS[-1]["job_label"] == A.JOB_LABEL, o)
+r = fresh(auto_publish=False, auto_video=False)
+check("O tắt cả hai → không làm gì", r == "skip: auto video and auto-publish off" and not PLAN_CALLS, r)
+r = fresh(auto_publish=False, auto_video=True, publish_min_pages=5)
+check("O ngưỡng bài mới vẫn áp cho lượt chỉ dựng", r == "skip: only 3 new page(s), needs 5", r)
+
+# run_auto: lượt chỉ dựng dời mốc khi CÓ video; lượt đăng để bước publish lo (sau upload).
+commits = []
+_orig = (P._prepare, P._run_steps, P._bulletin, P._render_result, P._commit_autopublish)
+
+
+def fake_prepare(payload, report, is_cancelled, needs=()):
+    return {"options": dict(payload["options"]), "state": dict(payload["state"]),
+            "say": lambda *a: None, "cancelled": lambda: False}
+
+
+P._prepare = fake_prepare
+P._run_steps = lambda *a, **k: None
+P._bulletin = lambda *a, **k: None
+P._render_result = lambda *a, **k: "ok"
+P._commit_autopublish = lambda state, options: commits.append(dict(options))
+for opts, st, want in (({"autopublish": True, "publish": False}, {"video_path": "v.mp4"}, 1),
+                       ({"autopublish": True, "publish": False}, {}, 0),
+                       ({"autopublish": True, "publish": True}, {"video_path": "v.mp4"}, 0),
+                       ({"autopublish": False, "publish": False}, {"video_path": "v.mp4"}, 0)):
+    commits.clear()
+    P.run_auto({"options": opts, "state": st})
+    check("O run_auto dời mốc: %s video=%s → %d lần" % (opts, bool(st), want), len(commits) == want, commits)
+P._prepare, P._run_steps, P._bulletin, P._render_result, P._commit_autopublish = _orig
+print("O tự dựng   : không cần kênh, không đăng, nhãn Auto video, dời mốc khi dựng xong; có kênh thì đăng như cũ")
 
 print("=" * 70)
 if failures:

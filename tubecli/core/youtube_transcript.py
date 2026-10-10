@@ -112,13 +112,18 @@ def pick_track(info: Dict[str, Any], prefer_lang: str = "") -> Optional[Tuple[st
                 return code, e
         return None
 
+    # Video LỒNG TIẾNG nhiều thứ tiếng (YouTube tự lồng, 2026) có một «<lang>-orig» cho MỖI bản lồng tiếng: lấy cái
+    # «-orig» đầu tiên gặp là lấy nhầm lời của bản lồng tiếng (đo 10/10/2026: video en-US trả «ar-orig» — phụ đề tiếng
+    # Ả Rập). Nên «-orig» ĐÚNG ngôn ngữ gốc trước; «-orig» bất kỳ chỉ khi không biết ngôn ngữ gốc, hay đã hết đường.
     steps = [
         (manual, "manual", lambda c: orig and _base(c) == orig),
         (manual, "manual", lambda c: want and _base(c) == want),
-        (auto, "auto", lambda c: c.endswith("-orig")),
+        (auto, "auto", lambda c: c.endswith("-orig") and orig and _base(c) == orig),
         (auto, "auto", lambda c: orig and c == orig),
+        (auto, "auto", lambda c: c.endswith("-orig") and not orig),
         (manual, "manual", lambda c: True),
         (auto, "auto", lambda c: orig and _base(c) == orig),
+        (auto, "auto", lambda c: c.endswith("-orig")),
         (auto, "auto", lambda c: want and _base(c) == want),
     ]
     for pool, kind, pred in steps:

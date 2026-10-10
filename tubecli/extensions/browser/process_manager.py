@@ -898,6 +898,17 @@ class BrowserProcessManager:
         except Exception as e:
             logger.warning(f"[Browser] Could not record run end: {e}")
 
+        # Phụ đề YouTube của lượt này vào kho thu thập (core/youtube_harvest, 10/10/2026): video agent vừa mở, thiếu
+        # thì tìm theo câu tìm kiếm của lượt. Đặt TRƯỚC bước tự tạo video để chúng được tính vào ngưỡng «đủ bài mới».
+        # try/except riêng: lấy phụ đề hỏng không được làm mất bước bên dưới.
+        try:
+            from tubecli.core import youtube_harvest
+
+            logger.info("[Browser] youtube subtitles: %s",
+                        youtube_harvest.harvest_after_run(agent_id or "", run_id, profile, outcome))
+        except Exception as e:
+            logger.warning(f"[Browser] youtube subtitles failed: {e}")
+
         # Lượt chạy vừa khép sổ ⇒ hỏi xem có đủ bài mới để TỰ ĐĂNG một video
         # không. Cả quyết định lẫn hàng đợi nằm trong autopublish; ở đây chỉ gọi
         # rồi ghi lý do nó trả về.

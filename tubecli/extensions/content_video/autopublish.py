@@ -76,6 +76,7 @@ DEBOUNCE_SEC = 10 * 60
 # Trạng thái codex nghĩa là "việc trước còn dở" — còn dở thì đừng xếp thêm.
 UNFINISHED = ("pending_approval", "backlog", "queued", "running", "review")
 JOB_LABEL = "Auto publish"
+JOB_LABEL_VIDEO = "Auto video"          # lượt chỉ dựng (agent.auto_video, chưa đăng)
 ACTOR = "autopublish"
 
 # Chuỗi này là "mỗi lần thu thập THEO LỊCH", không phải "mỗi lần ai đó bấm Chạy
@@ -365,8 +366,12 @@ def _maybe_publish(agent_id: str, run_id: str, outcome: str, trigger: str = "") 
     agent = agent_manager.get(agent_id)
     if not agent:
         return "skip: agent %s not found" % agent_id
-    if not getattr(agent, "auto_publish", False):
-        return "skip: auto-publish off"
+    # Hai công tắc (10/10/2026): auto_publish = dựng + ĐĂNG lên kênh đã chọn; auto_video = dựng video dù chưa chọn
+    # kênh (không đăng gì, video chờ duyệt trên Codex). Bật cái nào cũng đủ để lượt thu thập châm ngòi.
+    publish_on = bool(getattr(agent, "auto_publish", False))
+    video_on = bool(getattr(agent, "auto_video", False))
+    if not publish_on and not video_on:
+        return "skip: auto video and auto-publish off"
 
     # Công tắc bật mà chính extension bị tắt/gỡ thì không có gì chạy được cả:
     # create_auto_task sẽ xếp một task mà executor không có nhánh nào nhận.
@@ -385,14 +390,17 @@ def _maybe_publish(agent_id: str, run_id: str, outcome: str, trigger: str = "") 
 
     token_id = str(getattr(agent, "publish_token_id", "") or "")
     channel_id = str(getattr(agent, "publish_channel_id", "") or "")
-    if not token_id or not channel_id:
-        # Công tắc bật mà chưa chọn kênh là LỖI CẤU HÌNH, không phải "chưa tới
-        # lượt": người dùng đang tin rằng video vẫn được đăng. Kêu to.
+    publish = publish_on and bool(token_id) and bool(channel_id)
+    if publish_on and not publish:
+        # Công tắc đăng bật mà chưa chọn kênh là LỖI CẤU HÌNH, không phải "chưa tới
+        # lượt": người dùng đang tin rằng video vẫn được đăng. Kêu to. Có bật «tự dựng
+        # video» thì vẫn dựng (chỉ không đăng); không thì dừng như cũ.
         missing = "token" if not token_id else "channel"
         logger.warning("[AutoPublish] agent %s has auto-publish ON but no YouTube %s "
                        "— pick a channel in the agent's Data collection tab",
                        getattr(agent, "name", "") or agent_id, missing)
-        return "skip: auto-publish armed but no YouTube %s chosen" % missing
+        if not video_on:
+            return "skip: auto-publish armed but no YouTube %s chosen" % missing
 
     # Từ đây tới lúc ghi sổ là MỘT quyết định, và nó phải nguyên khối. Trước đây
     # khoá chỉ được giữ bên trong save_mark, nên hai lượt chạy của cùng một agent
@@ -426,14 +434,8 @@ def _maybe_publish(agent_id: str, run_id: str, outcome: str, trigger: str = "") 
         options: Dict[str, Any] = {
             # "publish" cũng là id của bước upload trong RENDER_STEPS, và _run_steps
             # đọc options[<step id>] làm công tắc bật/tắt bước — nên một khoá này
-            # vừa nói "lượt này có đăng" vừa bật đúng bước đó.
-            "publish": True,
-            "publish_token_id": token_id,
-            "publish_channel_id": channel_id,
-            "publish_channel_name": str(getattr(agent, "publish_channel_name", "") or ""),
-            "publish_privacy": str(getattr(agent, "publish_privacy", "public") or "public"),
-        "publish_method": str(getattr(agent, "publish_method", "script") or "script"),
-        "publish_monetize": bool(getattr(agent, "publish_monetize", False)),
+            # vừa nói "lượt này có đăng" vừa bật đúng bước đó. False = lượt CHỈ DỰNG.
+            "publish": publish,
             "high_water_prev": mark["high_water"],
             # Chặn TRÊN của cửa sổ corpus: đúng cái mốc vừa đếm ở trên. Thiếu nó,
             # bài thu thập được trong lúc task chạy vừa vào video này vừa được
@@ -446,6 +448,15 @@ def _maybe_publish(agent_id: str, run_id: str, outcome: str, trigger: str = "") 
             # Ảnh đại diện qua Thumbnail Studio; là bước mềm — không cài thì bỏ qua.
             "thumbnail": True,
         }
+        if publish:
+            options.update({
+                "publish_token_id": token_id,
+                "publish_channel_id": channel_id,
+                "publish_channel_name": str(getattr(agent, "publish_channel_name", "") or ""),
+                "publish_privacy": str(getattr(agent, "publish_privacy", "public") or "public"),
+                "publish_method": str(getattr(agent, "publish_method", "script") or "script"),
+                "publish_monetize": bool(getattr(agent, "publish_monetize", False)),
+            })
         preset = str(getattr(agent, "content_video_preset", "") or "")
         if preset:
             options["preset"] = preset
@@ -459,7 +470,7 @@ def _maybe_publish(agent_id: str, run_id: str, outcome: str, trigger: str = "") 
                 agent_id, options,
                 created_by=ACTOR,
                 origin={"agent_id": agent_id, "run_id": run_id, "trigger": "scraped_run"},
-                job_label=JOB_LABEL,
+                job_label=JOB_LABEL if publish else JOB_LABEL_VIDEO,
                 high_water_prev=mark["high_water"],
                 high_water=newest,
             )
@@ -478,6 +489,9 @@ def _maybe_publish(agent_id: str, run_id: str, outcome: str, trigger: str = "") 
                   high_water_pending=newest,
                   last_task_id=task_id,
                   last_fired_at=time.time())
+    if not publish:
+        return "queued: task #%s from %d new page(s) — render only, waiting for review" % (
+            (task or {}).get("seq", "?"), count)
     return "queued: task #%s from %d new page(s) to %s" % (
         (task or {}).get("seq", "?"), count,
         options["publish_channel_name"] or channel_id)

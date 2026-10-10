@@ -47,7 +47,16 @@ PUBLISH_DEFAULTS = {
     "publish_monetize": False,
     "publish_min_pages": 3,
     "publish_max_per_day": 2,
+    # Ba trường của luồng «thu thập theo lịch → tự tạo video» (10/10/2026) đi CHUNG bộ ép kiểu này để cả hai cửa
+    # (nạp agents.json + PUT) cùng sạch. auto_video: đủ bài mới thì TỰ DỰNG video dù chưa chọn kênh (không đăng
+    # gì — video chờ duyệt trên Codex); youtube_subs_per_run: số video YouTube lấy phụ đề vào kho sau mỗi lượt
+    # (0 = tắt); research_prompt: đề bài nghiên cứu — lái từ khoá hằng ngày, hướng duyệt và góc của kịch bản.
+    "auto_video": False,
+    "youtube_subs_per_run": 2,
+    "research_prompt": "",
 }
+RESEARCH_PROMPT_MAX = 2000
+YOUTUBE_SUBS_MAX = 5
 
 
 def coerce_publish_value(key: str, value: Any) -> Any:
@@ -57,8 +66,15 @@ def coerce_publish_value(key: str, value: Any) -> Any:
     một dòng hỏng không được phép làm chết cả server. Tầng API mới là chỗ
     nói "sai rồi" (422) — xem AgentCreateRequest/AgentUpdateRequest.
     """
-    if key in ("auto_publish", "publish_monetize"):
+    if key in ("auto_publish", "publish_monetize", "auto_video"):
         return bool(value)
+    if key == "youtube_subs_per_run":
+        try:
+            return min(YOUTUBE_SUBS_MAX, max(0, int(value)))
+        except (TypeError, ValueError):
+            return PUBLISH_DEFAULTS[key]
+    if key == "research_prompt":
+        return str(value or "").strip()[:RESEARCH_PROMPT_MAX]
     if key == "publish_method":
         m = str(value or "").strip().lower()
         return m if m in PUBLISH_METHOD_CHOICES else PUBLISH_DEFAULTS[key]
@@ -217,6 +233,10 @@ class Agent:
         # dùng chung client đó. Mặc định 2 để vài agent cùng chạy vẫn không cháy
         # hạn mức, kéo theo khoá cả nút Upload tay của người dùng.
         publish_max_per_day: int = 2,
+        # ── Luồng thu thập → tự tạo video (10/10/2026) — xem PUBLISH_DEFAULTS ──
+        auto_video: bool = False,
+        youtube_subs_per_run: int = 2,
+        research_prompt: str = "",
         # Schedule Settings
         schedule_enabled: bool = False,
         schedule_repeat: str = "Daily",
@@ -302,6 +322,9 @@ class Agent:
             "publish_monetize": publish_monetize,
             "publish_min_pages": publish_min_pages,
             "publish_max_per_day": publish_max_per_day,
+            "auto_video": auto_video,
+            "youtube_subs_per_run": youtube_subs_per_run,
+            "research_prompt": research_prompt,
         }).items():
             setattr(self, _k, _v)
 
@@ -375,6 +398,9 @@ class Agent:
             "publish_monetize": bool(getattr(self, "publish_monetize", False)),
             "publish_min_pages": getattr(self, "publish_min_pages", 3),
             "publish_max_per_day": getattr(self, "publish_max_per_day", 2),
+            "auto_video": bool(getattr(self, "auto_video", False)),
+            "youtube_subs_per_run": getattr(self, "youtube_subs_per_run", 2),
+            "research_prompt": getattr(self, "research_prompt", "") or "",
             "schedule_enabled": getattr(self, "schedule_enabled", False),
             "schedule_repeat": getattr(self, "schedule_repeat", "Daily"),
             "schedule_interval": getattr(self, "schedule_interval", 60),

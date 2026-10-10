@@ -1573,7 +1573,22 @@ async function main() {
         try {
           const url = page.url();
           if (!url || url === 'about:blank' || url.startsWith('chrome-extension://')) return;
-          if (url.includes('youtube.com') || url.includes('google.com')) return;
+          if (url.includes('youtube.com') || url.includes('google.com')) {
+            // Video YouTube agent vừa mở (trang /watch, /shorts): GHI lượt xem (có agentId) để khi lượt chạy khép sổ,
+            // lõi lấy phụ đề của đúng video này vào kho (core/youtube_harvest.py, 10/10/2026). Trang tìm kiếm / Google
+            // vẫn bỏ qua như cũ — không có nội dung bài để thu.
+            if (/youtube\.com\/(watch\?|shorts\/)/.test(url)) {
+              if (!scrapeSession) {
+                scrapeSession = new SessionManager(minSessionMinutes, prompt || '', aiModel, agentContext, profileName);
+              }
+              if (!scrapeSession.scrapedUrls.has(url)) {
+                scrapeSession.addScrapedUrl(url);
+                await scrapeSession.recordPageVisit(url, await page.title(), page);
+                console.log(`[Scripted Scraper] Video YouTube ghi lại để lấy phụ đề: ${url}`);
+              }
+            }
+            return;
+          }
           if (!scrapeSession) {
             scrapeSession = new SessionManager(minSessionMinutes, prompt || '', aiModel, agentContext, profileName);
           }
