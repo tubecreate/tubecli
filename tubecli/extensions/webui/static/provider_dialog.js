@@ -269,7 +269,7 @@
                 <div class="pv-name" title="${E(n)}">${E(n)}</div>
                 <div>${signed}</div>
                 <div>${role}</div>
-                <div class="pv-mut">${E(s ? ago(s.last_used) : '—')}</div>
+                <div class="pv-mut" title="${E(tr('col_last_hint'))}">${E(s ? (s.busy_for > 600 ? tr('busy_for', { n: Math.round(s.busy_for / 60) }) : ago(s.last_ok)) : '—')}</div>
             </div>`;
         }).join('');
         box.innerHTML = (html || `<div class="pv-empty">${E(tr('acc_empty'))}</div>`) +

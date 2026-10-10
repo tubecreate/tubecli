@@ -64,6 +64,9 @@ def reset():
     M._LAST_USED.clear()
     M._DOWN.clear()
     M._THREAD_OWNER.clear()
+    M._BUSY_SINCE.clear()
+    M._LAST_OK.clear()
+    M._HUNG_RESET.clear()
     STATE.write_text("{}", encoding="utf-8")
 
 
@@ -555,6 +558,43 @@ M._LAST_USED["chayagent"] = 1234.5
 stp = M.status()
 ok(stp["pool"] and stp["pool"][0]["profile"] == "chayagent" and stp["pool"][0].get("last_used") == 1234.5, "status(): mỗi hồ sơ trong bể có last_used", stp["pool"][:1])
 ok(M.settings()["remotes"] == [], "xoá nút từ xa")
+
+# ── L ─────────────────────────────────────────────────────────────────────────
+print("L. người gác treo: bận > 15 phút không có lần thành công → đóng phiên (10/10/2026)")
+reset()
+resets, alerts = [], []
+M.reset_browser = lambda p: (resets.append(p) or True)
+_real_alert = M._alert
+M._alert = lambda reason, text: (alerts.append(reason) or True)
+now = time.time()
+with M._POOL:
+    M._BUSY.update({"muse2": "muse2", "muse3": "muse3", "chayagent": "chayagent", "remote0": "remote0"})
+    M._BUSY_SINCE.update({"muse2": now - 1000, "muse3": now - 1000, "chayagent": now - 300, "remote0": now - 5000})
+M._LAST_OK.update({"muse3": now - 120})          # muse3 vừa thành công 2 phút trước → không phải treo
+hung = M._watch_once(now)
+ok(hung == ["muse2"] and resets == ["muse2"] and alerts == ["hang:muse2"],
+   "chỉ muse2 bị đóng phiên: bận 16 phút, không thành công; muse3 vừa OK; chayagent mới 5 phút; nút từ xa bỏ qua", (hung, resets, alerts))
+ok(M._watch_once(now + 60) == [] and resets == ["muse2"], "một lượt chỉ bị đóng phiên MỘT lần (không giết lặp mỗi phút)", resets)
+M._release("muse2")
+ok("muse2" not in M._HUNG_RESET and "muse2" not in M._BUSY_SINCE, "nhả chỗ → xoá dấu treo, lượt sau được theo dõi lại")
+with M._POOL:
+    M._BUSY["muse2"] = "muse2"; M._BUSY_SINCE["muse2"] = now - 2000
+M._LAST_OK["muse2"] = now - 1990
+ok(M._watch_once(now) == ["muse2"], "thành công gần nhất cũng đã quá 15 phút → vẫn coi là treo", resets)
+# status() có last_ok + busy_for
+M.run_tool = lambda port, action, req=None, timeout=60: {"ok": True, "logged_in": True, "verified": True}
+M.set_settings(profile="chayagent", extra_profiles=["muse2"], remotes=[])
+stw = M.status()
+row = {r["profile"]: r for r in stw["pool"]}
+ok(row["muse2"].get("busy_for", 0) >= 1990 and row["muse2"].get("last_ok") and row["chayagent"].get("busy_for", 0) >= 290,
+   "status(): mỗi hồ sơ có last_ok + busy_for", {k: (v.get("last_ok"), v.get("busy_for")) for k, v in row.items()})
+# lượt thành công thật ghi _LAST_OK
+reset()
+M.run_tool = lambda port, action, req=None, timeout=60: {"ok": True, "text": "hi", "images": [], "thread_id": "T-x"}
+t_before = time.time()
+r = M.ask("q")
+ok(M._LAST_OK.get(r["profile"], 0) >= t_before and not M._BUSY_SINCE, "ask() thành công → ghi lần thành công gần nhất, nhả chỗ", (r.get("profile"), M._LAST_OK))
+M._alert = _real_alert
 
 print()
 print(f"{PASS} passed, {FAIL} failed")

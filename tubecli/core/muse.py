@@ -32,7 +32,7 @@ import subprocess
 import tempfile
 import threading
 import time
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("tubecli.muse")
 
@@ -78,6 +78,16 @@ _ALERTED: Dict[str, float] = {}
 _POOL = threading.Condition()
 _BUSY: Dict[str, str] = {}          # khoá chỗ ngồi → hồ sơ đang chạy ở đó
 _LAST_USED: Dict[str, float] = {}
+# NGƯỜI GÁC TREO (user 10/10/2026: «cơ chế xem lần tạo thành công gần nhất của profile, nếu lâu hơn 15 phút có nghĩa là
+# trình duyệt đó bị treo và tự xoá phiên khởi động lại»): mỗi WATCH_EVERY giây, hồ sơ CỤC BỘ đang bận mà đã HANG_SECONDS
+# không có lần thành công nào (tính từ lúc nhận lượt hoặc lần thành công gần nhất, cái nào muộn hơn) → đóng hẳn phiên
+# (reset_browser); lượt đang dở nhận lỗi «browser» và ask() tự mở lại + thử lại như thường. Nút từ xa có người gác riêng.
+HANG_SECONDS = 900
+WATCH_EVERY = 60
+_BUSY_SINCE: Dict[str, float] = {}  # khoá chỗ ngồi → lúc nhận lượt
+_LAST_OK: Dict[str, float] = {}     # hồ sơ → lần tạo thành công gần nhất
+_HUNG_RESET: Dict[str, float] = {}  # khoá chỗ ngồi → lúc người gác đã đóng phiên (một lần mỗi lượt)
+_WATCHDOG: Dict[str, Any] = {"thread": None}
 _DOWN: Dict[str, float] = {}        # hồ sơ → hết hạn bỏ qua
 _THREAD_OWNER: Dict[str, str] = {}  # chat phụ → hồ sơ (chat của tài khoản A không mở được ở tài khoản B)
 _STATE_LOCK = threading.Lock()
@@ -761,6 +771,10 @@ def status() -> dict:
         row = _profile_status(p, busy_by.get(p, 0) >= st["lanes"])
         row["down"] = _DOWN.get(p, 0) > now
         row["last_used"] = _LAST_USED.get(p) or None      # epoch giây — hộp cài đặt hiện «used 2 min ago»
+        row["last_ok"] = _LAST_OK.get(p) or None          # lần tạo thành công gần nhất (người gác treo dựa vào nó)
+        with _POOL:
+            since = [_BUSY_SINCE.get(k, now) for k, q in _BUSY.items() if q == p]
+        row["busy_for"] = int(now - min(since)) if since else 0
         out["pool"].append(row)
     first = out["pool"][0]
     out.update(running=first["running"], logged_in=first["logged_in"], verified=first["verified"],
@@ -798,7 +812,9 @@ def _acquire(pool: List[str], lanes: int, want: str = "", timeout: float = QUEUE
                 free.sort()
                 _, _, k, p = free[0]
                 _BUSY[k] = p
+                _BUSY_SINCE[k] = now
                 _LAST_USED[p] = now
+                _start_watchdog()
                 return p, k
             left = deadline - now
             if left <= 0:
@@ -809,7 +825,57 @@ def _acquire(pool: List[str], lanes: int, want: str = "", timeout: float = QUEUE
 def _release(key: str) -> None:
     with _POOL:
         _BUSY.pop(key, None)
+        _BUSY_SINCE.pop(key, None)
+        _HUNG_RESET.pop(key, None)
         _POOL.notify_all()
+
+
+def _watch_once(now: Optional[float] = None) -> List[str]:
+    """Một vòng người gác: trả các hồ sơ vừa bị đóng phiên vì treo. Gọi được trong test."""
+    now = time.time() if now is None else now
+    with _POOL:
+        busy = [(k, p, _BUSY_SINCE.get(k, now)) for k, p in _BUSY.items()]
+    hung: List[str] = []
+    for k, p, since in busy:
+        if p.startswith(REMOTE_PREFIX) or k in _HUNG_RESET:
+            continue
+        ref = max(since, _LAST_OK.get(p, 0.0))
+        if now - ref <= HANG_SECONDS:
+            continue
+        with _POOL:
+            if _BUSY.get(k) != p or k in _HUNG_RESET:      # lượt vừa xong / người gác khác đã xử lý
+                continue
+            _HUNG_RESET[k] = now
+        mins = int((now - ref) // 60)
+        logger.warning("muse watchdog: %s busy %d min with no successful generation — closing its browser session", p, mins)
+        try:
+            reset_browser(p)
+        except Exception as e:      # noqa: BLE001
+            logger.warning("muse watchdog: reset of %s failed: %s", p, e)
+        _alert(f"hang:{p}", f"⚠️ Muse: browser profile «{p}» was stuck {mins} min with no successful generation — "
+                            f"its session was closed and the request is being retried.")
+        if p not in hung:
+            hung.append(p)
+    return hung
+
+
+def _watch_loop() -> None:
+    while True:
+        time.sleep(WATCH_EVERY)
+        try:
+            _watch_once()
+        except Exception as e:      # noqa: BLE001
+            logger.warning("muse watchdog: %s", e)
+
+
+def _start_watchdog() -> None:
+    """Bật người gác MỘT lần (gọi trong _acquire, đang giữ _POOL)."""
+    t = _WATCHDOG.get("thread")
+    if t is not None and t.is_alive():
+        return
+    t = threading.Thread(target=_watch_loop, name="muse-watchdog", daemon=True)
+    _WATCHDOG["thread"] = t
+    t.start()
 
 
 def ask(prompt: str, *, want_images: bool = False, files: Optional[List[str]] = None,
@@ -850,6 +916,7 @@ def ask(prompt: str, *, want_images: bool = False, files: Optional[List[str]] = 
             if res.get("thread_id"):
                 _THREAD_OWNER[str(res["thread_id"])] = prof
             _DOWN.pop(prof, None)
+            _LAST_OK[prof] = time.time()
             _release(key)
             return res
         except MuseError as e:
@@ -879,6 +946,7 @@ def ask(prompt: str, *, want_images: bool = False, files: Optional[List[str]] = 
         if not res.get("ok"):
             raise MuseError(str(res.get("kind") or "error"), str(res.get("error") or "Muse request failed."))
         _DOWN.pop(prof, None)
+        _LAST_OK[prof] = time.time()
         res["profile"] = prof
         return res
       except MuseError as e:
