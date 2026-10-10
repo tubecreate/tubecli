@@ -400,6 +400,34 @@ class EngineUnavailableError extends Error {
     }
 }
 
+// Lấy vân tay THẲNG từ Bablosoft bằng khoá của chính người dùng — cùng tham số getfinger.php gửi
+// (version 5, returnpc). Đây là đường chính; chỉ máy bị chặn Bablosoft (mạng, tường lửa, ISP)
+// mới phải đi vòng qua api.tubecreate.com (user 10/10/2026).
+// Trả { fp } = chuỗi gốc nguyên văn (giữ thứ tự khoá cho chữ ký), hoặc { fp: null, blocked, reason }:
+// blocked=true là không tới được Bablosoft → sang PHP ngay; false là Bablosoft trả lời nhưng từ chối
+// (khoá hỏng / không có bản khớp điều kiện).
+export async function fetchFingerprintDirect(key, params) {
+    try {
+        const resp = await axios.get('https://fingerprints.bablosoft.com/prepare', {
+            params: { version: '5', returnpc: 'true', ...params, key },
+            responseType: 'text',
+            timeout: 90000,
+            maxContentLength: 50 * 1024 * 1024,
+            maxBodyLength: 50 * 1024 * 1024,
+        });
+        const raw = typeof resp.data === 'string' ? resp.data : JSON.stringify(resp.data);
+        let data = null;
+        try { data = JSON.parse(raw); } catch (e) {}
+        if (!data || typeof data !== 'object' || data.Error || data.error || data.expired === true || data.valid === false) {
+            const why = data ? (data.message || data.Error || data.error || 'rejected') : `not JSON: ${raw.slice(0, 120)}`;
+            return { fp: null, blocked: false, reason: String(why) };
+        }
+        return { fp: raw };
+    } catch (e) {
+        return { fp: null, blocked: true, reason: e.message };
+    }
+}
+
 function extractRawKey(jsonString, key) {
     const searchStr = `"${key}":`;
     const startIdx = jsonString.indexOf(searchStr);
@@ -1250,22 +1278,76 @@ export class BrowserManager {
             return null;
         }
 
-        // 2. Fetch via PHP API (key stays on server)
-        console.log(`Fetching fingerprint via api.tubecreate.com [tags: ${mappedTags.join(',')}, size: ${windowSize ? `${windowSize.width}x${windowSize.height}` : 'default'}]...`);
-        
         let basKey = '';
         try {
             const extDir = path.dirname(fileURLToPath(import.meta.url));
             const settingsPath = path.resolve(extDir, '..', '..', '..', 'data', 'global_settings.json');
             if (await fs.pathExists(settingsPath)) {
                 const settings = await fs.readJson(settingsPath);
-                if (settings.bas_fingerprint_key && settings.bas_fingerprint_key.trim()) {
-                    basKey = settings.bas_fingerprint_key.trim();
+                // Cùng hai chỗ đọc khoá với profile_manager.get_fingerprint()
+                const k = settings.bas_fingerprint_key || settings.browser_service_keys?.bas || '';
+                if (typeof k === 'string' && k.trim()) {
+                    basKey = k.trim();
                 }
             }
         } catch (e) {
             console.warn('Failed to load global settings in getFingerprint:', e.message);
         }
+
+        // Lưu vân tay vừa lấy (đường thẳng hay qua PHP đều qua đây): hồ sơ ShardX thì đổi định dạng.
+        const finish = async (fp) => {
+            let parsedFp = null;
+            try {
+                parsedFp = typeof fp === 'string' ? JSON.parse(fp) : fp;
+            } catch (e) {}
+            if (isShardX && parsedFp) {
+                console.log('[Fingerprint] Fetched BAS fingerprint for ShardX profile. Converting to ShardX format...');
+                const converted = convertBasToShardX(parsedFp, profileName);
+                try {
+                    const config = await fs.readJson(configPath).catch(() => ({}));
+                    const resolvedTz = await this.resolveProxyTimezone(config.proxy);
+                    if (resolvedTz) {
+                        converted.timezone = resolvedTz;
+                    }
+                } catch (err) {}
+                fp = converted;
+            }
+            const toSave = typeof fp === 'object' ? JSON.stringify(fp, null, 2) : fp;
+            await fs.outputFile(fingerprintPath, toSave, 'utf8');
+            await fs.outputFile(legacyFingerprintPath, toSave, 'utf8');
+            return toSave;
+        };
+
+        // 2. Có khoá riêng → lấy THẲNG từ Bablosoft. Không tới được (bị chặn) thì sang PHP.
+        if (basKey) {
+            const direct = { tags: mappedTags.join(',') };
+            if (minBrowserVersion) direct.min_browser_version = minBrowserVersion;
+            const tries = [direct];
+            if (windowSize) {
+                tries.unshift({
+                    ...direct,
+                    min_width: Math.max(windowSize.width - 200, 1024),
+                    max_width: windowSize.width + 200,
+                    min_height: Math.max(windowSize.height - 200, 600),
+                    max_height: windowSize.height + 200,
+                });
+            }
+            console.log(`Fetching fingerprint directly from Bablosoft [tags: ${direct.tags}]...`);
+            for (const p of tries) {
+                const r = await fetchFingerprintDirect(basKey, p);
+                if (r.fp) {
+                    console.log('[Fingerprint] Got fingerprint directly from Bablosoft (own key).');
+                    return await finish(r.fp);
+                }
+                console.warn(`[Fingerprint] Bablosoft direct ${r.blocked ? 'unreachable' : 'refused'}: ${r.reason}`);
+                // Bị chặn, hoặc khoá hỏng: thử lại trực tiếp cũng vô ích
+                if (r.blocked || /key/i.test(r.reason)) break;
+            }
+            console.warn('[Fingerprint] Falling back to api.tubecreate.com (PHP) with the same key...');
+        }
+
+        // 3. Qua PHP — khoá người dùng (nếu có) gửi trong thân POST; không có khoá thì PHP lấy từ kho.
+        console.log(`Fetching fingerprint via api.tubecreate.com [tags: ${mappedTags.join(',')}, size: ${windowSize ? `${windowSize.width}x${windowSize.height}` : 'default'}]...`);
 
         let attempts = 0;
         let triedWithoutSize = false;
@@ -1305,6 +1387,11 @@ export class BrowserManager {
                 const data = JSON.parse(rawText);
                 
                 if (data && data.status === 'success') {
+                    if (data.source === 'db') {
+                        // PHP không lấy được bản mới từ Bablosoft (không khoá / khoá bị từ chối) → bản trong kho
+                        console.warn(`[Fingerprint] api.tubecreate.com served a stored fingerprint`
+                            + (data.key_error ? ` — Bablosoft refused the key: ${data.key_error}` : (data.key_sent ? '' : ' (no BAS key set)')));
+                    }
                     // New format: fingerprint included directly in response
                     if (data.fingerprint) {
                         console.log(`Got fingerprint directly from API response.`);
@@ -1342,24 +1429,7 @@ export class BrowserManager {
                         throw new Error('Invalid fingerprint data received from API');
                     }
 
-                    if (isShardX && parsedFp) {
-                        console.log('[Fingerprint] Fetched BAS fingerprint for ShardX profile. Converting to ShardX format...');
-                        const converted = convertBasToShardX(parsedFp, profileName);
-                        try {
-                            const config = await fs.readJson(configPath).catch(() => ({}));
-                            const resolvedTz = await this.resolveProxyTimezone(config.proxy);
-                            if (resolvedTz) {
-                                converted.timezone = resolvedTz;
-                            }
-                        } catch (err) {}
-                        fingerprint = converted;
-                    }
-
-                    // Save it
-                    const toSave = typeof fingerprint === 'object' ? JSON.stringify(fingerprint, null, 2) : fingerprint;
-                    await fs.outputFile(fingerprintPath, toSave, 'utf8');
-                    await fs.outputFile(legacyFingerprintPath, toSave, 'utf8');
-                    return toSave;
+                    return await finish(fingerprint);
                 } else {
                     throw new Error('Invalid response from getfinger.php');
                 }

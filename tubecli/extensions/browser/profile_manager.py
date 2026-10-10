@@ -58,6 +58,42 @@ def extract_raw_key(json_str, key):
     return None
 
 
+BABLOSOFT_PREPARE_URL = "https://fingerprints.bablosoft.com/prepare"
+FINGER_PHP_URL = "https://api.tubecreate.com/api/fingerprints/getfinger.php"
+
+
+def fetch_fingerprint_direct(key: str, params: dict):
+    """Lấy vân tay THẲNG từ Bablosoft bằng khoá của chính người dùng.
+
+    Cùng tham số getfinger.php gửi (version 5, returnpc). Đây là đường chính; chỉ máy bị
+    chặn Bablosoft (mạng, tường lửa, ISP) mới đi vòng qua api.tubecreate.com (user 10/10/2026).
+    Trả (fp_dict, raw_string, blocked): blocked=True là không tới được Bablosoft → sang PHP ngay;
+    blocked=False kèm fp None là Bablosoft trả lời nhưng từ chối (khoá hỏng / không có bản khớp).
+    Bản sao của fetchFingerprintDirect() trong browser_manager.js — sửa thì sửa cả hai.
+    """
+    q = {k: v for k, v in params.items() if k != "key"}
+    q.update({"version": "5", "returnpc": "true", "key": key})
+    try:
+        resp = requests.get(BABLOSOFT_PREPARE_URL, params=q, timeout=(10, 90))
+    except Exception as e:
+        print(f"[Fingerprint] Bablosoft direct unreachable: {e}")
+        return None, None, True
+    if resp.status_code != 200:
+        print(f"[Fingerprint] Bablosoft direct unreachable: HTTP {resp.status_code}")
+        return None, None, True
+    raw = resp.text
+    try:
+        data = json.loads(raw)
+    except Exception:
+        data = None
+    if (not isinstance(data, dict) or not data or data.get("Error") or data.get("error")
+            or data.get("expired") is True or data.get("valid") is False):
+        why = (data.get("message") or data.get("Error") or data.get("error") or "rejected") if isinstance(data, dict) else f"not JSON: {raw[:120]}"
+        print(f"[Fingerprint] Bablosoft direct refused: {why}")
+        return None, None, False
+    return data, raw, False
+
+
 def ensure_profiles_dir():
     os.makedirs(PROFILES_DIR, exist_ok=True)
 
@@ -885,12 +921,21 @@ def get_fingerprint(name: str) -> Optional[dict]:
             window_size = config.get("window_size")
 
         def _do_fetch(params):
-            resp = requests.get("https://api.tubecreate.com/api/fingerprints/getfinger.php", params=params, timeout=180.0)
+            # Khoá người dùng đi trong thân POST (JSON), không nằm trên URL — URL lọt vào log máy chủ.
+            if params.get("key"):
+                resp = requests.post(FINGER_PHP_URL, json=params, timeout=180.0)
+            else:
+                resp = requests.get(FINGER_PHP_URL, params=params, timeout=180.0)
             resp.raise_for_status()
             raw_text = resp.text
             data = resp.json()
-            
+
             if data and data.get("status") == "success":
+                if data.get("source") == "db":
+                    # PHP không lấy được bản mới từ Bablosoft (không khoá / khoá bị từ chối) → bản trong kho
+                    why = (f" — Bablosoft refused the key: {data['key_error']}" if data.get("key_error")
+                           else ("" if data.get("key_sent") else " (no BAS key set)"))
+                    print(f"[Fingerprint] api.tubecreate.com served a stored fingerprint{why}")
                 fp_data = None
                 fp_raw_string = None
                 # New format: fingerprint inline
@@ -926,8 +971,28 @@ def get_fingerprint(name: str) -> Optional[dict]:
             params["min_height"] = max(h - 200, 600)
             params["max_height"] = h + 200
 
-        fp_data, fp_raw_string = _do_fetch(params)
-        
+        fp_data, fp_raw_string = None, None
+
+        # Có khoá riêng → lấy THẲNG từ Bablosoft trước; không tới được (bị chặn) mới qua PHP.
+        if bas_key and bas_key.strip():
+            direct_tries = [params]
+            if window_size:
+                direct_tries.append({k: v for k, v in params.items()
+                                     if k not in ("min_width", "max_width", "min_height", "max_height")})
+            for p in direct_tries:
+                d, raw, blocked = fetch_fingerprint_direct(bas_key.strip(), p)
+                if d:
+                    print("[Fingerprint] Got fingerprint directly from Bablosoft (own key).")
+                    fp_data, fp_raw_string = d, raw
+                    break
+                if blocked:
+                    break
+            if not fp_data:
+                print("[Fingerprint] Falling back to api.tubecreate.com (PHP) with the same key...")
+
+        if not fp_data:
+            fp_data, fp_raw_string = _do_fetch(params)
+
         # Attempt 2: without size
         if not fp_data and window_size:
             print("[Fingerprint] Retrying without size constraints...")
