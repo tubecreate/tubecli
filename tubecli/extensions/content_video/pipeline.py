@@ -1802,13 +1802,55 @@ def _join_units(units: List[str]) -> str:
 
 def verbatim_scenes(text: str, per: int = _WORDS_PER_SCENE) -> List[str]:
     """Cắt bài dán thành cảnh ~`per` chữ, KHÔNG bao giờ cắt giữa câu; nối lại bằng
-    dấu cách (chữ Hán/Nhật: nối liền) thì được đúng bài — chỉ mất xuống dòng thừa."""
-    units: List[str] = []
-    for para in re.split(r"\r?\n+", text or ""):
-        para = " ".join(para.split())
-        if para:
-            for u in (split_sentences(para) or [para]):
-                units.extend(_chop_long(u, per))
+    dấu cách (chữ Hán/Nhật: nối liền) thì được đúng bài — chỉ mất xuống dòng thừa.
+
+    CẮT Ở CUỐI ĐOẠN (đoạn = khối cách nhau bằng DÒNG TRỐNG, 10/10/2026). Trước đây mọi câu bị trải phẳng rồi gom ~60
+    chữ, nên với bài viết mỗi đoạn một ý (60–80 chữ) cảnh nào cũng ôm câu đầu của đoạn sau ⇒ bảng vẽ chủ đề bên cạnh,
+    con số gắn nhầm phương pháp (#338: chuyên gia đếm 8/11 cảnh lệch). Nay gom NGUYÊN ĐOẠN: cảnh đã đủ ~0,6·per mà
+    thêm đoạn kế sẽ vượt per thì cắt đúng ở ranh giới đoạn; chỉ cắt GIỮA một đoạn khi chính đoạn đó dài quá 1,5·per
+    (các mảnh vẫn cùng một ý). Bài «mỗi câu một dòng, xen dòng trống» vẫn được gom ~60 chữ như cũ; câu dẫn quá ngắn
+    (kiểu «Level one.») đi cùng đoạn sau."""
+    blocks = []
+    for block in re.split(r"\n[ \t\r]*\n", str(text or "")):
+        units: List[str] = []
+        for para in re.split(r"\r?\n+", block):
+            para = " ".join(para.split())
+            if para:
+                for u in (split_sentences(para) or [para]):
+                    units.extend(_chop_long(u, per))
+        if units:
+            blocks.append(units)
+    scenes: List[str] = []
+    cur: List[str] = []
+    cur_w = 0
+    for units in blocks:
+        bw = sum(content_words(u) for u in units)
+        if bw > per * 1.5:
+            # Đoạn dài: khép cảnh đang gom (quá ngắn thì nó làm câu dẫn của đoạn này) rồi chia TRONG đoạn.
+            if cur and cur_w >= _VERBATIM_MIN_SCENE:
+                scenes.append(_join_units(cur))
+                cur, cur_w = [], 0
+            scenes.extend(_verbatim_chunks(cur + units, per))
+            cur, cur_w = [], 0
+            continue
+        if cur and cur_w >= per * 0.6 and cur_w + bw > per:
+            scenes.append(_join_units(cur))
+            cur, cur_w = [], 0
+        cur.extend(units)
+        cur_w += bw
+        if cur_w >= per:
+            scenes.append(_join_units(cur))
+            cur, cur_w = [], 0
+    if cur:
+        if scenes and cur_w < _VERBATIM_MIN_SCENE:
+            scenes[-1] = _join_units([scenes[-1]] + cur)
+        else:
+            scenes.append(_join_units(cur))
+    return scenes
+
+
+def _verbatim_chunks(units: List[str], per: int) -> List[str]:
+    """Gom các câu của MỘT đoạn dài thành cảnh ~`per` chữ (thuật toán cũ, nay chạy trong từng đoạn)."""
     scenes, cur, cur_w = [], [], 0
     for u in units:
         w = content_words(u)

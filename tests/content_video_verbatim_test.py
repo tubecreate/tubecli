@@ -227,6 +227,23 @@ ok(sp == ("Cô chú thử hình dung.\nHiện giờ, cô chú có tắm mỗi ng
 ok(P.spoken_text(VI) == VI, "bài không markdown giữ nguyên từng ký tự")
 ok(" ".join(P.verbatim_scenes(P.spoken_text(DRAFT))).count("Thời lượng") == 0, "cảnh nguyên văn không còn thông số")
 
+# ─── Cắt ở CUỐI ĐOẠN (#338, 10/10/2026: cảnh vắt qua hai đoạn ⇒ «1.69×» nằm trên bảng SplitK, 8/11 cảnh lệch) ───
+print("\n── Cảnh không vắt qua ranh giới đoạn ──")
+FILL = "It changes how the model reads its memory on every single request. "
+PARAS = [f"Method number {k} speeds up step {k} by {k} times. " + FILL * 4 for k in range(1, 8)]
+LONG = "The long method explains every stage in turn. " + FILL * 11
+doc = "\n\n".join(PARAS[:4] + [LONG] + PARAS[4:])
+ps = P.verbatim_scenes(doc)
+flat = [" ".join(p.split()) for p in doc.split("\n\n")]
+whole = [p for p in flat if P.content_words(p) <= P._WORDS_PER_SCENE * 1.5]
+ok(all(sum(p in s for s in ps) == 1 for p in whole), "đoạn vừa cỡ nằm TRỌN trong đúng một cảnh",
+   [P.content_words(s) for s in ps])
+long_parts = [s for s in ps if s in flat[4]]
+ok(len(long_parts) >= 2 and " ".join(long_parts) == flat[4], "đoạn quá dài tách trong lòng đoạn, không lấn sang đoạn kề",
+   [P.content_words(s) for s in long_parts])
+ok(all(sum(f"Method number {k} " in s for k in range(1, 8)) <= 2 for s in ps), "mỗi cảnh tối đa hai đoạn ngắn gộp lại")
+ok(" ".join(ps) == " ".join(flat), "ghép lại vẫn đúng từng chữ")
+
 print()
 print("=" * 62)
 print(f"{PASS}/{PASS + FAIL} PASS" if not FAIL else f"{PASS}/{PASS + FAIL} PASS — {FAIL} HỎNG")
