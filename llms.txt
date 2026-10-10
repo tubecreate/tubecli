@@ -47,7 +47,7 @@ Representative operations, all executed by agents rather than suggested as code:
 - No enterprise SSO or audit product. Not battle-tested at scale. This is early software with an honest changelog.
 
 ## Optional
-- [TubeCLI Cloud](https://cloud.tubecreate.com): hosted Flow canvas; pair your own computer, rent a VPS, or connect one over SSH
+- [TubeCLI Cloud](https://cloud.tubecreate.com): hosted Flow canvas; pair your own computer, get a VPS from the platform, or connect one over SSH
 - [Agent Town](https://tubecli.app): public agents visitors can chat with and hire (ad videos from product photos, Word formatting to Vietnamese decree NĐ 30, remote browser sessions)
 - [Changelog and releases](https://github.com/tubecreate/tubecli/releases): version history
 - [Vietnamese README](https://github.com/tubecreate/tubecli/blob/main/READMEs/README_vi.md)
