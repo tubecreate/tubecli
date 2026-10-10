@@ -596,6 +596,74 @@ r = M.ask("q")
 ok(M._LAST_OK.get(r["profile"], 0) >= t_before and not M._BUSY_SINCE, "ask() thành công → ghi lần thành công gần nhất, nhả chỗ", (r.get("profile"), M._LAST_OK))
 M._alert = _real_alert
 
+# ── M ─────────────────────────────────────────────────────────────────────────
+print("M. chặn khu vực cho video → tránh tài khoản ấy, quay lại clip ở chỗ khác (10/10/2026)")
+REGION_TXT = "Couldn't create the video — video generation isn't available in your region. I've added it to the retry queue."
+reset()
+M._NO_VIDEO.clear()
+M.set_settings(profile="chayagent", extra_profiles=["muse2"], remotes=[])
+calls_m = []
+
+
+def region_tool(port, action, req=None, timeout=60, blocked=("chayagent",)):
+    prof = BY_PORT[port]
+    calls_m.append(prof)
+    if (req or {}).get("want_videos") and prof in blocked:
+        return {"ok": True, "text": REGION_TXT, "images": [], "videos": [], "thread_id": "T-" + prof}
+    if (req or {}).get("want_videos"):
+        p = str(TMP / f"mv_{len(calls_m)}.mp4")
+        open(p, "wb").write(b"0" * 20000)
+        return {"ok": True, "text": "", "images": [], "videos": [{"path": p}], "thread_id": "T-" + prof}
+    return {"ok": True, "text": "hi", "images": [], "thread_id": "T-" + prof}
+
+
+M.run_tool = region_tool
+M._LAST_USED.update({"chayagent": 1.0, "muse2": 9.0})
+v = M.generate_video_clip("clip", str(TMP / "vd_region"), [], "16:9")
+ok(v["path"].endswith(".mp4") and calls_m == ["chayagent", "muse2"] and M._NO_VIDEO.get("chayagent", 0) > time.time(),
+   "chayagent báo chặn khu vực → clip quay lại ở muse2, chayagent bị tránh cho video", (calls_m, M._NO_VIDEO))
+calls_m.clear()
+M._LAST_USED.update({"chayagent": 1.0, "muse2": 9.0})
+M.generate_video_clip("clip 2", str(TMP / "vd_region"), [], "16:9")
+ok(calls_m == ["muse2"], "clip sau đi thẳng muse2 dù chayagent lâu chưa dùng hơn", calls_m)
+calls_m.clear()
+M._LAST_USED.update({"chayagent": 1.0, "muse2": 9.0})
+ok(M.ask("q")["text"] == "hi" and calls_m == ["chayagent"], "chữ / ảnh vẫn dùng tài khoản bị chặn video", calls_m)
+M.run_tool = lambda port, action, req=None, timeout=60: {"ok": True, "logged_in": True, "verified": True}
+row = {r["profile"]: r for r in M.status()["pool"]}
+ok(row["chayagent"].get("video_blocked") is True and row["muse2"].get("video_blocked") is False,
+   "status(): dòng hồ sơ có video_blocked", {k: v.get("video_blocked") for k, v in row.items()})
+# mọi chỗ đều bị chặn → báo lỗi ngay sau lượt thứ hai, không quay vòng
+reset()
+M._NO_VIDEO.clear()
+calls_m.clear()
+M.run_tool = lambda port, action, req=None, timeout=60: region_tool(port, action, req, timeout, blocked=("chayagent", "muse2"))
+try:
+    M.generate_video_clip("clip 3", str(TMP / "vd_region"), [], "16:9")
+    ok(False, "mọi tài khoản bị chặn → MuseError")
+except M.MuseError as e:
+    ok("region" in str(e) and sorted(calls_m) == ["chayagent", "muse2"], "mọi tài khoản bị chặn → MuseError sau 2 lượt", (calls_m, e))
+# nút từ xa báo chặn (lỗi của nút, không phải chữ) → quay lại ở hồ sơ cục bộ
+reset()
+M._NO_VIDEO.clear()
+calls_m.clear()
+M.set_settings(profile="chayagent", extra_profiles=[], remotes=[{"base_url": "https://vps1.example.com", "key": "k1", "seats": 1}])
+
+
+def region_remote(node, prof, prompt, **kw):
+    calls_m.append(prof)
+    raise M.MuseError("error", "Muse did not make a video: " + REGION_TXT)
+
+
+M._ask_remote = region_remote
+M.run_tool = lambda port, action, req=None, timeout=60: region_tool(port, action, req, timeout, blocked=())
+M._LAST_USED.update({"chayagent": 9.0, "remote0": 1.0})
+v = M.generate_video_clip("clip 4", str(TMP / "vd_region"), [], "16:9")
+ok(v["path"].endswith(".mp4") and calls_m == ["remote0", "chayagent"] and M._NO_VIDEO.get("remote0", 0) > time.time(),
+   "nút từ xa bị chặn khu vực → clip quay ở chayagent", (calls_m, M._NO_VIDEO))
+M._NO_VIDEO.clear()
+M.set_settings(remotes=[])
+
 print()
 print(f"{PASS} passed, {FAIL} failed")
 sys.exit(1 if FAIL else 0)

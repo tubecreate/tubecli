@@ -89,6 +89,11 @@ _LAST_OK: Dict[str, float] = {}     # hồ sơ → lần tạo thành công gầ
 _HUNG_RESET: Dict[str, float] = {}  # khoá chỗ ngồi → lúc người gác đã đóng phiên (một lần mỗi lượt)
 _WATCHDOG: Dict[str, Any] = {"thread": None}
 _DOWN: Dict[str, float] = {}        # hồ sơ → hết hạn bỏ qua
+# CHẶN KHU VỰC cho video (10/10/2026, #333 cảnh 19303: «video generation isn't available in your region» — IP của trình
+# duyệt ở VN lúc bị chặn lúc không; chữ và ảnh vẫn chạy): hồ sơ ấy không nhận lượt VIDEO trong REGION_DOWN giây, clip
+# đó quay lại MỘT lần ở chỗ ngồi khác (tài khoản khác / nút từ xa) thay vì thành ảnh tĩnh.
+REGION_DOWN = 1800
+_NO_VIDEO: Dict[str, float] = {}    # hồ sơ → hết hạn bỏ qua cho lượt video
 _THREAD_OWNER: Dict[str, str] = {}  # chat phụ → hồ sơ (chat của tài khoản A không mở được ở tài khoản B)
 _STATE_LOCK = threading.Lock()
 
@@ -770,6 +775,7 @@ def status() -> dict:
     for p in st["pool"]:
         row = _profile_status(p, busy_by.get(p, 0) >= st["lanes"])
         row["down"] = _DOWN.get(p, 0) > now
+        row["video_blocked"] = _NO_VIDEO.get(p, 0) > now  # Muse báo chặn khu vực cho video — tạm không giao clip
         row["last_used"] = _LAST_USED.get(p) or None      # epoch giây — hộp cài đặt hiện «used 2 min ago»
         row["last_ok"] = _LAST_OK.get(p) or None          # lần tạo thành công gần nhất (người gác treo dựa vào nó)
         with _POOL:
@@ -783,11 +789,13 @@ def status() -> dict:
 
 
 def _acquire(pool: List[str], lanes: int, want: str = "", timeout: float = QUEUE_WAIT,
-             remotes: Optional[List[dict]] = None):
+             remotes: Optional[List[dict]] = None, skip: Optional[set] = None):
     """Giữ MỘT chỗ ngồi → (hồ sơ, khoá chỗ). Chọn tài khoản ít lượt đang chạy nhất, rồi lâu chưa dùng nhất — các
     lượt xoay vòng qua mọi tài khoản. Tài khoản đang hỏng (_DOWN) bị bỏ qua, trừ khi tài khoản nào cũng hỏng.
     want: chat phụ của tài khoản nào thì PHẢI chạy ở tài khoản đó.
-    remotes: nút Muse từ xa — mỗi nút là một «tài khoản» tên remote<i> với `seats` chỗ ngồi (9/10/2026)."""
+    remotes: nút Muse từ xa — mỗi nút là một «tài khoản» tên remote<i> với `seats` chỗ ngồi (9/10/2026).
+    skip: tài khoản tránh cho lượt này (bị chặn khu vực cho video) — chờ chỗ khác rảnh; chỉ dùng tới khi không còn ai."""
+    skip = skip or set()
     seats: Dict[str, int] = {p: max(1, lanes) for p in pool}
     names = list(pool)
     for i, r in enumerate(remotes or []):
@@ -798,7 +806,8 @@ def _acquire(pool: List[str], lanes: int, want: str = "", timeout: float = QUEUE
     with _POOL:
         while True:
             now = time.time()
-            live = [want] if want else ([p for p in names if _DOWN.get(p, 0) <= now] or list(names))
+            live = [want] if want else ([p for p in names if _DOWN.get(p, 0) <= now and p not in skip]
+                                        or [p for p in names if _DOWN.get(p, 0) <= now] or list(names))
             load: Dict[str, int] = {}
             for p in _BUSY.values():
                 load[p] = load.get(p, 0) + 1
@@ -904,7 +913,9 @@ def ask(prompt: str, *, want_images: bool = False, files: Optional[List[str]] = 
     want = (_THREAD_OWNER.get(thread_id) or profile) if pinned else ""
     if want and want not in pool and not (want.startswith(REMOTE_PREFIX) and want in {f"{REMOTE_PREFIX}{i}" for i in range(len(remotes))}):
         want = ""
-    prof, key = _acquire(pool, st["lanes"], want, remotes=remotes) if remotes else _acquire(pool, st["lanes"], want)
+    skip = {p for p, t in _NO_VIDEO.items() if t > time.time()} if want_videos else set()
+    prof, key = _acquire(pool, st["lanes"], want, remotes=remotes, skip=skip) if remotes \
+        else _acquire(pool, st["lanes"], want, skip=skip)
     failed: Optional[MuseError] = None
     if prof.startswith(REMOTE_PREFIX):
         # Chỗ ngồi TỪ XA (9/10/2026 «giống 9Router»): gọi HTTP tới nút, không có trình duyệt ở đây
@@ -921,6 +932,7 @@ def ask(prompt: str, *, want_images: bool = False, files: Optional[List[str]] = 
             return res
         except MuseError as e:
             failed = e
+            e.profile = prof
             _release(key)
     else:
       try:
@@ -951,6 +963,7 @@ def ask(prompt: str, *, want_images: bool = False, files: Optional[List[str]] = 
         return res
       except MuseError as e:
         failed = e
+        e.profile = prof
       finally:
         _release(key)
     if failed.kind in ("browser", "auth") and (len(pool) + len(remotes)) > 1:
@@ -1101,6 +1114,9 @@ _REFUSAL_RE = re.compile(r"\b(can'?t|cannot|unable to|won'?t|not able to|sorry|p
 # không phải từ chối nội dung.
 _TRANSIENT_RE = re.compile(r"gặp vấn đề|vui lòng thử lại|đã xảy ra lỗi|try again|temporarily unavailable|"
                            r"something went wrong|an error occurred|ran into a problem|technical (?:issue|problem)", re.I)
+# «video generation isn't available in your region» / «… không khả dụng ở khu vực của bạn» — xem REGION_DOWN.
+_REGION_RE = re.compile(r"\b(?:available|supported|offered|unavailable)\s+in\s+your\s+(?:region|country|area|location)\b"
+                        r"|(?:ở|tại|trong)\s+(?:khu vực|quốc gia|vùng)\s+của bạn", re.I)
 
 
 def _no_output_kind(said: str) -> str:
@@ -1206,16 +1222,37 @@ def video_request(prompt: str, aspect_ratio: str = "9:16", continue_from: bool =
 def generate_video_clip(prompt: str, out_dir: str, reference_images: Optional[list] = None,
                         aspect_ratio: str = "9:16", continue_from: bool = False, thread_id: str = "",
                         timeout: int = VIDEO_TIMEOUT) -> dict:
-    """MỘT clip Muse → {path, poster, width, height, duration, thread_id}. Ném MuseError."""
+    """MỘT clip Muse → {path, poster, width, height, duration, thread_id}. Ném MuseError.
+
+    Tài khoản báo bị chặn khu vực cho video → tránh nó REGION_DOWN giây và quay lại MỘT lần ở chỗ ngồi khác (chat mới:
+    chat phụ ghim tài khoản bị chặn; continue_from vẫn gửi khung cuối nên mạch không đứt)."""
     refs = [p for p in (reference_images or []) if p and os.path.isfile(str(p))][:3]
     os.makedirs(out_dir, exist_ok=True)
-    res = ask(video_request(prompt, aspect_ratio, continue_from), want_videos=True, files=refs, video_dir=out_dir,
-              max_videos=1, timeout=timeout, thread_id=thread_id)
-    vids = [v for v in (res.get("videos") or []) if isinstance(v, dict) and v.get("path")]
-    if not vids:
-        said = " ".join(str(res.get("text") or "").split())[:240]
-        raise MuseError(_no_output_kind(said), f"Muse did not make a video{': ' + said if said else '.'}")
-    return {**vids[0], "thread_id": res.get("thread_id", "")}
+    for turn in range(2):
+        prof = ""
+        try:
+            res = ask(video_request(prompt, aspect_ratio, continue_from), want_videos=True, files=refs, video_dir=out_dir,
+                      max_videos=1, timeout=timeout, thread_id=thread_id)
+            vids = [v for v in (res.get("videos") or []) if isinstance(v, dict) and v.get("path")]
+            if vids:
+                return {**vids[0], "thread_id": res.get("thread_id", "")}
+            said = " ".join(str(res.get("text") or "").split())[:240]
+            err = MuseError(_no_output_kind(said), f"Muse did not make a video{': ' + said if said else '.'}")
+            prof = str(res.get("profile") or "")
+        except MuseError as e:
+            err, prof = e, str(getattr(e, "profile", "") or "")
+        if turn or not prof or not _REGION_RE.search(str(err)):
+            raise err
+        _NO_VIDEO[prof] = time.time() + REGION_DOWN
+        st = settings()
+        seats = list(st["pool"]) + [f"{REMOTE_PREFIX}{i}" for i in range(len(st.get("remotes") or []))]
+        if not [p for p in seats if _NO_VIDEO.get(p, 0) <= time.time()]:
+            raise err
+        logger.warning("muse: %s cannot make videos in its region — skipping it for video for %d s and retrying the "
+                       "clip on another seat", prof, REGION_DOWN)
+        if thread_id and _THREAD_OWNER.get(thread_id, prof) == prof:
+            thread_id = ""
+    raise err      # không tới được: vòng trên luôn trả hoặc ném
 
 
 def test_remote(base_url: str, key: str, timeout: int = 60) -> dict:
