@@ -11,7 +11,9 @@ chỉ nhìn kho đúng style của nó:
 
     DATA_DIR/characters/<khoá style>/<slug>/
         profile.json  {name, aliases[], series, kind, prompt_name, look (tiếng Anh, dáng CỐ ĐỊNH), personality, notes,
-                       status ("draft" | "approved"), size, sheet, updated_at}
+                       role (tiếng Anh: vai với dàn — «Pei Qian's master, called sư phụ»), role_words[] («master»,
+                       «sư phụ» — thực thể kịch bản tự tạo mang chữ này là CHÍNH nhân vật, bỏ), status ("draft" |
+                       "approved"), size, sheet, updated_at}
         sheet.<ext>   reference sheet ĐÚNG style của kho
 
 Khoá style = slug tên style («Ink Wash Film» → «ink_wash_film»). Khớp tên theo Unicode (casefold + NFC; chữ Latinh có
@@ -34,7 +36,8 @@ MAX_MATCH = 4
 KINDS = ("person", "object", "place")
 SHEET_EXTS = (".png", ".jpg", ".jpeg", ".webp")
 _LOCK = threading.RLock()
-_KEEP = ("name", "aliases", "series", "kind", "prompt_name", "look", "personality", "notes", "status", "size")
+_KEEP = ("name", "aliases", "series", "kind", "prompt_name", "look", "personality", "notes", "role", "role_words",
+         "status", "size")
 
 
 def root() -> str:
@@ -185,6 +188,11 @@ def as_canon(profiles: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
              "shot_ids": [], "paragraphs": [], "canon": look, "size": str(p.get("size") or ""),
              "from": "library", "library": p.get("slug", ""), "library_store": p.get("store", ""),
              "aliases": [p["name"]] + list(p.get("aliases") or [])}
+        if str(p.get("role") or "").strip():
+            e["role"] = " ".join(str(p["role"]).split())[:200]
+        words = [" ".join(str(w).split()).lower() for w in (p.get("role_words") or []) if str(w).strip()]
+        if words:
+            e["role_words"] = words[:12]
         if p.get("sheet_path"):
             e["sheet"] = p["sheet_path"]
         out.append(e)

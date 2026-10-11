@@ -928,6 +928,13 @@ def _poll_studio(status_path: str, timeout_sec: int, state: Dict, step: str,
     stall = timeout_sec
     while True:
         if state["_cancelled"]():
+            # Huỷ task cũng phải dừng lượt vẽ / lô clip Muse bên Studio (11/10/2026 #350: huỷ rồi mà Studio vẫn quay
+            # tiếp 12 clip, giữ chỗ Muse). Studio cũ không có route thì thôi.
+            if status_path.startswith("/api/v1/studio/gen-images/status/"):
+                try:
+                    _post("/api/v1/studio/gen-images/cancel/" + status_path.rsplit("/", 1)[-1], {}, timeout=20)
+                except Exception as e:      # noqa: BLE001
+                    logger.info(f"[ContentVideo] studio cancel: {e}")
             raise _cancel_exc()
         now = time.time()
         if now - last_change > stall:
