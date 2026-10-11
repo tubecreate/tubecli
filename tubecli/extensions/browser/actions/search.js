@@ -30,6 +30,31 @@ function hostOf(url) {
   }
 }
 
+// Hộp thoại Google che ô tìm kiếm. 11/10/2026: «Check your settings» (đã bật SafeSearch vì chưa xác minh tuổi) phủ
+// trang chủ trên hồ sơ testphienbansharr149 ⇒ bấm ô tìm kiếm bị chặn 30 s («div.OWEho … intercepts pointer events»),
+// cả lượt chạy hỏng và không được tính để làm video. Chỉ bấm nút ĐÓNG nằm TRONG hộp thoại đang hiện (hay hộp có tiêu đề
+// đã biết) — không bao giờ bấm bừa một nút của trang.
+const DIALOG_CLOSE = /^\s*(Got it|Accept all|Reject all|No thanks|Not now|Stay signed out|I agree|Đã hiểu|Tôi đồng ý|Từ chối tất cả|Để sau|Không, cảm ơn|Entendido|Aceptar todo|Rechazar todo|Ahora no|No, gracias)\s*$/i;
+const DIALOG_TITLES = /Check your settings|Before you continue|Kiểm tra cài đặt|Trước khi bạn tiếp tục|Comprueba tu configuración|Antes de ir a Google/i;
+
+async function dismissGoogleDialogs(page) {
+  for (let round = 0; round < 3; round++) {
+    let scope = page.locator('[role="dialog"]:visible, [aria-modal="true"]:visible').first();
+    if (!(await scope.isVisible({ timeout: 1500 }).catch(() => false))) {
+      // Hộp không khai role=dialog: nhận diện qua tiêu đề đã biết, rồi tìm nút đóng trong cùng khối.
+      const title = page.getByText(DIALOG_TITLES).first();
+      if (!(await title.isVisible({ timeout: 500 }).catch(() => false))) return;
+      scope = title.locator('xpath=ancestor::*[.//button or .//*[@role="button"]][1]');
+    }
+    const btn = scope.getByRole('button', { name: DIALOG_CLOSE }).first();
+    if (!(await btn.isVisible({ timeout: 1000 }).catch(() => false))) return;
+    const label = ((await btn.innerText().catch(() => '')) || '').trim();
+    console.log(`[SEARCH] Closing a Google dialog that covers the search box: «${label}»`);
+    await btn.click({ timeout: 5000 }).catch(() => {});
+    await page.waitForTimeout(800);
+  }
+}
+
 const SEARCH_HOSTS = new Set([
   'google.com', 'bing.com', 'duckduckgo.com', 'search.yahoo.com',
   'search.brave.com', 'startpage.com', 'ecosia.org', 'baidu.com', 'yandex.com',
@@ -244,6 +269,7 @@ export async function search(page, params) {
       await consentButton.click();
     }
   } catch (e) {}
+  await dismissGoogleDialogs(page);
 
   const searchBoxSelection = page.locator('textarea[name="q"], input[name="q"]');
   const searchBox = (await searchBoxSelection.count()) > 1 
