@@ -188,6 +188,14 @@ e2e_prompt, _ = build_email_prompt("sendReport", "morning", ["ops"], e2e_recips)
 check("end to end: routine recipients reach the send_report To line",
       "lead@team.co" in e2e_prompt and "peer@team.co" in e2e_prompt, e2e_prompt)
 
+# 11/10/2026: the cloud Schedule tab (and the role-based generator) write ONLY persona.dailyRoutine, while older agents
+# still carry a free-text routine.dailyRoutine. Reading routine first meant the owner's chips never applied
+# («chuyên gia it»: 10/12 runs ran the old free text). The scheduler must read persona first.
+_src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tubecli", "api", "server.py"),
+            encoding="utf-8").read()
+check("scheduler reads persona.dailyRoutine before the legacy routine.dailyRoutine",
+      'daily_routine = persona.get("dailyRoutine") or routine.get("dailyRoutine") or {}' in _src)
+
 print(f"\n{checks - len(failures)}/{checks} PASS")
 for f in failures:
     print("  FAIL " + f)

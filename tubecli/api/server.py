@@ -1394,7 +1394,9 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
     routine = agent.routine or {}
     persona = agent.persona or {}
     
-    daily_routine = routine.get("dailyRoutine") or persona.get("dailyRoutine") or {}
+    # persona.dailyRoutine TRƯỚC (11/10/2026): tab Schedule của cloud + bộ sinh theo vai trò chỉ ghi persona; agent cũ
+    # còn routine.dailyRoutine chữ tự do — đọc nó trước thì chip người dùng chọn không bao giờ có tác dụng.
+    daily_routine = persona.get("dailyRoutine") or routine.get("dailyRoutine") or {}
     work_habits = routine.get("workHabits") or persona.get("workHabits") or {}
     
     # Explicit keys (browse_topic/news/watch_video/study/check_email/
