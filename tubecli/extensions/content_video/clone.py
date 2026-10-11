@@ -118,7 +118,26 @@ def batches(items: List[Dict], size: int = BATCH) -> List[List[Dict]]:
     return [items[i:i + size] for i in range(0, len(items), size)]
 
 
-def system_prompt(src_name: str, tgt_name: str) -> str:
+def glossary_rule(names: Optional[List[Dict[str, str]]], tgt_name: str) -> str:
+    """Dòng dặn tên nhân vật (kho nhân vật của lõi, 11/10/2026): «Trần Bình An» → «Chen Ping'an»."""
+    rows = []
+    for g in names or []:
+        src, tgt = str(g.get("source") or "").strip(), str(g.get("target") or "").strip()
+        if not src:
+            continue
+        if tgt:
+            if tgt != src:
+                rows.append(f"«{src}» → «{tgt}»")
+        else:
+            hint = ", ".join(x for x in (g.get("zh"), g.get("en")) if x)
+            rows.append(f"«{src}» → its established {tgt_name} name" + (f" (original: {hint})" if hint else ""))
+    if not rows:
+        return ""
+    return ("\n- Character names: write them EXACTLY like this every time (also inside `texts` and `labels`): "
+            + "; ".join(rows) + ".")
+
+
+def system_prompt(src_name: str, tgt_name: str, names: Optional[List[Dict[str, str]]] = None) -> str:
     return (
         f"You are a professional translator for explainer videos. Translate from {src_name} into {tgt_name}.\n"
         "You receive a JSON object {\"shots\": [...]}. Each shot has an `id`, a `narration` (the voice-over, read "
@@ -131,7 +150,7 @@ def system_prompt(src_name: str, tgt_name: str) -> str:
         "must be copied EXACTLY, letter for letter, from your translated `head`.\n"
         "- `labels`: same count and order, at most 3 words each, no apostrophes.\n"
         "- Reply with ONLY a JSON object {\"shots\": [...]} with the same ids and the same keys you received (same "
-        "paths inside `texts`). No markdown, no comments.")
+        "paths inside `texts`). No markdown, no comments." + glossary_rule(names, tgt_name))
 
 
 def user_prompt(batch: List[Dict]) -> str:

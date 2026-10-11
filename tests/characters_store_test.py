@@ -134,6 +134,26 @@ try:
     ok(T.summary(t)["cast"] == ["ninh_dieu"], "set_cast + summary có cast")
     ok(T.parse_cast(["A b", "a_b", "", "x"]) == ["ab", "a_b", "x"], "parse_cast làm sạch slug")
 
+    print("G. tên theo ngôn ngữ (clone đổi ngôn ngữ)")
+    C.save({"name": "Trần Bình An", "names": {"vi": "Trần Bình An", "en": "Chen Ping'an", "zh": "陈平安", "zh-TW": "陳平安"}},
+           INK)
+    C.save({"name": "Bùi Tiền", "names": {"en": "Pei Qian", "zh": "裴钱"}}, INK)
+    p = C.get("tran_binh_an", INK)
+    ok(C.name_in(p, "en") == "Chen Ping'an" and C.name_in(p, "es") == "Chen Ping'an" and C.name_in(p, "zh-TW") == "陳平安"
+       and C.name_in(p, "zh") == "陈平安" and C.name_in(p, "ru") == "", "name_in: đúng ngôn ngữ, chữ Latinh lùi về en, ru để model phiên")
+    ok([x["slug"] for x in C.match("陳平安來了", INK)] == ["tran_binh_an"], "tên trong `names` cũng khớp được")
+    g = C.glossary("Hôm ấy Trần Bình An và Bùi Tiền lên núi.", "en")
+    ok([(x["source"], x["target"]) for x in g] == [("Trần Bình An", "Chen Ping'an"), ("Bùi Tiền", "Pei Qian")]
+       or [(x["source"], x["target"]) for x in g] == [("Bùi Tiền", "Pei Qian"), ("Trần Bình An", "Chen Ping'an")],
+       "glossary: tên đang dùng → tên ngôn ngữ đích (một lần dù có ở hai kho)", g)
+    from tubecli.extensions.content_video import clone as CLN
+    sp = CLN.system_prompt("Vietnamese", "English", g)
+    ok("«Trần Bình An» → «Chen Ping'an»" in sp and "Character names" in sp and "Character names" not in
+       CLN.system_prompt("Vietnamese", "English"), "clone: lời dặn dịch có bảng tên (không kho → như cũ)", sp[-300:])
+    ok("established Russian name (original: 裴钱" in CLN.glossary_rule([{"source": "Bùi Tiền", "target": "", "zh": "裴钱",
+                                                                          "en": "Pei Qian"}], "Russian"),
+       "thiếu tên đích → dặn model phiên theo tên gốc")
+
     print("F. route")
     from fastapi import FastAPI
     from fastapi.testclient import TestClient

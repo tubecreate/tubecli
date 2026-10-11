@@ -8833,7 +8833,14 @@ def _step_clone(state: Dict, options: Dict) -> None:
                                     f"uses the narration re-split by the on-screen text")
         items = C.work_items(src_shots)
         scenes = {str(s.get("id")): C.shot_meta(s).get("scene") for s in src_shots}
-        sp = C.system_prompt(src_name, tgt_name)
+        # tên nhân vật theo kho của lõi (11/10/2026): «Trần Bình An» → «Chen Ping'an» / «陈平安»
+        try:
+            from tubecli.core import characters as _chars
+            _names = _chars.glossary(" ".join(str(s.get("narration_text") or "") for s in src_shots), lang)
+        except Exception as e:      # noqa: BLE001 — lõi cũ / kho trống: dịch như trước
+            logger.info(f"[ContentVideo] character names: {e}")
+            _names = []
+        sp = C.system_prompt(src_name, tgt_name, _names)
         got: Dict[str, Dict] = {}
         groups = C.batches(items)
         for i, b in enumerate(groups, 1):
