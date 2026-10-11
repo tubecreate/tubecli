@@ -1278,9 +1278,11 @@ def generate_video_clip(prompt: str, out_dir: str, reference_images: Optional[li
                         timeout: int = VIDEO_TIMEOUT) -> dict:
     """MỘT clip Muse → {path, poster, width, height, duration, thread_id}. Ném MuseError.
 
-    Chỗ ngồi KẸT (quá VIDEO_TIMEOUT không ra video, không báo lỗi) hay BỊ CHẶN KHU VỰC → quay lại MỘT lần ở chỗ ngồi khác
-    (chat mới nếu chat phụ ghim chỗ cũ; continue_from vẫn gửi khung cuối nên mạch không đứt). Bị chặn khu vực thì chỗ đó
-    còn bị gắn cờ không nhận video tới 0 giờ hôm sau (_no_video_set)."""
+    Chỗ ngồi BỊ CHẶN KHU VỰC → quay lại MỘT lần ở chỗ ngồi khác (chat mới nếu chat phụ ghim chỗ cũ; continue_from vẫn gửi
+    khung cuối nên mạch không đứt) và chỗ đó bị gắn cờ không nhận video tới 0 giờ hôm sau (_no_video_set) — lỗi của CHỖ
+    NGỒI, không phải của clip. Clip KẸT (quá VIDEO_TIMEOUT không ra video, không báo lỗi) thì ném luôn, KHÔNG quay lại ở
+    chỗ khác: cảnh ấy giữ ảnh tĩnh (user 11/10/2026 «cứ cho tạo full clip, cái nào lỗi thì dùng ảnh khỏi tạo lại»; quy tắc
+    từ 10/10 «chỉ check trong 1 lần gọi, sau 3 phút không thấy video thì bỏ qua» — lượt quay lại thêm 3 phút mỗi cảnh)."""
     refs = [p for p in (reference_images or []) if p and os.path.isfile(str(p))][:3]
     os.makedirs(out_dir, exist_ok=True)
     avoid: set = set()
@@ -1298,8 +1300,7 @@ def generate_video_clip(prompt: str, out_dir: str, reference_images: Optional[li
         except MuseError as e:
             err, prof = e, str(getattr(e, "profile", "") or "")
         region = bool(prof) and bool(_REGION_RE.search(str(err)))
-        hung = bool(prof) and getattr(err, "kind", "") == "timeout"
-        if turn or not (region or hung):
+        if turn or not region:
             raise err
         if region:
             _no_video_set(prof, _region_until())
@@ -1308,9 +1309,8 @@ def generate_video_clip(prompt: str, out_dir: str, reference_images: Optional[li
         seats = list(st["pool"]) + [f"{REMOTE_PREFIX}{i}" for i in range(len(st.get("remotes") or []))]
         if not [p for p in seats if p not in avoid and _NO_VIDEO.get(p, 0) <= time.time()]:
             raise err
-        logger.warning("muse: %s %s — retrying the clip once on another seat", prof,
-                       "cannot make videos in its region (flagged until tomorrow)" if region
-                       else f"made no video within {timeout} s")
+        logger.warning("muse: %s cannot make videos in its region (flagged until tomorrow) — retrying the clip once on "
+                       "another seat", prof)
         if thread_id and _THREAD_OWNER.get(thread_id, prof) == prof:
             thread_id = ""
     raise err      # không tới được: vòng trên luôn trả hoặc ném

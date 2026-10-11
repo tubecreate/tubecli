@@ -687,7 +687,8 @@ M._NO_VIDEO_LOADED["done"] = False
 ok(M.status()["pool"] and M._NO_VIDEO.get("chayagent", 0) > time.time(), "khởi động lại → nạp lại cờ từ file", M._NO_VIDEO)
 row = {r["profile"]: r for r in M.status()["pool"]}
 ok(abs((row["chayagent"].get("video_blocked_until") or 0) - midnight) < 2, "status(): video_blocked_until", row["chayagent"])
-# lượt video KẸT (quá hạn, không video, không lỗi) → đóng phiên, KHÔNG thử lại cùng tài khoản; chuyển chỗ khác MỘT lần
+# lượt video KẸT (quá hạn, không video, không lỗi) → đóng phiên, ném luôn: KHÔNG thử lại cùng tài khoản, KHÔNG chuyển chỗ
+# khác (11/10/2026 user «cứ cho tạo full clip, cái nào lỗi thì dùng ảnh khỏi tạo lại») — cảnh ấy giữ ảnh tĩnh
 reset()
 M._NO_VIDEO.clear()
 STATE.write_text("{}", encoding="utf-8")
@@ -708,18 +709,13 @@ def hang_tool(port, action, req=None, timeout=60, hung=("chayagent",)):
 M.run_tool = hang_tool
 M.reset_browser = lambda p: resets_t.append(p) or True
 M._LAST_USED.update({"chayagent": 1.0, "muse2": 9.0})
-v = M.generate_video_clip("clip n2", str(TMP / "vd_hang"), [], "16:9")
-ok(v["path"].endswith(".mp4") and [c[0] for c in calls_t] == ["chayagent", "muse2"] and resets_t == ["chayagent"]
-   and calls_t[0][1] == 180 and not M._NO_VIDEO, "kẹt 3 phút → đóng phiên chayagent, clip sang muse2 (không gắn cờ ngày)",
-   (calls_t, resets_t, M._NO_VIDEO))
-calls_t.clear(), resets_t.clear()
-M.run_tool = lambda port, action, req=None, timeout=60: hang_tool(port, action, req, timeout, hung=("chayagent", "muse2"))
 try:
-    M.generate_video_clip("clip n3", str(TMP / "vd_hang"), [], "16:9")
-    ok(False, "mọi chỗ kẹt → MuseError")
+    M.generate_video_clip("clip n2", str(TMP / "vd_hang"), [], "16:9")
+    ok(False, "kẹt → MuseError")
 except M.MuseError as e:
-    ok(e.kind == "timeout" and len(calls_t) == 2 and sorted(resets_t) == ["chayagent", "muse2"],
-       "mọi chỗ kẹt → đúng 2 lượt gọi (mỗi chỗ một lần) rồi ném timeout", (calls_t, resets_t))
+    ok(e.kind == "timeout" and [c[0] for c in calls_t] == ["chayagent"] and resets_t == ["chayagent"]
+       and calls_t[0][1] == 180 and not M._NO_VIDEO,
+       "kẹt 3 phút → đóng phiên chayagent, ném timeout ngay (không sang muse2, không gắn cờ ngày)", (calls_t, resets_t))
 # lượt CHỮ quá hạn vẫn thử lại như cũ (chỉ video là gọi một lần)
 calls_t.clear(), resets_t.clear()
 M.RESET_WAIT = 0
