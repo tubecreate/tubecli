@@ -26,6 +26,7 @@ from tubecli.core import agent as AG            # noqa: E402
 from tubecli.core import run_log                # noqa: E402
 from tubecli.core import scraped_store as S     # noqa: E402
 from tubecli.core import youtube_harvest as H   # noqa: E402
+_REAL_HARVEST = H._harvest                       # nhóm 5 thay _harvest bằng hàm ném lỗi; nhóm 7 cần bản thật
 from tubecli.core import youtube_transcript as YT  # noqa: E402
 
 PASS = FAIL = 0
@@ -58,8 +59,11 @@ START = datetime.now() - timedelta(minutes=10)            # run_log: giờ đị
 LAUNCH = {"profile": "p1", "behavior": "watchVideos", "query": "video diffusion models explained"}
 run_log.list_for_agent = lambda aid, days=2, limit=500: [
     {"run_id": "r1", "ts": START.isoformat(), "launch": dict(LAUNCH)}]
-SEARCH = [{"id": "BBBBBBBBBBB", "url": "https://www.youtube.com/watch?v=BBBBBBBBBBB", "title": "found", "duration": 600},
-          {"id": "CCCCCCCCCCC", "url": "https://www.youtube.com/watch?v=CCCCCCCCCCC", "title": "found2", "duration": 700}]
+# Tiêu đề phải dính chủ đề câu tìm kiếm — video tìm bù lạc đề bị bỏ (nhóm 7).
+SEARCH = [{"id": "BBBBBBBBBBB", "url": "https://www.youtube.com/watch?v=BBBBBBBBBBB",
+           "title": "Diffusion Models Explained in 10 Minutes", "duration": 600},
+          {"id": "CCCCCCCCCCC", "url": "https://www.youtube.com/watch?v=CCCCCCCCCCC",
+           "title": "How video diffusion works", "duration": 700}]
 searched = []
 H.search_videos = lambda q, n, timeout=45: searched.append((q, n)) or [dict(v) for v in SEARCH]
 WORDS = {"n": 200}
@@ -129,6 +133,23 @@ ok(H.harvest_after_run("agent-1", "r1", "p1", "error").startswith("skip: outcome
 ok(not fetched, "không gọi lấy phụ đề lần nào", fetched)
 H._harvest = lambda *a: (_ for _ in ()).throw(RuntimeError("boom"))
 ok(H.harvest_after_run("agent-1", "r1", "p1", "completed").startswith("error:"), "lỗi bất ngờ ⇒ trả câu, KHÔNG ném")
+
+print("── 7. video tìm bù LẠC ĐỀ bị bỏ (11/10/2026) ──────────────────")
+q = "reseña de la utilidad del vacio capitulo 11 tao te ching rueda vasija habitacion"
+interests = ["Lao Tse", "Tao Te Ching", "taoísmo", "wu wei", "filosofía china antigua"]
+ok(not H.relevant("Every God of Greek Mythology", q, interests), "«Every God of Greek Mythology» ≠ câu tìm Lão Tử")
+ok(H.relevant("El #TAO La utilidad del vacío – Capítulo 11 del Tao Te Ching", q, interests), "khớp từ có dấu (vacío ~ vacio)")
+ok(H.relevant("Why Being Flexible Beats Being Strong | Ancient Taoist Wisdom", q, interests),
+   "khớp qua sở thích agent (taoísmo ~ Taoist), dù khác ngôn ngữ")
+ok(not H.relevant("Reseña completa: análisis del capítulo final", q, interests), "chỉ trùng từ đệm (reseña, capítulo) ⇒ lạc đề")
+_real_harvest = _REAL_HARVEST
+SEARCH[:] =[{"id": "GGGGGGGGGGG", "url": "https://www.youtube.com/watch?v=GGGGGGGGGGG",
+              "title": "Every God of Greek Mythology", "duration": 900}]
+LAUNCH.update(profile="p3", query=q)
+(TMP / "p3").mkdir()
+fetched.clear()
+msg7 = _real_harvest("agent-1", "r1", "p3", "completed")
+ok(not fetched and "off-topic" in msg7, "video tìm bù lạc đề không được lấy phụ đề, câu tóm tắt nói rõ", msg7)
 
 print("── 6. pick_track với video lồng tiếng ─────────────────────────")
 e = [{"ext": "json3", "url": "u"}]

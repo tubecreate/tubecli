@@ -33,6 +33,32 @@ ARTICLES_CAP, HISTORY_CAP = 100, 500          # y như extract_content.js / sess
 SOURCE = "youtube_transcript"
 _LOCK = threading.Lock()
 
+# Video TÌM BÙ (bước 2) phải dính tới chủ đề: câu tìm kiếm dài kiểu «reseña de la utilidad del vacío capítulo 11 tao te
+# ching rueda vasija…» làm YouTube trả cả video phổ biến lạc đề («Every God of Greek Mythology» lọt vào kho agent Lão Tử,
+# 11/10/2026). Giữ một video khi tiêu đề có ít nhất một từ (so 4 ký tự đầu, bỏ dấu) khớp câu tìm kiếm hoặc sở thích của
+# agent. Video agent TỰ BẤM mở (bước 1) thì tin luôn.
+_STOP = set("""reseña resena analisis explicacion explicado explica capitulo capitulos guia completa parte video videos
+review reviews chapter chapters explained explanation guide complete full part what why how when which with from about
+this that your their the and for los las del una uno por para con que como sus mas muy entre sobre desde hasta sin
+cua nhung cac mot nhu trong cho voi duoc theo nay khi cach gioi thieu phan tich""".split())
+
+
+def _fold(s: str) -> str:
+    import unicodedata
+    s = unicodedata.normalize("NFKD", str(s or "").lower().replace("đ", "d"))
+    return "".join(c for c in s if not unicodedata.combining(c))
+
+
+def _keys(text: str) -> set:
+    """Gốc từ để so khớp: từ ≥3 chữ (không phải từ đệm), cắt 4 ký tự đầu — «taoismo», «taoist» cùng là «taoi»."""
+    import re as _re
+    return {w[:4] for w in _re.findall(r"[a-z0-9]{3,}", _fold(text)) if w not in _STOP}
+
+
+def relevant(title: str, query: str, interests: Any = ()) -> bool:
+    keys = _keys(query) | _keys(" ".join(str(x) for x in (interests or [])))
+    return bool(keys) and bool(_keys(title) & keys)
+
 
 def _aware(stamp: Any) -> Optional[datetime]:
     """ISO → datetime có múi giờ. run_log ghi giờ ĐỊA PHƯƠNG không múi; history.json ghi UTC «Z»."""
@@ -198,12 +224,19 @@ def _harvest(agent_id: str, run_id: str, profile: str, outcome: str) -> str:
             picks.append((vid, str(r.get("url")), "watched"))
     # 2) thiếu thì tìm theo câu tìm kiếm của lượt
     query = str(launch.get("query") or "")
+    off_topic = []
     if len(picks) < n and query:
+        interests = (getattr(agent, "persona", None) or {}).get("interests") or []
         for v in search_videos(query, n - len(picks)):
-            if v["id"] not in have and all(p[0] != v["id"] for p in picks):
-                picks.append((v["id"], v["url"], "search"))
+            if v["id"] in have or any(p[0] == v["id"] for p in picks):
+                continue
+            if not relevant(v.get("title") or "", query, interests):
+                off_topic.append(v["id"])
+                continue
+            picks.append((v["id"], v["url"], "search"))
     if not picks:
-        return "nothing to fetch" + (f" (query {query!r})" if query else " (no query recorded)")
+        return ("nothing to fetch" + (f" (query {query!r})" if query else " (no query recorded)")
+                + (f" · {len(off_topic)} off-topic search hit(s) dropped" if off_topic else ""))
     saved, tried, notes = [], 0, []
     for vid, url, src in picks:
         if len(saved) >= n or tried >= n * 3:
@@ -225,4 +258,6 @@ def _harvest(agent_id: str, run_id: str, profile: str, outcome: str) -> str:
         msg += " — " + ", ".join(saved)
     if notes:
         msg += " · skipped " + "; ".join(notes[:3])
+    if off_topic:
+        msg += f" · {len(off_topic)} off-topic search hit(s) dropped"
     return msg

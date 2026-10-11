@@ -208,13 +208,48 @@ export async function click(page, params = {}) {
   } else if (params.type === 'video') {
     // Target video results: STRICT YouTube links or video thumbnails
     // Avoid Clicking "AI Overview" or "People also ask"
-    const videoSelectors = [
-        'a[href*="youtube.com/watch"]', // Direct video links
-        'div[data-surl*="youtube.com/watch"] a', // Video type results
-        'video-voyager a'
-    ];
-    target = page.locator(videoSelectors.join(',')).first();
-    console.log('Searching for STRICT video results (youtube.com)...');
+    // Ngay TRÊN youtube.com (hành vi xem video giờ tìm thẳng trong YouTube) link kết quả là TƯƠNG ĐỐI "/watch?v=…";
+    // bộ chọn cũ chỉ bắt "youtube.com/watch" (kết quả video của Google) nên 7/7 lượt từ 8/10/2026 chết ở đây với
+    // "Target element 'default' not visible". Chỉ lấy /watch — không Shorts, không quảng cáo (renderer khác).
+    let onYouTube = false;
+    try { onYouTube = /(^|\.)youtube\.com$/i.test(new URL(page.url()).hostname); } catch (e) { /* about:blank */ }
+    const videoSelectors = onYouTube
+      ? [
+          'ytd-video-renderer a#video-title[href*="/watch"]',
+          'ytd-video-renderer a#thumbnail[href*="/watch"]',
+          'yt-lockup-view-model a[href^="/watch"]',
+          'a#video-title[href*="/watch"]',
+          'a[href^="/watch?v="]',
+        ]
+      : [
+          'a[href*="youtube.com/watch"]', // Direct video links
+          'div[data-surl*="youtube.com/watch"] a', // Video type results
+          'video-voyager a'
+        ];
+    console.log(`Searching for STRICT video results (${onYouTube ? 'on youtube.com' : 'youtube.com links'})...`);
+    if (onYouTube) {
+      // Trang kết quả YouTube vẽ dần bằng JS — chờ ô video đầu tiên thay vì kết luận "không có" ngay lập tức.
+      await page.waitForSelector(videoSelectors.join(','), { timeout: 15000 }).catch(() => {});
+      // Lấy ô đầu tiên ĐANG HIỆN theo thứ tự ưu tiên. `.first()` của cả cụm là phần tử đầu trong DOM — trang đã
+      // đăng nhập còn giấu link /watch (khung phát thu nhỏ, danh sách thông báo) TRƯỚC kết quả ⇒ trúng một link ẩn
+      // ("Target element 'default' not visible", 11/10/2026, hồ sơ BAS testlive) dù kết quả hiện rõ trên màn hình.
+      const seen = [];
+      for (const sel of videoSelectors) {
+        const all = page.locator(sel);
+        const n = Math.min(await all.count().catch(() => 0), 30);
+        seen.push(`${n}×${sel}`);
+        for (let i = 0; i < n && !target; i++) {
+          const c = all.nth(i);
+          if (await c.isVisible().catch(() => false)) target = c;
+        }
+        if (target) {
+          console.log(`Video result: ${sel} → ${await target.getAttribute('href').catch(() => '')}`);
+          break;
+        }
+      }
+      if (!target) console.log(`No visible video result (${seen.join(', ')})`);
+    }
+    if (!target) target = page.locator(videoSelectors.join(',')).first();
   } else if (!page.url().includes('google.com/search')) {
     // Not on the results page any more, so "click" cannot mean "click a search
     // result". This is the second click of behaviour pattern 2, whose prompt
