@@ -396,11 +396,20 @@
                 <button type="button" class="pv-btn pv-btn-ghost" aria-label="${E(tr('node_remove'))} ${E(hostOf(r.base_url))}" onclick="window.pvRemoveNode(${i})"><span class="material-symbols-outlined" style="font-size:16px">delete</span></button>
             </div>`;
         }).join('');
-        const keyCard = PV.newKey
+        // Nhiều khoá node song song (11/10/2026): mỗi máy mượn một khoá riêng, huỷ từng khoá không đụng khoá khác.
+        const keys = st.node_keys || [];
+        const keyName = (k) => k.label || (k.legacy ? tr('key_legacy') : tr('key_unnamed'));
+        const keyRows = keys.map(k => `<div class="pv-key-item">
+                <div class="pv-key-main"><span class="pv-name">${E(keyName(k))}</span>
+                  <span class="pv-hint pv-mono">…${E(k.tail || '')} · ${E(k.last_used_at ? tr('key_used', { t: String(k.last_used_at).replace('T', ' ').slice(0, 16) }) : tr('key_unused'))}</span></div>
+                <button type="button" class="pv-btn pv-btn-ghost" onclick="window.pvRevokeKey('${E(k.id)}', this)">${E(tr('key_revoke'))}</button>
+            </div>`).join('');
+        const keyCard = (PV.newKey
             ? `<div class="pv-key-new"><input type="text" class="pv-input pv-mono" readonly value="${E(PV.newKey)}" onclick="this.select()" aria-label="${E(tr('key_title'))}"><button type="button" class="pv-btn" onclick="window.pvCopyKey(this)">${E(tr('key_copy'))}</button></div>
-               <div class="pv-hint pv-ok">${E(tr('key_made'))}</div>`
-            : `<div class="pv-key-row"><span class="pv-mono pv-mut">${E(st.node_key_set ? tr('key_tail', { k: st.node_key_tail || '' }) : tr('key_none'))}</span>
-               <button type="button" class="pv-btn" onclick="window.pvNewKey(this)">${E(st.node_key_set ? tr('key_new') : tr('key_make'))}</button></div>`;
+               <div class="pv-hint pv-ok">${E(tr('key_made'))}</div>` : '')
+            + `<div class="pv-keys">${keyRows || `<span class="pv-mono pv-mut">${E(tr('key_none'))}</span>`}</div>
+               <div class="pv-key-row"><input id="pv-key-label" type="text" class="pv-input" maxlength="60" placeholder="${E(tr('key_label_ph'))}">
+               <button type="button" class="pv-btn" onclick="window.pvNewKey(this)">${E(keys.length ? tr('key_add') : tr('key_make'))}</button></div>`;
         pane.innerHTML = `
             <div class="pv-two">
               <div class="pv-main">
@@ -465,12 +474,27 @@
         if (test) PV.nodeStatus[node.base_url] = test;
         renderTabs(); renderMachines(); renderSide(); renderFoot();
     }
+    async function reloadKeys() {
+        try { const r = await apiGet('/api/v1/muse/node-keys'); if (r && Array.isArray(r.node_keys)) PV.st.node_keys = r.node_keys; } catch (e) { /* giữ danh sách cũ */ }
+    }
     window.pvNewKey = async function (btn) {
-        if (PV.st.node_key_set && !confirm(tr('key_confirm'))) return;
+        // THÊM một khoá — khoá đang cho mượn vẫn chạy, nên không cần hỏi lại như trước
         btn.disabled = true;
         try {
-            const r = await apiPost('/api/v1/muse/node-key', {});
-            if (r && r.node_key) { PV.newKey = r.node_key; PV.st.node_key_set = true; PV.st.node_key_tail = r.node_key.slice(-4); }
+            const r = await apiPost('/api/v1/muse/node-key', { label: ($('pv-key-label')?.value || '').trim() });
+            if (r && r.node_key) { PV.newKey = r.node_key; PV.st.node_key_set = true; PV.st.node_key_tail = r.node_key.slice(-4); await reloadKeys(); }
+            else foot('❌ ' + ((r && (r.detail || r.message)) || 'failed'), false);
+        } catch (e) { foot('❌ ' + e.message, false); }
+        btn.disabled = false; renderMachines();
+    };
+    window.pvRevokeKey = async function (id, btn) {
+        const k = (PV.st.node_keys || []).find(x => x.id === id);
+        const name = k ? (k.label || (k.legacy ? tr('key_legacy') : tr('key_unnamed'))) + ' …' + (k.tail || '') : id;
+        if (!confirm(tr('key_revoke_confirm', { n: name }))) return;
+        btn.disabled = true;
+        try {
+            const r = await apiDelete('/api/v1/muse/node-keys/' + encodeURIComponent(id));
+            if (r && r.success) { PV.st.node_keys = r.node_keys || []; PV.newKey = ''; foot('✓ ' + tr('key_revoked'), true); }
             else foot('❌ ' + ((r && (r.detail || r.message)) || 'failed'), false);
         } catch (e) { foot('❌ ' + e.message, false); }
         btn.disabled = false; renderMachines();

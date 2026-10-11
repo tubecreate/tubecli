@@ -80,5 +80,15 @@
   "cloud_api.muse_node_key": "Node key of this machine",
   "cloud_api.muse_node_key_hint": "Lets another TubeCLI use this machine's Muse accounts through /api/v1/muse/v1/*. Make a key, then paste it into that machine's remote-node line.",
   "cloud_api.muse_node_key_new": "Make key",
-  "cloud_api.muse_node_key_made": "Node key made and saved — copy it now, it is shown only once."
+  "cloud_api.muse_node_key_made": "Node key made and saved — copy it now, it is shown only once.",
+  "cloud_api.pv_key_hint": "빌려 쓰는 기기마다 키를 따로 주세요. 키 전체는 만들 때만 보입니다. 키 하나를 취소해도 다른 키는 계속 작동합니다.",
+  "cloud_api.pv_key_add": "키 추가",
+  "cloud_api.pv_key_label_ph": "메모: 이 키를 받을 기기",
+  "cloud_api.pv_key_legacy": "이전 키",
+  "cloud_api.pv_key_unnamed": "이름 없는 키",
+  "cloud_api.pv_key_used": "마지막 사용 {t}",
+  "cloud_api.pv_key_unused": "아직 사용 안 함",
+  "cloud_api.pv_key_revoke": "취소",
+  "cloud_api.pv_key_revoke_confirm": "키 «{n}»을(를) 취소할까요? 이 키를 쓰는 기기는 즉시 빌려 쓰기를 멈춥니다. 다른 키는 계속 작동합니다.",
+  "cloud_api.pv_key_revoked": "키를 취소했습니다"
 }

@@ -170,7 +170,7 @@
   "cloud_api.pv_add_fail": "Thử hỏng: {m}",
   "cloud_api.pv_testing": "Đang thử…",
   "cloud_api.pv_key_title": "Khoá node của máy này",
-  "cloud_api.pv_key_hint": "Đưa cho máy khác để nó mượn các tài khoản ở trên. Khoá đầy đủ chỉ hiện lúc vừa tạo.",
+  "cloud_api.pv_key_hint": "Mỗi máy mượn nên có một khoá riêng. Khoá đầy đủ chỉ hiện lúc vừa tạo; huỷ một khoá không ảnh hưởng các khoá khác.",
   "cloud_api.pv_key_tail": "Đã có khoá · đuôi {k}",
   "cloud_api.pv_key_none": "Chưa có khoá",
   "cloud_api.pv_key_new": "Tạo khoá mới",
@@ -211,5 +211,14 @@
   "cloud_api.muse_node_key": "Khoá node của máy này",
   "cloud_api.muse_node_key_hint": "Cho TubeCLI khác dùng tài khoản Muse của máy này qua /api/v1/muse/v1/*. Tạo khoá rồi dán vào dòng nút từ xa ở máy kia.",
   "cloud_api.muse_node_key_new": "Tạo khoá",
-  "cloud_api.muse_node_key_made": "Đã tạo và lưu khoá node — chép ngay, khoá chỉ hiện một lần."
+  "cloud_api.muse_node_key_made": "Đã tạo và lưu khoá node — chép ngay, khoá chỉ hiện một lần.",
+  "cloud_api.pv_key_add": "Tạo thêm khoá",
+  "cloud_api.pv_key_label_ph": "Ghi chú: khoá này đưa cho máy nào",
+  "cloud_api.pv_key_legacy": "Khoá cũ",
+  "cloud_api.pv_key_unnamed": "Khoá chưa đặt tên",
+  "cloud_api.pv_key_used": "dùng lần cuối {t}",
+  "cloud_api.pv_key_unused": "chưa dùng lần nào",
+  "cloud_api.pv_key_revoke": "Huỷ",
+  "cloud_api.pv_key_revoke_confirm": "Huỷ khoá «{n}»? Máy đang dùng khoá này sẽ ngừng mượn tài khoản ngay; các khoá khác vẫn chạy.",
+  "cloud_api.pv_key_revoked": "Đã huỷ khoá"
 }

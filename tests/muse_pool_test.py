@@ -440,8 +440,12 @@ except ValueError:
 M.set_settings(node_key="abcdefghijklmnop-QRSTUV")
 ok(M.node_key_ok("Bearer abcdefghijklmnop-QRSTUV") and M.node_key_ok("abcdefghijklmnop-QRSTUV") and not M.node_key_ok("Bearer nope")
    and not M.node_key_ok(None), "node_key_ok: Bearer / trần, sai → False")
+# nhiều khoá node (11/10/2026): chuỗi rỗng KHÔNG xoá (hộp cũ gửi ô trống khi lưu thì mọi máy mượn đứt) — huỷ theo id
 M.set_settings(node_key="")
-ok(not M.node_key_ok("Bearer abcdefghijklmnop-QRSTUV"), "không có khoá node → mọi bearer bị từ chối")
+ok(M.node_key_ok("Bearer abcdefghijklmnop-QRSTUV"), "node_key rỗng không xoá khoá đang dùng")
+for _k in M.node_keys():
+    M.revoke_node_key(_k["id"])
+ok(not M.node_key_ok("Bearer abcdefghijklmnop-QRSTUV"), "không còn khoá node → mọi bearer bị từ chối")
 reset()
 remote_calls = []
 

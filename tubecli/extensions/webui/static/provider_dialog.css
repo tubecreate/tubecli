@@ -77,6 +77,10 @@
 .pv-add-grid { display: grid; grid-template-columns: minmax(0, 1fr) 100px; gap: 10px; }
 .pv-add-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .pv-key-row, .pv-key-new { display: flex; align-items: center; gap: 8px; }
+.pv-keys { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+.pv-key-item { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg3); }
+.pv-key-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.pv-key-main .pv-hint { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pv-foot { display: flex; align-items: center; gap: 10px; padding: 12px 22px; border-top: 1px solid var(--border); background: var(--bg2); margin: 0; }
 .pv-foot-status { font-size: .76rem; color: var(--text2); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pv-foot-status.pv-ok { color: #4ade80; } .pv-foot-status.pv-bad { color: #f87171; } .pv-foot-status.pv-warn { color: #fbbf24; }

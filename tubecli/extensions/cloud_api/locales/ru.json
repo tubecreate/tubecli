@@ -80,5 +80,15 @@
   "cloud_api.muse_node_key": "Node key of this machine",
   "cloud_api.muse_node_key_hint": "Lets another TubeCLI use this machine's Muse accounts through /api/v1/muse/v1/*. Make a key, then paste it into that machine's remote-node line.",
   "cloud_api.muse_node_key_new": "Make key",
-  "cloud_api.muse_node_key_made": "Node key made and saved — copy it now, it is shown only once."
+  "cloud_api.muse_node_key_made": "Node key made and saved — copy it now, it is shown only once.",
+  "cloud_api.pv_key_hint": "Дайте каждой машине-заёмщику свой ключ. Полный ключ виден только при создании; отзыв одного ключа не затрагивает остальные.",
+  "cloud_api.pv_key_add": "Добавить ключ",
+  "cloud_api.pv_key_label_ph": "Заметка: какой машине этот ключ",
+  "cloud_api.pv_key_legacy": "Старый ключ",
+  "cloud_api.pv_key_unnamed": "Ключ без названия",
+  "cloud_api.pv_key_used": "последнее использование {t}",
+  "cloud_api.pv_key_unused": "ещё не использовался",
+  "cloud_api.pv_key_revoke": "Отозвать",
+  "cloud_api.pv_key_revoke_confirm": "Отозвать ключ «{n}»? Машина с этим ключом сразу перестанет заимствовать; остальные ключи продолжат работать.",
+  "cloud_api.pv_key_revoked": "Ключ отозван"
 }

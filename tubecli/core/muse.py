@@ -203,14 +203,122 @@ def settings() -> dict:
             "node_key": str(g.get("muse_node_key") or "").strip()}
 
 
+# NHIỀU KHOÁ NODE song song (11/10/2026 — user «thêm logic có thể sử dụng nhiều khoá song song và có cơ chế huỷ copy
+# khoá»): trước đây một máy chỉ có MỘT khoá, «Tạo khoá mới» làm mọi máy đang mượn ngừng. Nay mỗi máy mượn một khoá riêng
+# (có nhãn), huỷ một khoá không đụng khoá khác. Chỉ lưu BẢN BĂM sha256 + 4 ký tự cuối — khoá đầy đủ chỉ hiện lúc tạo.
+# Khoá cũ (muse_node_key, chuỗi thô) vẫn dùng được như một khoá «legacy» cho tới khi bị huỷ.
+MAX_NODE_KEYS = 20
+NODE_KEY_TOUCH_SEC = 600          # ghi «lần dùng cuối» xuống đĩa tối đa mỗi 10 phút / khoá
+_KEY_USED: Dict[str, float] = {}
+
+
+def _key_hash(key: str) -> str:
+    import hashlib
+    return hashlib.sha256(str(key or "").encode("utf-8")).hexdigest()
+
+
+def _node_key_rows() -> List[dict]:
+    """[{id, label, hash, tail, created_at, last_used_at}] — kể cả khoá cũ (id "legacy") nếu còn."""
+    try:
+        from tubecli.config import read_global_settings
+        g = read_global_settings()
+    except Exception:      # noqa: BLE001
+        g = {}
+    rows = [dict(r) for r in (g.get("muse_node_keys") or []) if isinstance(r, dict) and r.get("hash") and r.get("id")]
+    legacy = str(g.get("muse_node_key") or "").strip()
+    if legacy and len(legacy) >= NODE_KEY_MIN and not any(r["hash"] == _key_hash(legacy) for r in rows):
+        rows.insert(0, {"id": "legacy", "label": "", "hash": _key_hash(legacy), "tail": legacy[-4:],
+                        "created_at": "", "last_used_at": g.get("muse_node_key_used") or "", "legacy": True})
+    return rows
+
+
+def _save_node_key_rows(rows: List[dict]) -> None:
+    from tubecli.config import set_global_setting
+    set_global_setting("muse_node_keys", [{k: r.get(k, "") for k in ("id", "label", "hash", "tail", "created_at",
+                                                                     "last_used_at")}
+                                          for r in rows if r.get("id") != "legacy"])
+
+
+def node_keys() -> List[dict]:
+    """Khoá node của máy này cho giao diện: {id, label, tail, created_at, last_used_at, legacy?} — KHÔNG có bản băm."""
+    out = []
+    for r in _node_key_rows():
+        used = r.get("last_used_at") or ""
+        if r["id"] in _KEY_USED:
+            used = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(_KEY_USED[r["id"]]))
+        out.append({"id": r["id"], "label": r.get("label") or "", "tail": r.get("tail") or "",
+                    "created_at": r.get("created_at") or "", "last_used_at": used, "legacy": bool(r.get("legacy"))})
+    return out
+
+
+def add_node_key(label: str = "", key: str = "") -> dict:
+    """Thêm MỘT khoá (khoá cũ vẫn chạy). key "" = sinh ngẫu nhiên. Trả {id, label, tail, node_key} — node_key đầy đủ chỉ
+    trả lần này."""
+    import secrets
+    key = str(key or "").strip() or secrets.token_urlsafe(24)
+    if len(key) < NODE_KEY_MIN:
+        raise ValueError(f"The node key must be at least {NODE_KEY_MIN} characters.")
+    rows = _node_key_rows()
+    if any(r["hash"] == _key_hash(key) for r in rows):
+        raise ValueError("This key is already in use on this machine.")
+    if len(rows) >= MAX_NODE_KEYS:
+        raise ValueError(f"At most {MAX_NODE_KEYS} node keys — revoke one you no longer use first.")
+    row = {"id": secrets.token_hex(4), "label": " ".join(str(label or "").split())[:60], "hash": _key_hash(key),
+           "tail": key[-4:], "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"), "last_used_at": ""}
+    _save_node_key_rows([r for r in rows] + [row])
+    return {"id": row["id"], "label": row["label"], "tail": row["tail"], "node_key": key}
+
+
+def revoke_node_key(key_id: str) -> bool:
+    """Huỷ MỘT khoá — máy đang dùng khoá ấy ngừng mượn ngay; khoá khác không đổi."""
+    rows = _node_key_rows()
+    hit = [r for r in rows if r["id"] == str(key_id or "")]
+    if not hit:
+        return False
+    if hit[0].get("legacy"):
+        from tubecli.config import set_global_setting
+        set_global_setting("muse_node_key", "")
+    _save_node_key_rows([r for r in rows if r["id"] != hit[0]["id"]])
+    _KEY_USED.pop(hit[0]["id"], None)
+    return True
+
+
 def node_key_ok(authorization: Optional[str]) -> bool:
-    """Máy khác gọi /api/v1/muse/v1/* với `Authorization: Bearer <muse_node_key>` của máy này (≥ NODE_KEY_MIN ký tự)."""
+    """Máy khác gọi /api/v1/muse/v1/* với `Authorization: Bearer <một khoá node còn hiệu lực của máy này>`."""
     import hmac
-    key = settings().get("node_key") or ""
     tok = str(authorization or "").strip()
     if tok.lower().startswith("bearer "):
         tok = tok[7:].strip()
-    return bool(key) and len(key) >= NODE_KEY_MIN and bool(tok) and hmac.compare_digest(key, tok)
+    if len(tok) < NODE_KEY_MIN:
+        return False
+    h = _key_hash(tok)
+    for r in _node_key_rows():
+        if hmac.compare_digest(str(r.get("hash") or ""), h):
+            _touch_node_key(r)
+            return True
+    return False
+
+
+def _touch_node_key(row: dict) -> None:
+    """Nhớ «lần dùng cuối» (để biết khoá nào bỏ không) — ghi đĩa thưa, lỗi thì thôi."""
+    now = time.time()
+    last = _KEY_USED.get(row["id"], 0.0)
+    _KEY_USED[row["id"]] = now
+    if now - last < NODE_KEY_TOUCH_SEC:
+        return
+    try:
+        stamp = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(now))
+        if row.get("legacy"):
+            from tubecli.config import set_global_setting
+            set_global_setting("muse_node_key_used", stamp)
+            return
+        rows = _node_key_rows()
+        for r in rows:
+            if r["id"] == row["id"]:
+                r["last_used_at"] = stamp
+        _save_node_key_rows(rows)
+    except Exception:      # noqa: BLE001
+        pass
 
 
 def _profiles_dir() -> str:
@@ -233,10 +341,12 @@ def set_settings(profile: Optional[str] = None, turns_per_chat: Optional[int] = 
     if remotes is not None:
         set_global_setting("muse_remotes", _clean_remotes(remotes))
     if node_key is not None:
+        # Hộp cài đặt cũ gửi một khoá tự chọn: THÊM vào danh sách (không còn thay khoá cũ); chuỗi rỗng = không làm gì —
+        # huỷ khoá đi qua revoke_node_key
         nk = str(node_key).strip()
-        if nk and len(nk) < NODE_KEY_MIN:
-            raise ValueError(f"The node key must be at least {NODE_KEY_MIN} characters.")
-        set_global_setting("muse_node_key", nk)
+        if nk:
+            if not any(r["hash"] == _key_hash(nk) for r in _node_key_rows()):
+                add_node_key("", nk)
     if profile is not None:
         # Đổi hồ sơ = đổi tài khoản: pick_thread thấy state["profile"] khác nên tự mở chat phụ mới.
         set_global_setting("muse_profile", _check_profile(profile))

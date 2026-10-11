@@ -66,9 +66,12 @@ def _public_settings() -> dict:
     st = muse.settings()
     st["remotes"] = [{**r, "key": (r["key"][:3] + "…" + r["key"][-3:]) if len(r.get("key") or "") > 8 else ("…" if r.get("key") else "")}
                      for r in st.get("remotes") or []]
-    nk = st.pop("node_key", "")
-    st["node_key_set"] = bool(nk)
-    st["node_key_tail"] = nk[-4:] if nk else ""
+    st.pop("node_key", "")
+    keys = muse.node_keys()
+    st["node_keys"] = keys
+    # hộp thoại cũ chỉ biết một khoá: báo có/không + đuôi của khoá MỚI NHẤT
+    st["node_key_set"] = bool(keys)
+    st["node_key_tail"] = keys[-1]["tail"] if keys else ""
     return st
 
 
@@ -122,13 +125,31 @@ async def api_put_settings(req: MuseSettingsRequest):
         raise HTTPException(400, str(e))
 
 
+class NodeKeyRequest(BaseModel):
+    label: Optional[str] = ""          # vd. tên máy sẽ dùng khoá này
+
+
 @router.post("/node-key")
-async def api_new_node_key():
-    """Tạo khoá node mới (máy khác dùng để gọi Muse của máy này) — trả khoá MỘT lần."""
-    import secrets
-    key = secrets.token_urlsafe(24)
-    muse.set_settings(node_key=key)
-    return {"node_key": key}
+async def api_new_node_key(req: NodeKeyRequest = NodeKeyRequest()):
+    """THÊM một khoá node (máy khác dùng để gọi Muse của máy này) — khoá cũ vẫn chạy; trả khoá đầy đủ MỘT lần."""
+    try:
+        return muse.add_node_key(req.label or "")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.get("/node-keys")
+async def api_node_keys():
+    """Các khoá node còn hiệu lực: {id, label, tail, created_at, last_used_at, legacy} — không có khoá đầy đủ."""
+    return {"node_keys": muse.node_keys(), "max": muse.MAX_NODE_KEYS}
+
+
+@router.delete("/node-keys/{key_id}")
+async def api_revoke_node_key(key_id: str):
+    """Huỷ MỘT khoá — máy đang dùng khoá ấy ngừng mượn ngay, các khoá khác không đổi."""
+    if not muse.revoke_node_key(key_id):
+        raise HTTPException(404, "Node key not found")
+    return {"success": True, "node_keys": muse.node_keys()}
 
 
 @router.post("/test")
