@@ -15,7 +15,8 @@ chỉ nhìn kho đúng style của nó:
                        «sư phụ» — thực thể kịch bản tự tạo mang chữ này là CHÍNH nhân vật, bỏ), names {vi, en, zh,
                        zh-TW…: tên chuẩn theo ngôn ngữ — clone đổi ngôn ngữ dịch tên đúng, user 11/10/2026 «tag tên tiếng
                        anh và tiếng trung vào kho để AI biết nếu muốn chuyển ngữ»}, status ("draft" | "approved"), size,
-                       sheet, updated_at}
+                       voice (tiếng Anh: GIỌNG CỐ ĐỊNH — tuổi, âm sắc, giọng vùng, cách nói; clip Muse có thoại khớp
+                       môi đọc kèm để một người nói cùng một giọng ở mọi cảnh, user 12/10/2026), sheet, updated_at}
         sheet.<ext>   reference sheet ĐÚNG style của kho
 
 Khoá style = slug tên style («Ink Wash Film» → «ink_wash_film»). Khớp tên theo Unicode (casefold + NFC; chữ Latinh có
@@ -39,7 +40,7 @@ KINDS = ("person", "object", "place")
 SHEET_EXTS = (".png", ".jpg", ".jpeg", ".webp")
 _LOCK = threading.RLock()
 _KEEP = ("name", "aliases", "series", "kind", "prompt_name", "look", "personality", "notes", "role", "role_words",
-         "names", "status", "size")
+         "names", "status", "size", "voice")
 # Ngôn ngữ viết bằng chữ Latinh: thiếu tên riêng thì dùng tên tiếng Anh (phiên âm) — «Chen Ping'an» trong bản tiếng Tây
 # Ban Nha; ngôn ngữ khác (ru, ja, ko, th, ar…) thiếu tên thì để model tự phiên theo tên gốc chữ Hán + tiếng Anh.
 LATIN_LANGS = ("en", "es", "fr", "de", "pt", "it", "id", "tr", "vi")
