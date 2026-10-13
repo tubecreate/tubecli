@@ -317,9 +317,9 @@ class KeyManager:
             PROVIDERS["muse"]["base_url"] = _muse_base_url()
 
     def _save(self):
-        os.makedirs(os.path.dirname(self.data_file), exist_ok=True)
-        with open(self.data_file, "w", encoding="utf-8") as f:
-            json.dump(self._keys, f, indent=2, ensure_ascii=False)
+        # Provider API keys: owner-only file, atomic write (core/private_file.py).
+        from tubecli.core.private_file import write_json_private
+        write_json_private(self.data_file, self._keys)
 
     def add_key(self, provider: str, api_key: str, label: str = "default") -> dict:
         """Add or update an API key for a provider."""

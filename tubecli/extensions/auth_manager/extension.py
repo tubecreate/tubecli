@@ -317,9 +317,11 @@ class AuthManager:
             logger.info("Auto-migrated auth manager tokens to multi-token format.")
 
     def _save(self):
-        os.makedirs(os.path.dirname(self.data_file), exist_ok=True)
-        with open(self.data_file, "w", encoding="utf-8") as f:
-            json.dump(self._data, f, indent=2, ensure_ascii=False)
+        # OAuth client secrets + access/refresh tokens: owner-only file, atomic write
+        # (core/private_file.py). Tokens never go to logs; revoke them at the provider
+        # (Google/Facebook/TikTok account security page) if this file is ever exposed.
+        from tubecli.core.private_file import write_json_private
+        write_json_private(self.data_file, self._data)
 
     # ── Credentials CRUD ─────────────────────────────────────
 

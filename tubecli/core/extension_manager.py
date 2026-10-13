@@ -360,6 +360,34 @@ class Extension:
 
 # ── Extension Manager ────────────────────────────────────────────────
 
+def _git_url_refusal(git_url) -> str:
+    """Why this git URL may not be cloned, or "" when it may (security review 13/10/2026).
+
+    Accepted: https:// URLs, scp-style SSH (git@host:owner/repo.git) and an existing
+    local directory (developers install their own checkout). Refused: anything that
+    starts with "-" (git would read it as an option, e.g. --upload-pack=<command>),
+    other transports (ext::, file://, fd::, plain http://), embedded credentials,
+    and control characters.
+    """
+    import re as _re
+
+    url = str(git_url or "").strip()
+    if not url:
+        return "git_url is empty."
+    if url.startswith("-"):
+        return "git_url may not start with '-'."
+    if any(ord(ch) < 32 for ch in url):
+        return "git_url contains control characters."
+    if os.path.isdir(url):
+        return ""
+    if _re.match(r"^https://[^\s/@]+(/[^\s]*)?$", url):
+        return ""
+    if _re.match(r"^[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[^\s]+$", url):
+        return ""
+    return ("Only https:// or git@host:owner/repo URLs (or a local folder) can be "
+            "installed.")
+
+
 class ExtensionManager:
     """Discovers, loads, and manages extensions (built-in + external)."""
 
@@ -1161,7 +1189,15 @@ class ExtensionManager:
         """Clone a extension from git URL, validate, and register.
 
         Returns: {"status": "success"|"error", "extension": ..., "message": ...}
+
+        Installing an extension runs its code with this process's rights, so the
+        caller must already be the owner: the HTTP routes sit behind the login gate
+        in api/server.py (remote = session cookie; loopback = the machine itself).
+        The URL check below is defence in depth, not the authorisation.
         """
+        bad = _git_url_refusal(git_url)
+        if bad:
+            return {"status": "error", "message": bad}
         ext_dir = str(EXTENSIONS_EXTERNAL_DIR)
         os.makedirs(ext_dir, exist_ok=True)
 
@@ -1212,7 +1248,8 @@ class ExtensionManager:
         # Git clone
         try:
             result = subprocess.run(
-                ["git", "clone", "--depth", "1", git_url, target_dir],
+                # `--` ends option parsing: a URL can never be read as a git option.
+                ["git", "clone", "--depth", "1", "--", git_url, target_dir],
                 capture_output=True, text=True, timeout=120,
             )
             if result.returncode != 0:

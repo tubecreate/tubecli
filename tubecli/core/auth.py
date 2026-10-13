@@ -40,16 +40,25 @@ THE SHAPE
 THE DEFAULT PASSWORD
     Ships as "123456" so the installer can print something the user can act on;
     a random string scrolls past in a `curl | bash` and is then unrecoverable.
-    It is deliberately not enough on its own:
 
-      * While the password is still the default, remote requests are REFUSED —
-        not merely warned about. Otherwise every fresh install would sit on the
-        public internet with a known password during the window between install
-        and first login, which is exactly when a scanner finds it.
-      * The change is forced at first login and cannot be skipped.
+    What the code does TODAY (corrected 13/10/2026 — this paragraph used to say
+    remote requests are refused while the password is the default; that was an
+    earlier design, removed by the product owner, and a security reviewer rightly
+    flagged the comment as contradicting check_request()):
 
-    So the default is a bootstrap credential usable from the machine itself, not
-    a way in from outside.
+      * A remote login with the default password is ACCEPTED, and the default is
+        WARNED ABOUT everywhere it can be: `must_change_password` in
+        /api/v1/auth/status and in the login response, the login screen, a
+        dashboard banner, the console and the server summary, and TubeCLI
+        Cloud, which blocks its UI with a "change the password" dialog that
+        cannot be closed until it is changed.
+      * Login is throttled (_MAX_ATTEMPTS per _LOCKOUT_SECONDS per client), which
+        slows a wordlist but does not stop the FIRST guess of "123456".
+      * The installer asks for a password; pressing Enter keeps the default.
+
+    The residual risk is stated plainly in check_request() and SECURITY.md: a
+    machine reachable from the internet that still has the default password can
+    be logged into by anyone who tries it.
 """
 from __future__ import annotations
 
