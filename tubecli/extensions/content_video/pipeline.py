@@ -6153,12 +6153,24 @@ def _publish_now(state: Dict, options: Dict) -> None:
                     f"Unknown publish method {method!r} — used the browser script.")
             _publish_via_script(state, options, privacy)
     except BaseException:
-        # Đăng hỏng (hay huỷ) ⇒ trả khung giờ: video sau của kênh này dùng được nó.
+        # Đăng hỏng (hay huỷ) ⇒ trả khung giờ / suất «đăng ngay hôm nay»: video sau của kênh này dùng được nó.
+        from tubecli.extensions.content_video import publish_schedule as PS
+
+        task_id = str(state.get("task_id") or "")
         if sched:
+            PS.release(sched["key"], sched["at"], task_id)
+        claim = state.get("publish_claim") or {}
+        if claim:
+            PS.release(claim["key"], claim["at"], task_id)
+        raise
+    if not sched and privacy == "public" and not state.get("publish_claim"):
+        # Công khai NGAY ở chế độ «Right away» cũng là «hôm nay kênh đã có bài» — ghi sổ để lượt theo khung giờ biết.
+        try:
             from tubecli.extensions.content_video import publish_schedule as PS
 
-            PS.release(sched["key"], sched["at"], str(state.get("task_id") or ""))
-        raise
+            PS.book_at(_schedule_key(state, options), int(time.time()), str(state.get("task_id") or ""), kind="now")
+        except Exception as e:      # noqa: BLE001 — sổ hỏng không được biến lượt đăng thành công thành hỏng
+            logger.warning(f"[ContentVideo] could not record the publish in the slot book: {e}")
     sched = state.get("publish_schedule")       # _api_schedule xoá nó khi YouTube không nhận giờ
     if sched and state.get("published"):
         state["published"]["scheduled_at"] = sched["iso"]
@@ -6207,6 +6219,13 @@ def _publish_schedule(state: Dict, options: Dict, privacy: str) -> Optional[Dict
         slots = PS.parse_slots(options.get("publish_slots"))
         if not slots:
             warn("No daily publish times were set — the video went public right away.")
+            return None
+        # User 13/10/2026: «nếu trong ngày chưa có bài đăng thì công khai luôn, nếu có rồi thì mới hẹn giờ». Video
+        # ĐẦU TIÊN trong ngày (theo múi giờ khung) của kênh lên ngay; từ video thứ hai mới hẹn khung trống kế tiếp.
+        claimed = PS.claim_today(key, task_id, tz, now)
+        if claimed:
+            state["publish_claim"] = {"key": key, "at": claimed}
+            state["_say"]("publish", "running", "no video on this channel yet today — going public right away")
             return None
         at = PS.book_next(key, slots, task_id, tz)
         if not at:

@@ -128,7 +128,7 @@ def candidates(slots: List[str], tz: tzinfo, after: float, days: int = HORIZON_D
 
 
 # ── Sổ đặt chỗ ─────────────────────────────────────────────────────────
-# {kênh: [{"at": epoch, "task": task_id, "booked_at": epoch}]}
+# {kênh: [{"at": epoch, "task": task_id, "booked_at": epoch, "kind": "slot" | "at" | "now"}]}
 
 def _store_path():
     from tubecli.config import ext_data_path
@@ -191,14 +191,41 @@ def book_next(key: str, slots: List[str], task_id: str = "", tz: Optional[tzinfo
         for at in candidates(slots, tz, now + LEAD_SEC):
             if at // 60 not in taken:
                 mine[:] = [e for e in mine if not (task_id and e.get("task") == task_id)]
-                mine.append({"at": at, "task": task_id, "booked_at": int(now)})
+                mine.append({"at": at, "task": task_id, "booked_at": int(now), "kind": "slot"})
                 _write(data)
                 return at
     return None
 
 
-def book_at(key: str, at: int, task_id: str = "", now: Optional[float] = None) -> int:
-    """Ghi một giờ tự chọn vào sổ (để khung hằng ngày không xếp thêm video vào đúng phút đó)."""
+def _same_day(at: float, ref: float, tz: tzinfo) -> bool:
+    return datetime.fromtimestamp(at, tz).date() == datetime.fromtimestamp(ref, tz).date()
+
+
+def claim_today(key: str, task_id: str = "", tz: Optional[tzinfo] = None, now: Optional[float] = None) -> Optional[int]:
+    """User 13/10/2026: «nếu trong ngày chưa có bài đăng thì công khai luôn, nếu có rồi thì mới hẹn giờ». Kênh `key`
+    CHƯA có video nào công khai (hay hẹn công khai) trong NGÀY theo múi giờ `tz` ⇒ giữ chỗ «đăng ngay» và trả mốc now;
+    đã có ⇒ None (người gọi hẹn khung kế tiếp). Một khoá cho cả kiểm lẫn ghi: hai video xong cùng lúc không cùng được
+    «đăng ngay». Task chạy lại mà đã giữ chỗ hôm nay thì vẫn là của nó."""
+    tz = tz or resolve_tz()
+    now = time.time() if now is None else now
+    key = str(key or "default")
+    with _LOCK:
+        data = _read()
+        _prune(data, now)
+        mine = data.setdefault(key, [])
+        today = [e for e in mine if _same_day(e["at"], now, tz)]
+        if any(task_id and e.get("task") == task_id and e.get("kind") == "now" for e in today):
+            return int(now)
+        if today:
+            return None
+        mine.append({"at": int(now), "task": task_id, "booked_at": int(now), "kind": "now"})
+        _write(data)
+    return int(now)
+
+
+def book_at(key: str, at: int, task_id: str = "", now: Optional[float] = None, kind: str = "at") -> int:
+    """Ghi một giờ tự chọn vào sổ (để khung hằng ngày không xếp thêm video vào đúng phút đó). kind="now": một video vừa
+    công khai NGAY (chế độ «Right away») — tính là «hôm nay kênh đã có bài» cho claim_today."""
     now = time.time() if now is None else now
     key = str(key or "default")
     with _LOCK:
@@ -206,7 +233,7 @@ def book_at(key: str, at: int, task_id: str = "", now: Optional[float] = None) -
         _prune(data, now)
         mine = data.setdefault(key, [])
         mine[:] = [e for e in mine if not (task_id and e.get("task") == task_id)]
-        mine.append({"at": int(at), "task": task_id, "booked_at": int(now)})
+        mine.append({"at": int(at), "task": task_id, "booked_at": int(now), "kind": kind})
         _write(data)
     return int(at)
 

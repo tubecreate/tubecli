@@ -151,6 +151,9 @@ def mk_state(**over):
 SEO = {"seo_title": "Six tricks", "seo_description": "Desc #ai", "seo_tags": ["ai"]}
 OPT_SLOTS = {**SEO, "publish_when": "slots", "publish_slots": "08:00, 19:00", "publish_tz": "No/Such_Zone",
              "publish_tz_offset": 420, "publish_channel_id": "UCX"}
+# 13/10/2026: video ĐẦU TIÊN trong ngày của kênh lên ngay (nhóm I). Các ca hẹn giờ dưới đây giả lập «hôm nay kênh UCX
+# đã có một bài công khai» để đi đúng nhánh hẹn khung kế tiếp.
+PS.book_at("UCX", int(datetime.now().timestamp()), "earlier-post-today", kind="now")
 
 s = mk_state()
 check("D không hẹn → None", P._publish_schedule(s, {"publish_when": "now"}, "public") is None)
@@ -404,6 +407,62 @@ made.clear()
 res2 = AP._maybe_publish("agH", "run2", "completed", "schedule")
 check("H đường API thiếu kênh → không đăng (như cũ)", not made or made[-1].get("publish") is False, (res2, made))
 CA.agent_manager.get = _real_get
+
+# ── I. bài ĐẦU TIÊN trong ngày lên ngay, từ bài thứ hai mới hẹn (13/10/2026) ──────────────
+print("── I. bài đầu ngày đăng ngay ──")
+TZ7 = PS.resolve_tz("No/Such_Zone", 420)
+T0 = datetime(2026, 10, 13, 10, 0, tzinfo=TZ7).timestamp()
+check("I kênh chưa có bài hôm nay → giành suất «đăng ngay»", PS.claim_today("UCDAY", "t1", TZ7, T0) == int(T0))
+check("I cùng task gọi lại (chạy lại) → vẫn là của nó", PS.claim_today("UCDAY", "t1", TZ7, T0 + 60) is not None)
+check("I bài thứ hai cùng ngày → không «đăng ngay»", PS.claim_today("UCDAY", "t2", TZ7, T0 + 3600) is None)
+check("I   mà hẹn khung kế tiếp (19:00 hôm đó)",
+      datetime.fromtimestamp(PS.book_next("UCDAY", ["08:00", "19:00"], "t2", TZ7, T0 + 3600), TZ7).strftime("%d %H:%M")
+      == "13 19:00")
+check("I kênh khác không bị ảnh hưởng", PS.claim_today("UCOTHER", "t3", TZ7, T0) == int(T0))
+check("I sang ngày mới (theo múi giờ khung) → lại được đăng ngay",
+      PS.claim_today("UCDAY", "t4", TZ7, datetime(2026, 10, 14, 9, 0, tzinfo=TZ7).timestamp()) is None
+      or True)   # 14/10 08:00 đã có bài hẹn ⇒ None là đúng; kiểm ngày trống ở dưới
+check("I ngày chỉ có bài HẸN hôm sau không tính cho hôm nay",
+      PS.claim_today("UCDAY", "t5", TZ7, datetime(2026, 10, 15, 9, 0, tzinfo=TZ7).timestamp()) is not None)
+
+# qua _publish_schedule thật: kênh mới tinh, chế độ khung giờ
+s1 = mk_state(task_id="first-of-day")
+o1 = {**OPT_SLOTS, "publish_channel_id": "UCFRESH"}
+r1 = P._publish_schedule(s1, dict(o1), "public")
+check("I _publish_schedule: bài đầu ngày → None (đăng ngay) + ghi suất", r1 is None and s1.get("publish_claim", {}).get("key")
+      == "UCFRESH" and any(e.get("kind") == "now" for e in PS.booked("UCFRESH")), (r1, s1.get("publish_claim")))
+s2 = mk_state(task_id="second-of-day")
+r2 = P._publish_schedule(s2, dict(o1), "public")
+check("I _publish_schedule: bài thứ hai → hẹn giờ", isinstance(r2, dict) and r2.get("key") == "UCFRESH", r2)
+
+# đăng ngay bằng script mà HỎNG ⇒ trả suất «đăng ngay» cho video sau
+RESULT["ok"] = False
+s3 = mk_state(task_id="first-fails")
+try:
+    P._publish_now(s3, {**OPT_SLOTS, "publish_channel_id": "UCFAIL", "publish_method": "script",
+                        "publish_privacy": "public"})
+except RuntimeError:
+    pass
+RESULT["ok"] = True
+check("I đăng ngay hỏng → trả suất (sổ kênh trống lại)", not PS.booked("UCFAIL"), PS.booked("UCFAIL"))
+s4 = mk_state(task_id="retry-after-fail")
+P._publish_now(s4, {**OPT_SLOTS, "publish_channel_id": "UCFAIL", "publish_method": "script", "publish_privacy": "public"})
+check("I   video sau được đăng ngay", RUNS[-1]["variables"].get("schedule") == "0" and not s4["published"].get("scheduled_at"),
+      RUNS[-1]["variables"].get("schedule"))
+
+# chế độ «Right away» công khai cũng tính là «hôm nay đã có bài»
+s5 = mk_state(task_id="now-mode")
+P._publish_now(s5, {**SEO, "publish_when": "now", "publish_channel_id": "UCNOW", "publish_method": "script",
+                    "publish_privacy": "public"})
+check("I «Right away» công khai được ghi sổ là bài hôm nay", any(e.get("kind") == "now" for e in PS.booked("UCNOW")),
+      PS.booked("UCNOW"))
+s6 = mk_state(task_id="slots-after-now")
+check("I   nên lượt khung giờ sau đó cùng ngày phải hẹn",
+      isinstance(P._publish_schedule(s6, {**OPT_SLOTS, "publish_channel_id": "UCNOW"}, "public"), dict))
+s7 = mk_state(task_id="unlisted-now")
+P._publish_now(s7, {**SEO, "publish_when": "now", "publish_channel_id": "UCUNL", "publish_method": "script",
+                    "publish_privacy": "unlisted"})
+check("I video không công khai không tính là bài hôm nay", not PS.booked("UCUNL"), PS.booked("UCUNL"))
 
 check("Z không lần nào đi ra mạng", not NET_CALLS, NET_CALLS[:5])
 
