@@ -543,6 +543,15 @@ async def _require_login(request: Request, call_next):
                 return await call_next(request)
     except Exception:
         pass
+    # FAIL-CLOSED (security review 13/10/2026). The decision below used to sit in one
+    # `try … except Exception: pass` followed by `return await call_next(request)`, so
+    # ANY exception — in check_request, in the guest lookup, even while building the
+    # 401 — let the request through to the endpoint unauthenticated (reproduced: a
+    # raising check_request turned 401 into 200). Now every failure refuses, and
+    # call_next() runs only AFTER a positive decision, outside any except, so an
+    # exception raised by the endpoint itself can never re-run it a second time.
+    from fastapi.responses import JSONResponse, RedirectResponse
+
     try:
         from tubecli.core import auth
 
@@ -551,47 +560,72 @@ async def _require_login(request: Request, call_next):
             request.cookies.get(auth.SESSION_COOKIE),
             request.headers,
         )
-        if refusal is not None:
-            from fastapi.responses import JSONResponse, RedirectResponse
+    except Exception as e:
+        _log_gate_error("auth.check_request", e)
+        return _gate_refusal(request, 503, "auth_unavailable",
+                             "Authentication check failed; request refused.")
+    if refusal is None:
+        return await call_next(request)
 
-            # Không phải chủ → thử GUEST (workspace chia sẻ có phạm vi). FAIL-CLOSED:
-            # mỗi bước bọc try riêng, bất kỳ lỗi nào → coi như không phải guest (giữ
-            # refusal của chủ). Guest hợp lệ nhưng NGOÀI scope → 403 (khác 401 của chủ).
-            gscope = None
-            try:
-                # Token khách công khai trong header (chỉ scope public — xem auth.public_bearer_scope),
-                # còn lại cookie như cũ. Phạm vi vẫn do _guest_allowed quyết.
-                gscope = (auth.public_bearer_scope(request.headers.get(auth.GUEST_HEADER))
-                          or auth.guest_scope_for(request.cookies.get(auth.GUEST_COOKIE)))
-            except Exception:
-                gscope = None
-            if gscope is not None:
-                allowed = False
-                try:
-                    allowed = await _guest_allowed(request, gscope)
-                except Exception:
-                    allowed = False
-                if allowed:
-                    request.state.guest_scope = gscope
-                    return await call_next(request)
-                # code ổn định để giao diện tự dịch — câu detail chỉ là dự
-                # phòng khi client chưa biết mã này (xem tubecliClient.js).
-                return JSONResponse(status_code=403,
-                                    content={"detail": "Outside the shared scope.",
-                                             "code": "guest_out_of_scope"},
-                                    headers=_cors_error_headers(request))
-
-            # A browser asking for a page gets the login screen; anything else
-            # gets JSON it can act on. Sending HTML to a fetch() is how the
-            # dashboard ended up showing a bare "Failed." for everything.
-            accepts_html = "text/html" in (request.headers.get("accept") or "")
-            if accepts_html and request.method == "GET":
-                return RedirectResponse(
-                    f"/login?next={_login_next(request.url.path, request.url.query)}", status_code=302)
-            return JSONResponse(status_code=401, content=refusal, headers=_cors_error_headers(request))
+    # Không phải chủ → thử GUEST (workspace chia sẻ có phạm vi). FAIL-CLOSED: mỗi bước
+    # bọc try riêng, bất kỳ lỗi nào → coi như không phải guest (giữ refusal của chủ).
+    # Guest hợp lệ nhưng NGOÀI scope → 403 (khác 401 của chủ).
+    gscope = None
+    try:
+        # Token khách công khai trong header (chỉ scope public — xem auth.public_bearer_scope),
+        # còn lại cookie như cũ. Phạm vi vẫn do _guest_allowed quyết.
+        gscope = (auth.public_bearer_scope(request.headers.get(auth.GUEST_HEADER))
+                  or auth.guest_scope_for(request.cookies.get(auth.GUEST_COOKIE)))
     except Exception:
-        pass  # never let the gate itself take the server down
-    return await call_next(request)
+        gscope = None
+    if gscope is not None:
+        allowed = False
+        try:
+            allowed = await _guest_allowed(request, gscope)
+        except Exception:
+            allowed = False
+        if allowed:
+            request.state.guest_scope = gscope
+            return await call_next(request)
+        # code ổn định để giao diện tự dịch — câu detail chỉ là dự
+        # phòng khi client chưa biết mã này (xem tubecliClient.js).
+        return _gate_refusal(request, 403, "guest_out_of_scope", "Outside the shared scope.")
+
+    # A browser asking for a page gets the login screen; anything else gets JSON it
+    # can act on. Sending HTML to a fetch() is how the dashboard ended up showing a
+    # bare "Failed." for everything.
+    try:
+        accepts_html = "text/html" in (request.headers.get("accept") or "")
+        if accepts_html and request.method == "GET":
+            return RedirectResponse(
+                f"/login?next={_login_next(request.url.path, request.url.query)}", status_code=302)
+        return JSONResponse(status_code=401, content=refusal, headers=_cors_error_headers(request))
+    except Exception:
+        # Building the nice response failed — still refuse, just plainly.
+        return JSONResponse(status_code=401, content={"reason": "login_required", "detail": "Cần đăng nhập."})
+
+
+def _log_gate_error(where: str, exc: Exception) -> None:
+    """Log that a security gate failed — type and message only, never headers,
+    cookies or tokens (the request is refused regardless)."""
+    try:
+        import logging
+        logging.getLogger("tubecli.auth").warning("%s raised %s: %s — request refused",
+                                                  where, type(exc).__name__, str(exc)[:200])
+    except Exception:
+        pass
+
+
+def _gate_refusal(request: Request, status: int, code: str, detail: str):
+    """A refusal from a security gate. Never raises: if even the CORS echo fails,
+    the plain response still refuses."""
+    from fastapi.responses import JSONResponse
+
+    body = {"detail": detail, "code": code, "reason": code}
+    try:
+        return JSONResponse(status_code=status, content=body, headers=_cors_error_headers(request))
+    except Exception:
+        return JSONResponse(status_code=status, content=body)
 
 
 @app.middleware("http")
@@ -614,19 +648,19 @@ async def _guard_cross_origin(request: Request, call_next):
                 return await call_next(request)
         except Exception:
             pass
+        # FAIL-CLOSED (security review 13/10/2026): a guard that throws used to be
+        # skipped (`except: pass` → call_next), i.e. a broken guard allowed every origin.
         try:
             from tubecli.core.origin_guard import is_origin_allowed
-            if not is_origin_allowed(request.headers.get("origin"),
-                                     request.headers.get("host", "")):
-                from fastapi.responses import JSONResponse
-                return JSONResponse(
-                    status_code=403,
-                    content={"detail": "Cross-origin request refused. Open the dashboard "
-                                       "from this machine, or set TUBECLI_ALLOWED_ORIGIN_HOSTS."},
-                    headers=_cors_error_headers(request),
-                )
-        except Exception:
-            pass  # never let the guard itself take the server down
+            origin_ok = is_origin_allowed(request.headers.get("origin"),
+                                          request.headers.get("host", ""))
+        except Exception as e:
+            _log_gate_error("origin_guard.is_origin_allowed", e)
+            origin_ok = False
+        if not origin_ok:
+            return _gate_refusal(request, 403, "cross_origin_refused",
+                                 "Cross-origin request refused. Open the dashboard "
+                                 "from this machine, or set TUBECLI_ALLOWED_ORIGIN_HOSTS.")
     return await call_next(request)
 
 
