@@ -14,7 +14,7 @@ The **machine owner is fully trusted** — an authenticated owner can, by design
 
 | Layer | Where | What it does |
 |---|---|---|
-| Login gate | `tubecli/api/server.py` → `_require_login`, `tubecli/core/auth.py` → `check_request` | Every request that is not from loopback needs a session cookie (password login, scrypt-hashed, throttled). **Fail-closed**: if the check itself errors, the request gets `503 auth_unavailable`, never the endpoint. |
+| Login gate | `tubecli/api/server.py` → `_require_login`, `tubecli/core/auth.py` → `check_request`, `default_password_refusal` | Every request that is not from loopback needs a session cookie (password login, scrypt-hashed, throttled); while the password is still the default, a remote session may only change it. **Fail-closed**: if a check itself errors, the request gets `503 auth_unavailable`, never the endpoint. |
 | Proxy awareness | `auth.behind_proxy` | A request carrying `X-Forwarded-For`, `X-Real-IP`, `Forwarded`, `X-Forwarded-Host` or `CF-Connecting-IP` is never treated as local, so a tunnel or reverse proxy on the same host cannot turn the loopback exemption into a bypass. |
 | Origin guard | `_guard_cross_origin`, `tubecli/core/origin_guard.py` | Refuses cross-origin browser requests (CSRF). **Fail-closed** since 2026-10-13. It is not authentication: clients without an `Origin` header are judged by the login gate alone. |
 | Guest scope | `auth.guest_scope_for`, `_guest_allowed` | People a workspace is shared with get a token limited to that workspace's paths; outside it → 403. |
@@ -41,7 +41,7 @@ Exempt from login (reachable without a session): `/login`, `/api/v1/auth/login`,
 
 ## Known residual risks (stated, not hidden)
 
-- **Default password `123456`.** The installer offers it so a `curl | bash` user has something to type. A remote login with it is accepted and warned about everywhere (`must_change_password`, login screen, dashboard banner, console, TubeCLI Cloud forces a change). A machine reachable from the internet that keeps the default can be logged into by anyone who tries it. **Change it at install, or with `tubecli password`.**
+- **Default password `123456`.** The installer offers it so a `curl | bash` user has something to type. Since 2026-10-13 a **remote** session made with it can only change it: every other route answers `403 password_change_required` (`auth.default_password_refusal`) and the login page shows the change form with no "skip". The machine itself is unaffected, and so are the installer, the pairing client and the provisioner, which change it over loopback; TubeCLI Cloud refuses to log in to a machine on the default and forces the change. Someone who reaches the port first can still log in with it and set a password of their own, so **set yours at install, or with `tubecli password`.**
 - **Bind address.** Desktops bind `127.0.0.1`. Headless servers bind `0.0.0.0:5295` so the dashboard can be opened by IP; behind TubeCLI Cloud the machine is reached through a Cloudflare tunnel and does not need the port open. Firewall 5295 if you do not use it directly.
 - **Loopback is trusted.** Any process on the machine can call the API without a session. The machine is the owner's; do not run TubeCLI on a host you share with untrusted users.
 - **Install scripts are piped from the network.** If you prefer, download and read them first (below).
@@ -64,4 +64,4 @@ To pin a reviewed version, clone and check out a specific commit, then follow *M
 
 ## Regression tests
 
-`tests/security_gate_test.py` loads the real FastAPI app and asserts: no session → 401; a raising auth check → 503, never 200; a raising origin guard → 403; refused git URLs; secret files written 0600. `tests/auth_test.py` covers hashing, throttling, sessions and the proxy rule.
+`tests/security_gate_test.py` loads the real FastAPI app and asserts: no session → 401; a raising auth check → 503, never 200; a raising origin guard → 403; a remote session on the default password reaches only the password change; refused git URLs; secret files written 0600. `tests/auth_test.py` covers hashing, throttling, sessions and the proxy rule.

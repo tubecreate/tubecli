@@ -41,24 +41,25 @@ THE DEFAULT PASSWORD
     Ships as "123456" so the installer can print something the user can act on;
     a random string scrolls past in a `curl | bash` and is then unrecoverable.
 
-    What the code does TODAY (corrected 13/10/2026 — this paragraph used to say
-    remote requests are refused while the password is the default; that was an
-    earlier design, removed by the product owner, and a security reviewer rightly
-    flagged the comment as contradicting check_request()):
+    What the code does (13/10/2026, after a security review):
 
-      * A remote login with the default password is ACCEPTED, and the default is
-        WARNED ABOUT everywhere it can be: `must_change_password` in
-        /api/v1/auth/status and in the login response, the login screen, a
-        dashboard banner, the console and the server summary, and TubeCLI
-        Cloud, which blocks its UI with a "change the password" dialog that
-        cannot be closed until it is changed.
-      * Login is throttled (_MAX_ATTEMPTS per _LOCKOUT_SECONDS per client), which
-        slows a wordlist but does not stop the FIRST guess of "123456".
+      * From the machine itself (loopback, not proxied) nothing changes.
+      * From anywhere else, logging in with the default password works, but that
+        session can ONLY change the password: every other route answers 403
+        `password_change_required` (default_password_refusal, enforced by the
+        login gate in api/server.py). The login page switches to the change form
+        and offers no "skip" for remote users.
+      * The default is also flagged everywhere: `must_change_password` in
+        /api/v1/auth/status and the login response, a dashboard banner, the
+        console and server summary, and TubeCLI Cloud, which refuses to log in
+        and shows a change-password dialog that cannot be closed.
+      * Login is throttled (_MAX_ATTEMPTS per _LOCKOUT_SECONDS per client).
       * The installer asks for a password; pressing Enter keeps the default.
 
-    The residual risk is stated plainly in check_request() and SECURITY.md: a
-    machine reachable from the internet that still has the default password can
-    be logged into by anyone who tries it.
+    History: an early version refused remote requests outright while the password
+    was the default; it was relaxed to warn-only, and a reviewer flagged that the
+    docstring still promised the refusal. The rule above restores protection while
+    keeping first login from a laptop possible.
 """
 from __future__ import annotations
 
@@ -200,11 +201,50 @@ def verify_password(password: str) -> bool:
 def is_default_password() -> bool:
     """True while the shipped password has not been replaced.
 
-    Remote access is refused in this state. Read from the stored flag rather
-    than by hashing "123456" again, so a user who deliberately re-chooses the
-    default is still treated as having chosen it.
+    Remote access is limited to changing it in this state (see
+    default_password_refusal). Read from the stored flag rather than by hashing
+    "123456" again, so a user who deliberately re-chooses the default is still
+    treated as having chosen it.
     """
     return bool(_load().get("is_default", True))
+
+
+def is_local_request(client_host: str, headers=None) -> bool:
+    """The machine itself, and nothing relayed it (see behind_proxy)."""
+    return is_loopback(client_host) and not (headers is not None and behind_proxy(headers))
+
+
+# What a REMOTE session may reach while the password is still the default: enough to
+# log in, read the status, change the password and log out — nothing else. Everything
+# here except /api/v1/auth/password and /logout is login-exempt anyway; listed so the
+# rule reads in one place.
+DEFAULT_PW_ALLOWED_PATHS = frozenset({
+    "/login", "/favicon.ico",
+    "/api/v1/auth/status", "/api/v1/auth/login", "/api/v1/auth/logout",
+    "/api/v1/auth/password", "/api/v1/auth/banner.js",
+})
+
+
+def default_password_refusal(client_host: str, headers, path: str) -> Optional[dict]:
+    """Refusal for a REMOTE owner request while the password is still the default.
+
+    Security review 13/10/2026, decided by the product owner the same day: logging in
+    from outside with "123456" is allowed, but that session can only change the
+    password — every other route answers 403 `password_change_required` until it is
+    changed. Before this, anyone who reached port 5295 and typed the shipped password
+    got full owner access (API keys, extension installs = code execution). The
+    machine itself (loopback, not proxied) is unaffected, and so are the installer,
+    the pairing client and the provisioner, which change the password over loopback.
+    """
+    if is_local_request(client_host, headers):
+        return None
+    if path in DEFAULT_PW_ALLOWED_PATHS:
+        return None
+    if not is_default_password():
+        return None
+    return {"reason": "password_change_required",
+            "detail": "Máy còn mật khẩu mặc định 123456 — truy cập từ xa chỉ được đổi mật khẩu. "
+                      "Đổi ở /login hoặc chạy `tubecli password` trên máy."}
 
 
 def is_configured() -> bool:
@@ -350,17 +390,10 @@ def check_request(client_host: str, cookie_token: Optional[str],
         return {"reason": "not_configured",
                 "detail": "TubeCLI chưa được thiết lập. Hãy đăng nhập từ chính máy chủ để đặt mật khẩu."}
 
-    # The default password is WARNED ABOUT, not refused.
-    #
-    # An earlier version blocked every remote request until the password was
-    # changed, which closed the window between install and first login. The
-    # product owner chose otherwise: a user who does not want to change it
-    # should still be able to work, and be told what they are accepting. That
-    # is a real trade — anyone who reaches the port and guesses the shipped
-    # password gets the same access the owner has, on an API that returns
-    # data/cloud_api_keys.json and installs code — so the warning is surfaced
-    # everywhere it can be: /api/v1/auth/status, the login screen, a banner in
-    # the dashboard, and the console at startup.
+    # The default password: a remote session made with it may only change it.
+    # That rule needs the request PATH, so it lives in default_password_refusal(),
+    # which the login gate in api/server.py calls right after this function lets
+    # an owner request through.
     if session_valid(cookie_token):
         return None
 
