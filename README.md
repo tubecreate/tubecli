@@ -419,7 +419,7 @@ External agents (Claude, GPT, Gemini, Codex) can read these files to learn how t
 
 ## 🔒 Security
 
-TubeCLI runs code and holds your logins, so it is built around one rule: the machine owner is fully trusted, and nobody else may become the owner. [SECURITY.md](SECURITY.md) lists every layer that enforces it (login gate and origin guard that **fail closed**, proxy-aware loopback rule, scoped guest tokens, signed public-agent calls, the approval gate), what is stored where and with which permissions, and the residual risks we state rather than hide — the default-password window and the `0.0.0.0` bind on headless servers among them. It also shows how to download and read the install scripts before running them, and how to report a vulnerability privately.
+TubeCLI runs code and holds your logins, so it is built around one rule: the machine owner is fully trusted, and nobody else may become the owner. [SECURITY.md](SECURITY.md) lists every layer that enforces it (login gate and origin guard that **fail closed**, proxy-aware loopback rule, scoped guest tokens, signed public-agent calls, the approval gate), what is stored where and with which permissions, and the residual risks we state rather than hide — the default-password window, the `0.0.0.0` bind on headless servers, and extensions running in-process without a sandbox among them. Pin an extension to the commit you reviewed with `tubecli extension install <url> --commit <full hash>`; every install is recorded in `data/extension_provenance.json`. SECURITY.md also shows how to download and read the install scripts before running them, and how to report a vulnerability privately.
 
 ## 📝 License
 

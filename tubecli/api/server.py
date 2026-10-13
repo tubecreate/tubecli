@@ -5001,13 +5001,21 @@ async def extension_locale(name: str, lang: str):
 
 class ExtensionInstallRequest(BaseModel):
     git_url: str
+    # Full commit hash to pin (or append "#<hash>" to git_url). The install is refused
+    # unless the checkout lands exactly on it — see extension_manager._checkout_pin.
+    commit: Optional[str] = None
 
 
 @app.post("/api/v1/extensions/install")
 async def install_extension(req: ExtensionInstallRequest):
-    """Install a extension from a git repository URL."""
+    """Install a extension from a git repository URL.
+
+    Owner-only: this runs the extension's code, so it relies on the login gate
+    (_require_login) like every non-exempt route — tests/security_gate_test.py section E
+    drives it with no session, proxy headers, guest tokens and a failing auth check.
+    """
     from tubecli.core.extension_manager import extension_manager
-    result = extension_manager.install_from_git(req.git_url)
+    result = extension_manager.install_from_git(req.git_url, commit=req.commit)
     if result["status"] == "error":
         raise HTTPException(400, result["message"])
     return result

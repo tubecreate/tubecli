@@ -388,6 +388,165 @@ def _git_url_refusal(git_url) -> str:
             "installed.")
 
 
+# ── Commit pinning + install provenance (security review 13/10/2026, point 5) ──
+#
+# An extension runs IN-PROCESS with TubeCLI's rights — there is no sandbox (SECURITY.md,
+# "Installing extensions"). What the owner can control is WHICH code runs: a pin makes
+# the install check out exactly the commit that was reviewed and refuses otherwise, and
+# the provenance record says afterwards what was installed, from where, at which commit,
+# with which dependency manifests. A pin must be a FULL hash: a branch or tag can be
+# moved, and a short hash can be forged by whoever controls the repository (they can
+# mint a second commit with the same 7-character prefix).
+
+def _split_pin(git_url, commit=None) -> tuple:
+    """(url, pin, error) — the pin comes from `commit` or a `#<full hash>` URL suffix.
+
+    The suffix lets every caller that only passes a URL (Market, essentials, CLI)
+    pin too. "" pin = not pinned (install the default branch, as before).
+    """
+    import re as _re
+
+    url = str(git_url or "").strip()
+    pin = str(commit or "").strip().lower()
+    if "#" in url and not os.path.isdir(url):
+        url, frag = url.rsplit("#", 1)
+        frag = frag.strip().lower()
+        if pin and frag and frag != pin:
+            return url, "", "The URL #commit and the commit field disagree."
+        pin = pin or frag
+    if pin and not _re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", pin):
+        return url, "", ("A pin must be the full commit hash (40 hex characters) — branches, "
+                         "tags and short hashes can be moved or forged.")
+    return url, pin, ""
+
+
+def _git_head(repo_dir) -> str:
+    """The commit a checkout is at, or "" when it cannot be read."""
+    try:
+        r = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo_dir,
+                           capture_output=True, text=True, timeout=15)
+        return r.stdout.strip().lower() if r.returncode == 0 else ""
+    except Exception:
+        return ""
+
+
+def _checkout_pin(repo_dir, pin: str) -> str:
+    """Move a fresh clone to `pin` and PROVE it got there; "" on success, else why not.
+
+    The clone is shallow, so first ask the remote for exactly that commit (GitHub and
+    most hosts allow fetching a full hash); a host that refuses gets the full history
+    instead. The final HEAD check is what makes the pin binding — a tag or branch that
+    happens to be named like the hash cannot redirect it.
+    """
+    def git(*args, timeout=120):
+        return subprocess.run(["git", *args], cwd=repo_dir, capture_output=True,
+                              text=True, timeout=timeout)
+
+    try:
+        if _git_head(repo_dir) != pin:
+            git("fetch", "--depth", "1", "origin", pin)
+            if git("cat-file", "-e", pin + "^{commit}").returncode != 0:
+                git("fetch", "--unshallow", "origin", timeout=300)
+            r = git("-c", "advice.detachedHead=false", "checkout", "--detach", pin)
+            if r.returncode != 0:
+                return (f"Commit {pin} is not in that repository: "
+                        f"{(r.stderr or '').strip()[:200]}")
+    except FileNotFoundError:
+        return "Git is not installed or not in PATH."
+    except subprocess.TimeoutExpired:
+        return f"Timed out fetching commit {pin}."
+    head = _git_head(repo_dir)
+    if head != pin:
+        return f"Pinned to {pin} but the checkout is at {head or 'an unknown commit'}; refused."
+    return ""
+
+
+def _remove_tree(path) -> None:
+    """Delete a refused clone completely. git marks its object files read-only, so on
+    Windows a plain rmtree(ignore_errors=True) silently leaves the folder behind — and
+    a leftover folder blocks the next install ("already exists") or is picked up by
+    discovery at the next start, loading code the install had refused."""
+    import stat as _stat
+
+    def _retry(func, p, *_):
+        try:
+            os.chmod(p, _stat.S_IWRITE)
+            func(p)
+        except Exception:
+            pass
+
+    try:
+        if sys.version_info >= (3, 12):
+            shutil.rmtree(path, onexc=_retry)
+        else:
+            shutil.rmtree(path, onerror=_retry)
+    except Exception:
+        pass
+
+
+# Files that decide what gets installed besides the extension's own code.
+_DEPENDENCY_FILES = ("requirements.txt", "package.json", "package-lock.json")
+
+
+def _provenance_file() -> Path:
+    import tubecli.config as _cfg  # read at call time (tests point DATA_DIR elsewhere)
+
+    return Path(_cfg.DATA_DIR) / "extension_provenance.json"
+
+
+def read_provenance(name: Optional[str] = None):
+    """All install records ({name: record}), or one record / None."""
+    try:
+        data = json.loads(_provenance_file().read_text(encoding="utf-8"))
+    except Exception:
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    return data.get(name) if name is not None else data
+
+
+def _provenance_entry(source: str, repo_dir: str, pin: str = "", previous: Optional[dict] = None) -> dict:
+    """What is installed: source URL, commit, pin, and a sha256 of each dependency file."""
+    import hashlib
+    import time
+
+    deps = {}
+    for fn in _DEPENDENCY_FILES:
+        p = os.path.join(repo_dir, fn)
+        if os.path.isfile(p):
+            try:
+                with open(p, "rb") as f:
+                    deps[fn] = hashlib.sha256(f.read()).hexdigest()
+            except OSError:
+                pass
+    entry = {
+        "source": source,
+        "commit": _git_head(repo_dir),
+        "pinned": bool(pin),
+        "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "dependency_files": deps,
+    }
+    if previous and previous.get("commit") and previous.get("commit") != entry["commit"]:
+        entry["previous_commit"] = previous["commit"]
+    return entry
+
+
+def _record_provenance(name: str, entry: Optional[dict]) -> None:
+    """Store (or, with None, forget) one extension's record. Never raises: a record
+    that cannot be written must not undo an install that already happened."""
+    try:
+        from tubecli.core.private_file import write_json_private
+
+        data = read_provenance()
+        if entry is None:
+            data.pop(name, None)
+        else:
+            data[name] = entry
+        write_json_private(_provenance_file(), data)
+    except Exception as e:
+        logger.warning(f"Could not write extension provenance for '{name}': {e}")
+
+
 class ExtensionManager:
     """Discovers, loads, and manages extensions (built-in + external)."""
 
@@ -1185,17 +1344,23 @@ class ExtensionManager:
 
     # ── Git Install / Uninstall ──────────────────────────────
 
-    def install_from_git(self, git_url: str) -> dict:
+    def install_from_git(self, git_url: str, commit: Optional[str] = None) -> dict:
         """Clone a extension from git URL, validate, and register.
 
-        Returns: {"status": "success"|"error", "extension": ..., "message": ...}
+        Returns: {"status": "success"|"error", "extension": ..., "commit": ..., "message": ...}
 
         Installing an extension runs its code with this process's rights, so the
         caller must already be the owner: the HTTP routes sit behind the login gate
         in api/server.py (remote = session cookie; loopback = the machine itself).
         The URL check below is defence in depth, not the authorisation.
+
+        `commit` (or a `#<full hash>` suffix on the URL) pins the install: the clone is
+        moved to that commit and refused unless HEAD equals it, BEFORE the manifest is
+        read or any dependency is installed. Every install is recorded in
+        data/extension_provenance.json (source, commit, dependency-file hashes).
         """
-        bad = _git_url_refusal(git_url)
+        git_url, pin, bad = _split_pin(git_url, commit)
+        bad = bad or _git_url_refusal(git_url)
         if bad:
             return {"status": "error", "message": bad}
         ext_dir = str(EXTENSIONS_EXTERNAL_DIR)
@@ -1259,22 +1424,29 @@ class ExtensionManager:
         except subprocess.TimeoutExpired:
             return {"status": "error", "message": "Git clone timed out (120s)."}
 
+        # Pinned: move to the reviewed commit before ANYTHING from the repo is read or run.
+        if pin:
+            pin_error = _checkout_pin(target_dir, pin)
+            if pin_error:
+                _remove_tree(target_dir)
+                return {"status": "error", "message": pin_error}
+
         # Validate manifest
         manifest_file = os.path.join(target_dir, "tubecli-extension.json")
         if not os.path.exists(manifest_file):
-            shutil.rmtree(target_dir, ignore_errors=True)
+            _remove_tree(target_dir)
             return {"status": "error", "message": "No tubecli-extension.json found in repository."}
 
         try:
             with open(manifest_file, "r", encoding="utf-8-sig") as f:
                 manifest = json.load(f)
         except Exception as e:
-            shutil.rmtree(target_dir, ignore_errors=True)
+            _remove_tree(target_dir)
             return {"status": "error", "message": f"Invalid tubecli-extension.json: {e}"}
 
         errors = validate_manifest(manifest)
         if errors:
-            shutil.rmtree(target_dir, ignore_errors=True)
+            _remove_tree(target_dir)
             return {"status": "error", "message": f"Manifest validation failed: {'; '.join(errors)}"}
 
         # Rename folder from git repo slug to manifest name if different
@@ -1282,7 +1454,7 @@ class ExtensionManager:
         if manifest_name and manifest_name != repo_name:
             new_target_dir = os.path.join(ext_dir, manifest_name)
             if os.path.isdir(new_target_dir):
-                shutil.rmtree(target_dir, ignore_errors=True)
+                _remove_tree(target_dir)
                 return {"status": "error", "message": f"Extension '{manifest_name}' already exists. Uninstall first."}
             try:
                 os.rename(target_dir, new_target_dir)
@@ -1328,8 +1500,12 @@ class ExtensionManager:
         # Load the extension
         extension = self._load_external_extension(target_dir, manifest)
         if not extension:
-            shutil.rmtree(target_dir, ignore_errors=True)
+            _remove_tree(target_dir)
             return {"status": "error", "message": "Failed to load extension module."}
+
+        # Its code is now loaded: record what it is before anything else can go wrong.
+        prov = _provenance_entry(git_url, target_dir, pin)
+        _record_provenance(extension.name, prov)
 
         # Register and enable
         self.register(extension)
@@ -1339,7 +1515,10 @@ class ExtensionManager:
         return {
             "status": "success",
             "extension": extension.to_dict(),
-            "message": f"Extension '{extension.name}' v{extension.version} installed and enabled.",
+            "commit": prov["commit"],
+            "pinned": bool(pin),
+            "message": f"Extension '{extension.name}' v{extension.version} installed and enabled"
+                       f" (commit {prov['commit'][:12] or 'unknown'}{', pinned' if pin else ''}).",
         }
 
     def update_extension(self, name: str) -> dict:
@@ -1376,6 +1555,15 @@ class ExtensionManager:
         target_dir = extension.extension_dir
         if not target_dir or not os.path.exists(target_dir):
             return {"status": "error", "message": "Extension directory not found."}
+
+        # A pinned extension stays on its reviewed commit: updating it means choosing a
+        # new commit on purpose (reinstall with that hash), never "whatever main is now".
+        prev_prov = read_provenance(name) or {}
+        if prev_prov.get("pinned"):
+            return {"status": "error", "pinned": True, "commit": prev_prov.get("commit", ""),
+                    "message": (f"Extension '{name}' is pinned to commit "
+                                f"{str(prev_prov.get('commit', ''))[:12]} and is not updated "
+                                "automatically. Reinstall it with the new commit hash to move the pin.")}
 
         # Update via Git if .git is present
         git_dir = os.path.join(target_dir, ".git")
@@ -1427,11 +1615,22 @@ class ExtensionManager:
         # hẹn khởi động lại.
         if not os.path.exists(os.path.join(target_dir, "tubecli-extension.json")):
             return {"status": "error", "message": "manifest not found after update"}
+        source = prev_prov.get("source", "")
+        if not source:
+            try:
+                source = subprocess.run(["git", "config", "--get", "remote.origin.url"], cwd=target_dir,
+                                        capture_output=True, text=True, timeout=15).stdout.strip()
+            except Exception:
+                source = ""
+        prov = _provenance_entry(source, target_dir, "", previous=prev_prov)
+        _record_provenance(name, prov)
         hr = self.hot_reload(name)
         current = self._extensions.get(name) or extension
         return {
             "status": "success",
             "extension": current.to_dict(),
+            "commit": prov["commit"],
+            "previous_commit": prov.get("previous_commit", ""),
             "reloaded": bool(hr.get("reloaded")),
             "reload": hr,
             "message": (f"Extension '{name}' updated to v{current.version} and reloaded in place — no restart."
@@ -1475,6 +1674,7 @@ class ExtensionManager:
             except Exception as e:
                 return {"status": "error", "message": f"Extension disabled but failed to remove directory: {e}"}
 
+        _record_provenance(name, None)
         return {"status": "success", "message": f"Extension '{name}' uninstalled."}
 
 

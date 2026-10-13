@@ -82,13 +82,16 @@ def disable_extension(name):
 
 @extension_group.command("install")
 @click.argument("git_url")
-def install_extension(git_url):
+@click.option("--commit", default=None,
+              help="Full commit hash to pin; the install is refused unless it lands exactly there.")
+def install_extension(git_url, commit):
     """Install a extension from a git repository URL.
 
     The repository must contain a tubecli-extension.json manifest.
 
     Example:
         tubecli extension install https://github.com/user/my-extension.git
+        tubecli extension install https://github.com/user/my-extension.git --commit <40-hex hash>
     """
     from tubecli.core.extension_manager import extension_manager
     from tubecli.i18n import t
@@ -96,7 +99,7 @@ def install_extension(git_url):
     console.print(t("ext.installing", url=git_url))
 
     with console.status(t("ext.cloning")):
-        result = extension_manager.install_from_git(git_url)
+        result = extension_manager.install_from_git(git_url, commit=commit)
 
     if result["status"] == "success":
         console.print(f"[green]✅ {result['message']}[/green]")
@@ -105,6 +108,8 @@ def install_extension(git_url):
             console.print(f"   Name:    [bold]{extension_info.get('name')}[/bold]")
             console.print(f"   Version: {extension_info.get('version')}")
             console.print(f"   Author:  {extension_info.get('author', '—')}")
+        if result.get("commit"):
+            console.print(f"   Commit:  {result['commit']}" + ("  (pinned)" if result.get("pinned") else ""))
     else:
         console.print(f"[red]❌ {result['message']}[/red]")
 
