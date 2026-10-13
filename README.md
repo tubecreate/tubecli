@@ -223,7 +223,7 @@ On Windows and macOS in China, pass the proxy to the normal installers: `install
 
 The installer adds Python, Git and Node.js if missing, clones the repo, and sets everything up from A to Z.
 
-**On a server (VPS):** the same command detects that there is no display and finishes as a server — it asks for a dashboard password (Enter keeps the default `123456`, which anyone who reaches the port can try — set your own now or later with `tubecli password`; the dashboard and TubeCLI Cloud keep warning until you do), installs a systemd service so TubeCLI survives SSH logout and reboots, and prints the URL to open from your own computer. Re-running the same command later **updates** the install; the dashboard also has a one-click *Update* button. Useful afterwards:
+**On a server (VPS):** the same command detects that there is no display and finishes as a server — it asks for a dashboard password (Enter keeps the default `123456`; until you change it — at `/login` or with `tubecli password` — a remote login can do nothing but change it), installs a systemd service so TubeCLI survives SSH logout and reboots, and prints the URL to open from your own computer. Re-running the same command later **updates** the install; the dashboard also has a one-click *Update* button. Useful afterwards:
 ```bash
 tubecli info        # re-print the URL / password status / commands screen
 tubecli password    # change the dashboard password
@@ -419,7 +419,7 @@ External agents (Claude, GPT, Gemini, Codex) can read these files to learn how t
 
 ## 🔒 Security
 
-TubeCLI runs code and holds your logins, so it is built around one rule: the machine owner is fully trusted, and nobody else may become the owner. [SECURITY.md](SECURITY.md) lists every layer that enforces it (login gate and origin guard that **fail closed**, proxy-aware loopback rule, scoped guest tokens, signed public-agent calls, the approval gate), what is stored where and with which permissions, and the residual risks we state rather than hide — the default password and the `0.0.0.0` bind on headless servers among them. It also shows how to download and read the install scripts before running them, and how to report a vulnerability privately.
+TubeCLI runs code and holds your logins, so it is built around one rule: the machine owner is fully trusted, and nobody else may become the owner. [SECURITY.md](SECURITY.md) lists every layer that enforces it (login gate and origin guard that **fail closed**, proxy-aware loopback rule, scoped guest tokens, signed public-agent calls, the approval gate), what is stored where and with which permissions, and the residual risks we state rather than hide — the default-password window and the `0.0.0.0` bind on headless servers among them. It also shows how to download and read the install scripts before running them, and how to report a vulnerability privately.
 
 ## 📝 License
 

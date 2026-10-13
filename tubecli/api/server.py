@@ -565,7 +565,24 @@ async def _require_login(request: Request, call_next):
         return _gate_refusal(request, 503, "auth_unavailable",
                              "Authentication check failed; request refused.")
     if refusal is None:
-        return await call_next(request)
+        # Owner request. While the password is still the shipped default, a REMOTE
+        # session may only change it (auth.default_password_refusal). Fail-closed too.
+        try:
+            pw_block = auth.default_password_refusal(
+                request.client.host if request.client else "", request.headers, request.url.path)
+        except Exception as e:
+            _log_gate_error("auth.default_password_refusal", e)
+            return _gate_refusal(request, 503, "auth_unavailable",
+                                 "Authentication check failed; request refused.")
+        if pw_block is None:
+            return await call_next(request)
+        try:
+            if request.method == "GET" and "text/html" in (request.headers.get("accept") or ""):
+                return RedirectResponse(
+                    f"/login?next={_login_next(request.url.path, request.url.query)}", status_code=302)
+        except Exception:
+            pass
+        return _gate_refusal(request, 403, pw_block["reason"], pw_block["detail"])
 
     # Không phải chủ → thử GUEST (workspace chia sẻ có phạm vi). FAIL-CLOSED: mỗi bước
     # bọc try riêng, bất kỳ lỗi nào → coi như không phải guest (giữ refusal của chủ).

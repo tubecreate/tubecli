@@ -50,13 +50,18 @@ async def auth_status(request: Request):
     endpoint reachable before authenticating.
     """
     host = _client(request)
-    loopback = auth.is_loopback(host)
+    # «local» = the machine itself AND not relayed by a proxy/tunnel (a tunnel connects
+    # over loopback too) — the same rule the login gate uses.
+    local = auth.is_local_request(host, request.headers)
+    must_change = auth.is_default_password()
     return {
         "configured": auth.is_configured(),
-        "must_change_password": auth.is_default_password(),
-        "authenticated": loopback or auth.session_valid(
+        "must_change_password": must_change,
+        "authenticated": local or auth.session_valid(
             request.cookies.get(auth.SESSION_COOKIE)),
-        "local": loopback,
+        "local": local,
+        # Remote sessions can only change the password until it is changed.
+        "remote_locked": must_change and not local,
     }
 
 
@@ -92,11 +97,13 @@ async def login(body: LoginRequest, request: Request, response: Response):
     except Exception:
         pass
 
-    # The default password logs in like any other. It is reported back so the
-    # UI can offer the change and keep warning, but it does not bar the door.
+    # The default password logs in like any other, but a REMOTE session made with it
+    # can only change the password (auth.default_password_refusal). `local` tells the
+    # login page whether it may offer "skip" (the machine itself) or not (remote).
     must_change = auth.is_default_password()
     token = auth.create_session()
-    response = JSONResponse(content={"ok": True, "must_change_password": must_change})
+    response = JSONResponse(content={"ok": True, "must_change_password": must_change,
+                                     "local": auth.is_local_request(_client(request), request.headers)})
     response.set_cookie(
         auth.SESSION_COOKIE, token,
         max_age=auth.SESSION_TTL_SECONDS,
@@ -311,13 +318,16 @@ _LOGIN_PAGE = """<!doctype html>
     $('cur-wrap').hidden=true;          // already proved it during login
     $('new-wrap').hidden=false;
     $('go').textContent='Lưu mật khẩu';
-    // Skippable, by the product owner's decision. The warning stays visible in
-    // the dashboard afterwards so it is a choice rather than an oversight.
-    $('skip').hidden=false;
+    // Skip only on the machine itself. From outside, the server refuses every route
+    // but this change until the default is replaced (security review 13/10/2026),
+    // so a skip button would only lead to a dashboard that cannot load.
+    $('skip').hidden=!local;
     $('warn').hidden=false;
-    $('warn').innerHTML='Nếu giữ mật khẩu mặc định, bất kỳ ai truy cập được máy này '+
-      'cũng vào được bảng điều khiển — đọc được API key và cài được extension.'+
-      (local?'':'<code>tubecli password</code>');
+    $('warn').innerHTML=local
+      ? 'Nếu giữ mật khẩu mặc định, bất kỳ ai truy cập được máy này '+
+        'cũng vào được bảng điều khiển — đọc được API key và cài được extension.'
+      : 'Truy cập từ xa bị khoá cho tới khi đổi mật khẩu mặc định. '+
+        'Hoặc đổi ngay trên máy bằng lệnh:<code>tubecli password</code>';
     $('np').focus();
   }
 

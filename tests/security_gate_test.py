@@ -114,5 +114,34 @@ c.cookies.clear()
 r = c.post("/api/v1/extensions/install", json={"git_url": "https://github.com/x/y.git"})
 check("C extension install without a session → 401", r.status_code == 401, r.status_code)
 
+# ── D. default password: a REMOTE session may only change it (owner decision 13/10/2026) ──
+check("D local (loopback, not proxied) is never blocked",
+      auth.default_password_refusal("127.0.0.1", {}, "/api/v1/agents") is None)
+auth.set_password(auth.DEFAULT_PASSWORD, _is_default=True)
+check("D loopback behind a tunnel is remote → blocked",
+      (auth.default_password_refusal("127.0.0.1", {"cf-connecting-ip": "203.0.113.9"}, "/api/v1/agents") or {})
+      .get("reason") == "password_change_required")
+c.cookies.clear()
+r = c.post("/api/v1/auth/login", json={"password": auth.DEFAULT_PASSWORD})
+d = r.json() if r.status_code == 200 else {}
+check("D remote login with 123456 works and says must_change, not local",
+      r.status_code == 200 and d.get("must_change_password") is True and d.get("local") is False, (r.status_code, d))
+st = c.get("/api/v1/auth/status").json()
+check("D status: remote_locked", st.get("remote_locked") is True and st.get("local") is False, st)
+r = c.get(PROBE)
+check("D that session cannot use the API → 403 password_change_required",
+      r.status_code == 403 and r.json().get("code") == "password_change_required", r.status_code)
+r = c.post("/api/v1/extensions/install", json={"git_url": "https://github.com/x/y.git"})
+check("D that session cannot install extensions → 403", r.status_code == 403, r.status_code)
+r = c.get("/dashboard", headers={"accept": "text/html"}, follow_redirects=False)
+check("D a page request is sent to /login", r.status_code == 302 and r.headers.get("location", "").startswith("/login"),
+      (r.status_code, r.headers.get("location")))
+r = c.post("/api/v1/auth/password", json={"current_password": auth.DEFAULT_PASSWORD, "new_password": "brand-new-pass-77"})
+check("D but it CAN change the password", r.status_code == 200, (r.status_code, r.text[:120]))
+r = c.get(PROBE)
+check("D after the change the API opens", r.status_code == 200, r.status_code)
+check("D login page offers skip only when local", "$('skip').hidden=!local;" in
+      (Path(__file__).resolve().parent.parent / "tubecli/api/auth_routes.py").read_text(encoding="utf-8"))
+
 print(f"\n{PASS}/{PASS + FAIL} PASS")
 sys.exit(1 if FAIL else 0)
