@@ -110,6 +110,7 @@
   "auth.sso_waiting": "Giriş penceresi bekleniyor…",
   "auth.sso_popup_blocked": "Tarayıcı açılır pencereyi engelledi — izin verip tekrar deneyin.",
   "auth.sso_ok": "Cloud hesabınla giriş yapıldı",
+  "auth.login_to_install": "Şablon kurmak için Market'e giriş yapın — Cloud hesabınız geçerlidir.",
   "market.type_all": "Tümü",
   "market.type_extension": "🧩 Eklentiler",
   "market.type_tpl_video": "🎬 Video şablonları",

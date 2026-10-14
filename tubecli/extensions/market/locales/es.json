@@ -110,6 +110,7 @@
   "auth.sso_waiting": "Esperando la ventana de inicio de sesión…",
   "auth.sso_popup_blocked": "El navegador bloqueó la ventana emergente: permítela e inténtalo de nuevo.",
   "auth.sso_ok": "Sesión iniciada con tu cuenta Cloud",
+  "auth.login_to_install": "Inicia sesión en el Market para instalar plantillas — sirve tu cuenta de Cloud.",
   "market.type_all": "Todo",
   "market.type_extension": "🧩 Extensiones",
   "market.type_tpl_video": "🎬 Plantillas de vídeo",

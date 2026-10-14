@@ -110,6 +110,7 @@
   "auth.sso_waiting": "Ожидание окна входа…",
   "auth.sso_popup_blocked": "Браузер заблокировал всплывающее окно — разрешите его и повторите.",
   "auth.sso_ok": "Вы вошли через аккаунт Cloud",
+  "auth.login_to_install": "Войдите в Market, чтобы устанавливать шаблоны, — подойдёт ваш аккаунт Cloud.",
   "market.type_all": "Все",
   "market.type_extension": "🧩 Расширения",
   "market.type_tpl_video": "🎬 Шаблоны видео",

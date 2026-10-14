@@ -110,6 +110,7 @@
   "auth.sso_waiting": "Waiting for the sign-in window…",
   "auth.sso_popup_blocked": "Your browser blocked the popup — allow it and try again.",
   "auth.sso_ok": "Signed in with your Cloud account",
+  "auth.login_to_install": "Sign in to the Market to install templates — your Cloud account works.",
   "market.type_all": "All",
   "market.type_extension": "🧩 Extensions",
   "market.type_tpl_video": "🎬 Video templates",

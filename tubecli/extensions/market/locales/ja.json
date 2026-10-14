@@ -110,6 +110,7 @@
   "auth.sso_waiting": "ログインウィンドウを待っています…",
   "auth.sso_popup_blocked": "ブラウザがポップアップをブロックしました。許可して再試行してください。",
   "auth.sso_ok": "Cloud アカウントでログインしました",
+  "auth.login_to_install": "テンプレートをインストールするにはマーケットにログインしてください — Cloud アカウントが使えます。",
   "market.type_all": "すべて",
   "market.type_extension": "🧩 拡張機能",
   "market.type_tpl_video": "🎬 動画テンプレート",

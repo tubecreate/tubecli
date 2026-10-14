@@ -110,6 +110,7 @@
   "auth.sso_waiting": "等待登录窗口…",
   "auth.sso_popup_blocked": "浏览器拦截了弹出窗口 — 请允许后重试。",
   "auth.sso_ok": "已使用 Cloud 账号登录",
+  "auth.login_to_install": "登录市场后才能安装模板 — 可直接使用你的 Cloud 账号。",
   "market.type_all": "全部",
   "market.type_extension": "🧩 扩展",
   "market.type_tpl_video": "🎬 视频模板",

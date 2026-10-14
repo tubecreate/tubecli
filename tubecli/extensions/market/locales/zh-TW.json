@@ -110,6 +110,7 @@
   "auth.sso_waiting": "等待登入視窗…",
   "auth.sso_popup_blocked": "瀏覽器封鎖了彈出視窗 — 請允許後再試。",
   "auth.sso_ok": "已使用 Cloud 帳號登入",
+  "auth.login_to_install": "登入市集後才能安裝範本 — 可直接使用你的 Cloud 帳號。",
   "market.type_all": "全部",
   "market.type_extension": "🧩 擴充功能",
   "market.type_tpl_video": "🎬 影片範本",

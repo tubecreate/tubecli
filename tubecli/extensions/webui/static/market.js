@@ -3,6 +3,9 @@
  */
 
 const API = '/api/v1/market';
+// Chợ trên Cloudflare Worker (cùng tài khoản với cloud.tubecreate.com). Máy chủ PHP cũ ở api.tubecreate.com
+// đã bỏ (user 14/10/2026) — đăng nhập, đăng ký, ảnh/video minh hoạ đều đi đường này. Có CORS cho mọi origin.
+const MARKET_CLI = 'https://market.tubecreate.com/api/market-cli';
 
 function cmpVersions(a, b) {
     if (!a && !b) return 0;
@@ -606,14 +609,19 @@ async function openDetailModal(publicId) {
     try {
         const [res, mediaRes] = await Promise.all([
             fetch(`${API}/items/${publicId}`),
-            fetch(`https://api.tubecreate.com/api/market-cli/get-media.php?public_id=${publicId}`).catch(() => null)
+            fetch(`${MARKET_CLI}/get-media?public_id=${encodeURIComponent(publicId)}`).catch(() => null)
         ]);
-        
+
         const data = await res.json();
         let mediaData = { screenshots: [], videos: [] };
         if (mediaRes && mediaRes.ok) {
             const m = await mediaRes.json();
-            if (m.status === 'success') mediaData = m;
+            // Chợ mới trả mảng URL (chuỗi), PHP cũ trả {url}: chuẩn hoá về {url} cho phần vẽ bên dưới.
+            const asObj = (v) => (typeof v === 'string' ? { url: v } : v);
+            if (m.status === 'success') mediaData = {
+                screenshots: (m.screenshots || []).map(asObj).filter((v) => v && v.url),
+                videos: (m.videos || []).map(asObj).filter((v) => v && v.url),
+            };
         }
 
         if (data.status !== 'success') {
@@ -902,7 +910,20 @@ async function buyItemWithCredits(publicId) {
 
 
 // ── Install Item ──
+// Mẫu (category=template) tải bằng TÀI KHOẢN Chợ của người dùng — chưa đăng nhập thì cài chắc chắn hỏng. Hỏi đăng
+// nhập TRƯỚC (hộp có nút «Đăng nhập bằng tài khoản Cloud»), đăng nhập xong tự cài tiếp. User 14/10/2026: «bấm
+// install không thành công cũng không thấy thông báo cảnh báo gì».
+function askLoginThenInstall(publicId, itemName, category, forceUpdate) {
+    pendingAfterLogin = () => installItem(publicId, itemName, category, forceUpdate);
+    showLoginModal();
+    showToast(T('auth.login_to_install') || 'Sign in to the Market to install templates — your Cloud account works.', 'error');
+}
+
 async function installItem(publicId, itemName, category, forceUpdate = false) {
+    if (category === 'template' && !isLoggedIn()) {
+        askLoginThenInstall(publicId, itemName, category, forceUpdate);
+        return;
+    }
     const modalBtn = document.getElementById('installBtn_' + publicId);
     const cardInstallBtn = document.getElementById('cardInstallBtn_' + publicId);
     const cardUpdateBtn = document.getElementById('cardUpdateBtn_' + publicId);
@@ -1033,22 +1054,38 @@ async function installItem(publicId, itemName, category, forceUpdate = false) {
             });
             showToast(data.detail?.message || 'This item is already installed', 'error');
         } else {
-            termLog("❌ Installation Failed: " + (data.detail || data.message || 'Unknown error'), '#ff4444');
+            // detail có thể là chuỗi hoặc {message} — trước đây đối tượng thành «[object Object]».
+            const errMsg = (typeof data.detail === 'string' ? data.detail : (data.detail && data.detail.message))
+                || data.message || 'Install failed';
             btns.forEach((btn, i) => {
                 btn.disabled = false;
                 btn.innerHTML = originalTexts[i];
             });
-            showToast(data.detail || data.message || 'Install failed', 'error');
-            throw new Error(data.detail || data.message || 'Install failed');
+            // Khoá Chợ hết hạn / bị thu hồi (401 từ Chợ, KHÔNG phải 401 đăng nhập TubeCLI — cái đó có `reason`):
+            // bỏ khoá cũ rồi hỏi đăng nhập lại, xong tự cài tiếp.
+            if (res.status === 401 && category === 'template' && !data.reason) {
+                localStorage.removeItem('user_token');
+                try { updateMarketAuthUI(); } catch {}
+                termLog("🔑 " + errMsg, '#ffaa00');
+                askLoginThenInstall(publicId, itemName, category, forceUpdate);
+                return;
+            }
+            termLog("❌ Installation Failed: " + errMsg, '#ff4444');
+            showToast(errMsg, 'error');
+            const err = new Error(errMsg);
+            err.toastShown = true;
+            throw err;
         }
     } catch (e) {
         clearInterval(termInterval);
-        termLog("❌ Network / Execution Error: " + e.message, '#ff4444');
         btns.forEach((btn, i) => {
             btn.disabled = false;
             btn.innerHTML = originalTexts[i];
         });
-        showToast('Install error: ' + e.message, 'error');
+        if (!e.toastShown) {
+            termLog("❌ Network / Execution Error: " + e.message, '#ff4444');
+            showToast('Install error: ' + e.message, 'error');
+        }
         throw e;
     }
 }
@@ -1610,55 +1647,45 @@ async function submitUpload(e) {
                 btn.innerHTML = '⏳ Uploading Media...';
                 
                 try {
-                    const formData = new FormData();
-                    formData.append('public_id', publicId);
-                    formData.append('token', token);
-                    
-                    uploadMediaFiles.screenshots.forEach(f => formData.append('screenshots[]', f));
-                    if (uploadMediaFiles.video) formData.append('video', uploadMediaFiles.video);
-                    if (ytUrl) formData.append('youtube_url', ytUrl);
+                    // Chợ mới (Worker) nhận MỘT file mỗi lượt (trường `file`) — PHP cũ nhận cả lô
+                    // screenshots[] + video + youtube_url trong một form. Gửi lần lượt, mỗi món một dòng log.
+                    const jobs = uploadMediaFiles.screenshots.map((f, i) => ({ file: f, label: `ảnh ${i + 1}` }));
+                    if (uploadMediaFiles.video) jobs.push({ file: uploadMediaFiles.video, label: 'video' });
+                    if (ytUrl) jobs.push({ youtube_url: ytUrl, label: 'link YouTube' });
 
-                    updateProgressLog("Đang bắt đầu tải lên media server...", "info");
-                    
-                    await new Promise((resolve, reject) => {
+                    const sendOne = (job) => new Promise((resolve) => {
+                        const formData = new FormData();
+                        formData.append('public_id', publicId);
+                        formData.append('token', token);
+                        if (job.file) formData.append('file', job.file);
+                        if (job.youtube_url) formData.append('youtube_url', job.youtube_url);
                         const xhr = new XMLHttpRequest();
-                        xhr.open('POST', 'https://api.tubecreate.com/api/market-cli/upload-media.php');
-                        
+                        xhr.open('POST', `${MARKET_CLI}/upload-media`);
+                        xhr.setRequestHeader('Authorization', `Bearer ${token}`);
                         xhr.upload.onprogress = (evt) => {
                             if (evt.lengthComputable) {
-                                const percentComplete = Math.round((evt.loaded / evt.total) * 100);
-                                updateProgressLog(`Đang tải lên media: ${percentComplete}%...`, "progress");
+                                updateProgressLog(`Đang tải lên ${job.label}: ${Math.round((evt.loaded / evt.total) * 100)}%...`, "progress");
                             }
                         };
-                        
                         xhr.onload = () => {
-                            if (xhr.status >= 200 && xhr.status < 300) {
-                                try {
-                                    const resData = JSON.parse(xhr.responseText);
-                                    if (resData.status === 'success') {
-                                        updateProgressLog("Đã tải lên media thành công!", "success");
-                                        resolve(resData);
-                                    } else {
-                                        updateProgressLog("Cảnh báo media: " + (resData.message || "Unknown error"), "warn");
-                                        resolve(resData);
-                                    }
-                                } catch(e) {
-                                    updateProgressLog("Không thể parse kết quả trả về từ media server", "warn");
-                                    resolve(null);
-                                }
+                            let resData = null;
+                            try { resData = JSON.parse(xhr.responseText); } catch (e) { /* trả lời không phải JSON */ }
+                            if (xhr.status >= 200 && xhr.status < 300 && resData && resData.status === 'success') {
+                                updateProgressLog(`Đã tải lên ${job.label}.`, "success");
                             } else {
-                                updateProgressLog("Tải lên media thất bại với status code: " + xhr.status, "warn");
-                                resolve(null);
+                                updateProgressLog(`Không tải lên được ${job.label}: ` + ((resData && resData.message) || ('HTTP ' + xhr.status)), "warn");
                             }
+                            resolve(resData);
                         };
-                        
                         xhr.onerror = () => {
-                            updateProgressLog("Lỗi kết nối mạng trong quá trình tải lên media", "warn");
+                            updateProgressLog(`Lỗi mạng khi tải lên ${job.label}`, "warn");
                             resolve(null);
                         };
-                        
                         xhr.send(formData);
                     });
+
+                    updateProgressLog("Đang bắt đầu tải lên media server...", "info");
+                    for (const job of jobs) await sendOne(job);
                 } catch(me) {
                     updateProgressLog("Lỗi tải lên media: " + me.message, "warn");
                     console.error('[Market] Media upload error:', me);
@@ -1828,9 +1855,24 @@ function showToast(message, type = 'success') {
 
 // ── Auth System ──
 
-const AUTH_API = 'https://api.tubecreate.com/api/user';
+// Đăng nhập / đăng ký bằng tài khoản cloud.tubecreate.com qua Chợ (Worker) — PHP api.tubecreate.com đã bỏ.
 let marketIsRegisterMode = false;
 let pendingSellAction = false;
+// Việc làm tiếp SAU khi đăng nhập xong (vd. cài một mẫu — mẫu cần tài khoản Chợ). Huỷ hộp đăng nhập = bỏ.
+let pendingAfterLogin = null;
+
+// Đăng nhập xong (SSO hay email) → làm tiếp việc đang chờ. Hai cờ phải đọc TRƯỚC closeLoginModal(), vì hàm
+// đó xoá chúng — trước 14/10/2026 cả hai đường đều đóng hộp trước rồi mới xem cờ, nên «Bán» không bao giờ
+// tự mở lại sau khi đăng nhập.
+function resumeAfterLogin(resumeSell, resumeFn) {
+    if (resumeSell) {
+        setTimeout(() => openUploadModal(), 300);
+    } else if (typeof resumeFn === 'function') {
+        setTimeout(() => { try { resumeFn(); } catch (e) { console.error('[Market] resume after login', e); } }, 300);
+    } else {
+        setTimeout(() => { try { loadMarketItems(); } catch {} }, 300);
+    }
+}
 
 function requireAuth(callback) {
     if (isLoggedIn()) {
@@ -1869,16 +1911,12 @@ window.addEventListener('message', (e) => {
     if (d.type !== 'tubecli-market-sso' || !d.token) return;
     localStorage.setItem('user_token', d.token);
     localStorage.setItem('market_user', JSON.stringify(d.user || {}));
+    const resumeSell = pendingSellAction, resumeFn = pendingAfterLogin;
     try { closeLoginModal(); } catch {}
     updateMarketAuthUI();
     try { loadStripeBalance(); } catch {}
     showToast((T('auth.sso_ok') || 'Signed in with your Cloud account') + (d.user && d.user.username ? ' (' + d.user.username + ')' : ''), 'success');
-    if (typeof pendingSellAction !== 'undefined' && pendingSellAction) {
-        pendingSellAction = false;
-        setTimeout(() => openUploadModal(), 300);
-    } else {
-        setTimeout(() => { try { loadMarketItems(); } catch {} }, 300);
-    }
+    resumeAfterLogin(resumeSell, resumeFn);
 });
 
 function showLoginModal() {
@@ -1910,6 +1948,7 @@ function closeLoginModal() {
     const modal = document.getElementById('loginModal');
     if (modal) modal.classList.remove('active');
     pendingSellAction = false;
+    pendingAfterLogin = null;
 }
 
 function toggleMarketAuthMode(event, forceMode = null) {
@@ -1986,11 +2025,11 @@ async function handleMarketAuth() {
     btn.disabled = true;
 
     try {
-        let apiUrl = `${AUTH_API}/validate-user.php`;
+        let apiUrl = `${MARKET_CLI}/login`;
         let payload = { email, password };
 
         if (marketIsRegisterMode) {
-            apiUrl = `${AUTH_API}/create-user.php`;
+            apiUrl = `${MARKET_CLI}/register`;
             payload = { name, username, email, password, auto_verify: true };
         }
 
@@ -2017,16 +2056,12 @@ async function handleMarketAuth() {
             if (data.user) Object.assign(userObj, data.user);
             localStorage.setItem('market_user', JSON.stringify(userObj));
 
+            const resumeSell = pendingSellAction, resumeFn = pendingAfterLogin;   // đọc TRƯỚC khi đóng hộp
             closeLoginModal();
             updateMarketAuthUI();
             loadStripeBalance();  // Load credit balance + show TopUp badge immediately
             showToast(marketIsRegisterMode ? 'Đăng ký thành công!' : 'Đăng nhập thành công!', 'success');
-
-            // Resume sell action if pending
-            if (pendingSellAction) {
-                pendingSellAction = false;
-                setTimeout(() => openUploadModal(), 300);
-            }
+            resumeAfterLogin(resumeSell, resumeFn);
 
         } else if (response.ok && (data.success || data.status === 'success') && !data.token) {
             // Registered but no token → auto-login

@@ -110,6 +110,7 @@
   "auth.sso_waiting": "로그인 창을 기다리는 중…",
   "auth.sso_popup_blocked": "브라우저가 팝업을 차단했습니다 — 허용 후 다시 시도하세요.",
   "auth.sso_ok": "Cloud 계정으로 로그인했습니다",
+  "auth.login_to_install": "템플릿을 설치하려면 마켓에 로그인하세요 — Cloud 계정을 그대로 쓸 수 있습니다.",
   "market.type_all": "전체",
   "market.type_extension": "🧩 확장 기능",
   "market.type_tpl_video": "🎬 영상 템플릿",

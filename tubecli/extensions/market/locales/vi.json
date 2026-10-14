@@ -110,6 +110,7 @@
   "auth.sso_waiting": "Đang chờ cửa sổ đăng nhập…",
   "auth.sso_popup_blocked": "Trình duyệt chặn cửa sổ bật lên — hãy cho phép rồi thử lại.",
   "auth.sso_ok": "Đã đăng nhập bằng tài khoản Cloud",
+  "auth.login_to_install": "Đăng nhập Chợ để cài mẫu — dùng luôn tài khoản Cloud của bạn.",
   "market.type_all": "Tất cả",
   "market.type_extension": "🧩 Extension",
   "market.type_tpl_video": "🎬 Mẫu video",

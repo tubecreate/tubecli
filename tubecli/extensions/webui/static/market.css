@@ -1619,3 +1619,16 @@ dialog.topup-dialog.topup-compact .topup-footer {
 .vsx-card-tpl .card-header .card-icon { display: none; }
 .card-badge.template { background: rgba(255,194,71,.16); color: #ffd98a; border-color: rgba(255,194,71,.35); }
 @media (prefers-reduced-motion: reduce) { .vsx-card-tpl:hover .tpl-still { transform: none; } }
+
+/* ─── Toast ───
+   Mất từ bản 16/5/2026 (1b3d6e1 viết lại market.css) → mọi thông báo của trang Chợ, cả lỗi cài, thành một dòng chữ
+   trơn ở tận cuối trang, không ai thấy (user 14/10/2026: «bấm install không thành công cũng không thấy thông báo»).
+   Đặt ở GIỮA PHÍA TRÊN: trang này hay nằm trong một node Flow mà mép dưới / phải có thể khuất ngoài màn hình. */
+.market-toast { position: fixed; top: 16px; left: 50%; max-width: min(560px, calc(100vw - 32px)); padding: 12px 20px;
+  border-radius: 12px; font-size: 0.9rem; font-weight: 600; line-height: 1.4; z-index: 4000; pointer-events: none;
+  transform: translate(-50%, -140%); opacity: 0; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35); overflow-wrap: anywhere; }
+.market-toast.show { transform: translate(-50%, 0); opacity: 1; }
+.market-toast.success { background: rgba(34, 197, 94, 0.95); color: #fff; }
+.market-toast.error { background: rgba(239, 68, 68, 0.95); color: #fff; }
+.market-toast.warn { background: rgba(245, 158, 11, 0.95); color: #fff; }
