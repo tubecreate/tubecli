@@ -182,7 +182,7 @@ All of it is also driveable from a browser at `localhost:5295/dashboard` — age
 | `studio3d` | 3D teams and story player |
 | `webui` | The dashboard itself |
 
-**Marketplace studios** (install from the dashboard): Content Studio, EduVideo Studio, POD Ad Studio, Thumbnail Studio, Web Crawler, Subtitle Extractor, TTS VibeVoice, Sheets Manager, Video Manager, Browser Scripts, AI Arena, livestream, and more.
+**Marketplace studios** (install from the dashboard): Content Studio, EduVideo Studio, POD Ad Studio, Thumbnail Studio, Web Crawler, Subtitle Extractor, TTS VibeVoice, Sheets Manager, Video Manager, Browser Scripts, AI Arena, livestream, and more. **Content Studio and TTS VibeVoice come with every TubeCLI:** on first start the machine installs them from the Market in the background, once. If you uninstall one, it stays uninstalled. Set `TUBECLI_NO_DEFAULT_EXTENSIONS=1` to skip this.
 
 ## ☁️ TubeCLI Cloud and Agent Town
 
@@ -358,7 +358,7 @@ Yes. MIT licensed, no paid tier, no seat limits, no credit meter. You may run it
 No. Point it at local [Ollama](https://ollama.com) and it runs with no API key and no per-token cost. If you prefer cloud models it supports Gemini, OpenAI, Claude, DeepSeek, Grok, OpenRouter and Cloudflare Workers AI with your own keys, a local 9Router endpoint, Muse through a signed-in browser profile, and the Codex CLI with your ChatGPT plan. Note that the shipped default is a cloud model, so switch the default to Ollama if you want fully local operation.
 
 ### Can it really make a video by itself?
-Yes, as a task you can watch and stop. `content_video` writes the script from the agent's corpus (or reads your text verbatim), storyboards it with a Content Studio template, draws the images, reads the narration, renders with the Canvas Engine and uploads the result — to YouTube too if you asked, with a generated thumbnail. It needs Content Studio installed with a text and an image provider, ffmpeg, and a voice; `content_video_capabilities` lists exactly what is missing before anything is spent. A render that was killed resumes from the frames it already has.
+Yes, as a task you can watch and stop. `content_video` writes the script from the agent's corpus (or reads your text verbatim), storyboards it with a Content Studio template, draws the images, reads the narration, renders with the Canvas Engine and uploads the result — to YouTube too if you asked, with a generated thumbnail. It needs Content Studio (installed on first start) with a text and an image provider, ffmpeg, and a voice; `content_video_capabilities` lists exactly what is missing before anything is spent. A render that was killed resumes from the frames it already has.
 
 ### What is the Codex GPT node, and how is it different from the Task Board?
 The Task Board (`codex`) is TubeCLI's own queue of tasks for its agents. Codex GPT (`codex_gpt`) is OpenAI's Codex CLI running on your machine under TubeCLI's management: a vault of several ChatGPT subscriptions that switch automatically when one runs out of quota, chat sessions you manage from the Flow canvas, and an MCP server named `tubecli` through which Codex can read the Task Board, open browser profiles, install extensions and call the API — with changes still waiting for the owner's approval.

@@ -2136,6 +2136,15 @@ async def startup_event():
     import asyncio
     asyncio.create_task(check_for_updates())
 
+    # Content Studio + TTS VibeVoice đi kèm mọi TubeCLI: cài từ Chợ MỘT lần mỗi máy, chạy nền sau
+    # khi server lên (extensions/market/defaults.py). Chủ gỡ đi thì không cài lại.
+    try:
+        from tubecli.extensions.market import defaults as _market_defaults
+        if _market_defaults.todo():
+            asyncio.create_task(_market_defaults.ensure_defaults())
+    except Exception as e:  # tính năng phụ: hỏng thì máy vẫn phải khởi động được
+        print(f"[defaults] skipped: {e}")
+
     # Start PageWatcher scheduler (if web_crawler extension has watches)
     try:
         import sys
