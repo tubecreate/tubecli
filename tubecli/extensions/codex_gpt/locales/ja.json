@@ -192,6 +192,7 @@
   "cg.tool.board_task": "タスクを見る",
   "cg.tool.board_create": "タスクを作成",
   "cg.tool.town_agent_offer": "エージェントを Agent Town に公開",
+  "cg.tool.market_install": "マーケットからインストール",
   "cg.tool.browser_profiles": "ブラウザープロファイル一覧",
   "cg.tool.browser_open": "ブラウザーを開く",
   "cg.tool.browser_goto": "ページを開く",

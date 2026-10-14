@@ -192,6 +192,7 @@
   "cg.tool.board_task": "Посмотреть задачу",
   "cg.tool.board_create": "Создать задачу",
   "cg.tool.town_agent_offer": "Выставить агента в Agent Town",
+  "cg.tool.market_install": "Установить из Market",
   "cg.tool.browser_profiles": "Профили браузера",
   "cg.tool.browser_open": "Открыть браузер",
   "cg.tool.browser_goto": "Перейти на страницу",

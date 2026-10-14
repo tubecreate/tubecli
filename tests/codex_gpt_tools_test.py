@@ -237,8 +237,8 @@ async def main():
 
     # ── H. danh sách + chặn cứng + GET ───────────────────────────────────────
     names = [t["name"] for t in TL.list_tools()]
-    check("H1 tools/list đủ 18 công cụ, mỗi cái có inputSchema + readOnlyHint",
-          len(names) == 18 and all(t["inputSchema"]["type"] == "object" and "readOnlyHint" in t["annotations"] for t in TL.list_tools()), names)
+    check("H1 tools/list đủ 19 công cụ (thêm market_install 14/10), mỗi cái có inputSchema + readOnlyHint",
+          len(names) == 19 and all(t["inputSchema"]["type"] == "object" and "readOnlyHint" in t["annotations"] for t in TL.list_tools()), names)
     blocked = [("GET", "/api/v1/codex-gpt/accounts"), ("GET", "/api/v1/keychain/items"), ("GET", "/api/v1/auth/status"),
                ("POST", "/api/v1/terminal/run"), ("GET", "/api/v1/file-manager/list"), ("GET", "/api/v1/browser/profiles/main/cookies"),
                ("GET", "/api/v1/capcut-tts/accounts"), ("GET", "/api/v1/demo/../codex-gpt/status"), ("GET", "/api/v1/demo/%2e%2e/keychain"),
@@ -451,7 +451,7 @@ async def main():
                      headers={"x-codex-gpt-key": svc.mcp_key(), "x-forwarded-for": "8.8.8.8"})
         check("K8 loopback qua proxy/tunnel (X-Forwarded-For) → 403", rr.status_code == 403, rr.status_code)
         rr = tc.post("/api/v1/codex-gpt/mcp", json={"method": "tools/list"}, headers={"x-codex-gpt-key": svc.mcp_key()})
-        check("K9 loopback + đúng khoá → danh sách công cụ", rr.status_code == 200 and len(rr.json()["result"]["tools"]) == 18,
+        check("K9 loopback + đúng khoá → danh sách công cụ", rr.status_code == 200 and len(rr.json()["result"]["tools"]) == 19,
               rr.status_code)
 
     # ── L. phiên + sandbox Windows (app-server giả) ──────────────────────────
@@ -504,6 +504,7 @@ async def main():
         code = e.code
     check("L10 chế độ cài lạ → bad_setting", code == "bad_setting")
     await town_tests()
+    await market_tests()
     await svc._stop_bridge()
 
 
@@ -674,6 +675,136 @@ CAPTURED = []
 async def _capture(a, kw):
     CAPTURED.append((a, kw))
     return True, "", None
+
+
+# ── N. market_install: cài từ Chợ — gói do MÁY CHỦ tải, chỉ miễn phí, chủ LUÔN duyệt (user 14/10/2026) ──────────────
+# Chuyện thật: Codex trên máy mới hỏi /api/v1/market/items/…/install, nhận «No reachable endpoints» hai lần, rồi
+# kết luận «công cụ không có quyền cài từ Market». Chợ giả dưới đây đứng thay market.tubecreate.com.
+MARKET = {
+    "tts_vb": {"public_id": "tts_vb", "title": "TTS VibeVoice", "category": "extension", "price": 0,
+               "version": "2026.09.25.062538", "seller_name": "Admin", "item_data": '{"files": "REAL-PACKAGE"}'},
+    "tts_cc": {"public_id": "tts_cc", "title": "CapCut TTS", "category": "extension", "price": 0, "version": "1",
+               "seller_name": "Admin", "item_data": '{"files": "x"}'},
+    "paid_x": {"public_id": "paid_x", "title": "Pro Pack", "category": "extension", "price": 5, "version": "1",
+               "item_data": '{"files": "x"}'},
+    "tpl_1": {"public_id": "tpl_1", "title": "Ink Wash Film", "category": "template", "price": 0, "version": "1",
+              "item_data": "{}"},
+    "inst_1": {"public_id": "inst_1", "title": "Web Crawler", "category": "extension", "price": 0, "version": "2",
+               "item_data": '{"files": "y"}'},
+}
+INSTALLS = []
+INSTALL_REPLY = {}
+
+
+@APP.get("/api/v1/market/items")
+async def m_list(search: str = "", limit: int = 20):
+    key = search.lower().replace(" ", "")
+    rows = [{k: v for k, v in it.items() if k != "item_data"} for it in MARKET.values()
+            if key in it["title"].lower().replace(" ", "") or key in it["public_id"]]
+    return {"status": "success", "data": rows}
+
+
+@APP.get("/api/v1/market/items/{pid}")
+async def m_detail(pid: str):
+    from fastapi import HTTPException
+    if pid not in MARKET:
+        raise HTTPException(404, "Item not found")
+    return {"status": "success", "item": MARKET[pid], "reviews": []}
+
+
+@APP.post("/api/v1/market/items/{pid}/install")
+async def m_install(pid: str, request: Request):
+    from fastapi.responses import JSONResponse
+    body = await request.json()
+    INSTALLS.append((pid, body))
+    if pid == "inst_1" and not body.get("force_update"):
+        return JSONResponse(status_code=409, content={"detail": {"message": "already installed", "already_installed": True}})
+    return INSTALL_REPLY.get(pid) or {"status": "success", "message": f"Extension '{body['item_name']}' installed",
+                                      "restart_required": False}
+
+
+async def market_tests():
+    tools = {t["name"]: t for t in TL.list_tools()}
+    mi = tools.get("market_install") or {}
+    check("N1 tools/list có market_install, không readOnly, chỉ nhận item + update",
+          mi and mi["annotations"]["readOnlyHint"] is False
+          and set(mi["inputSchema"]["properties"]) == {"item", "update"} and mi["inputSchema"]["additionalProperties"] is False, mi)
+
+    # route cài THÔ của Chợ vẫn đóng với tubecli_api — nó nhận nguyên gói mã từ người gọi
+    INSTALLS.clear()
+    r = await call("tubecli_api", {"method": "POST", "path": "/api/v1/market/items/tts_vb/install",
+                                   "body": {"item_data": "EVIL", "item_name": "x", "category": "extension"}})
+    check("N2 tubecli_api POST route cài của Chợ → chặn, chỉ sang market_install, không hỏi chủ, không cài",
+          r["isError"] and "market_install" in r["content"][0]["text"] and not INSTALLS, r)
+    r = await call("tubecli_endpoints", {"prefix": "/api/v1/market/items/xx/install"})
+    check("N3 tubecli_endpoints nói RÕ endpoint bị ẩn và vì sao (không còn «No reachable» trơn)",
+          r["isError"] and "Hidden:" in r["content"][0]["text"] and "market_install" in r["content"][0]["text"], r)
+    r = await call("tubecli_endpoints", {"prefix": "/api/v1/market"})
+    t = r["content"][0]["text"]
+    check("N4 danh sách /api/v1/market vẫn có GET + dòng Hidden chỉ sang market_install",
+          not r["isError"] and "GET /api/v1/market/items" in t and "Hidden:" in t and "POST " not in t, t)
+
+    # cài theo TÊN: Chợ tự tải gói; Codex đưa item_data lạ cũng bị bỏ qua; thẻ luôn hỏi (force)
+    INSTALLS.clear()
+    CAPTURED.clear()
+    r = await call("market_install", {"item": "TTS VibeVoice", "item_data": "EVIL"}, approve=lambda *a, **kw: _capture(a, kw))
+    card = CAPTURED[-1][0][1] if CAPTURED else ""
+    body = INSTALLS[-1][1] if INSTALLS else {}
+    check("N5 tên → đúng gói; thẻ có tên, mã, phiên bản, miễn phí, người đăng; approve nhận force",
+          not r["isError"] and CAPTURED and CAPTURED[-1][1] == {"force": True}
+          and all(x in card for x in ("TTS VibeVoice", "tts_vb", "2026.09.25.062538", "Admin")), (r, card))
+    check("N6 gói cài = gói CHỢ trả về, không phải thứ Codex đưa; không tự khởi động lại; không ép cập nhật",
+          INSTALLS and INSTALLS[-1][0] == "tts_vb" and body.get("item_data") == MARKET["tts_vb"]["item_data"]
+          and body.get("auto_restart") is False and body.get("force_update") is False
+          and body.get("item_name") == "TTS VibeVoice" and body.get("category") == "extension", body)
+
+    # «Không cần hỏi» + «cho phép cả phiên» KHÔNG áp: không ai mở trang → từ chối, không cài
+    INSTALLS.clear()
+    svc.update_settings({"tools_auto": True})
+    try:
+        r = await TL.call_tool("market_install", {"item": "tts_vb"}, APP, svc.tool_approval)
+    finally:
+        svc.update_settings({"tools_auto": False})
+    check("N7 «Không cần hỏi» vẫn phải có chủ duyệt — không ai xem → từ chối, không cài",
+          r["isError"] and not INSTALLS, r)
+
+    INSTALLS.clear()
+    for label, item, word in (("N8 gói có phí → không mua, không hỏi", "paid_x", "paid"),
+                              ("N9 mẫu Content Studio → cần đăng nhập Chợ của chủ", "tpl_1", "template"),
+                              ("N10 tên không có trên Chợ", "zzz nothing", "Nothing on the TubeCLI Market"),
+                              ("N11 tên mơ hồ → liệt kê mã để chọn", "TTS", "several Market items")):
+        r = await call("market_install", {"item": item})
+        check(label, r["isError"] and word in r["content"][0]["text"] and not INSTALLS, r["content"][0]["text"][:160])
+
+    r = await call("market_install", {"item": "inst_1"}, approve=lambda *a, **kw: _capture(a, kw))
+    check("N12 đã cài → bảo gọi lại với update=true", not r["isError"] and "update=true" in r["content"][0]["text"], r)
+    CAPTURED.clear()
+    r = await call("market_install", {"item": "inst_1", "update": True}, approve=lambda *a, **kw: _capture(a, kw))
+    card = CAPTURED[-1][0][1] if CAPTURED else ""
+    check("N13 update=true → thẻ ghi CẬP NHẬT, gửi force_update",
+          not r["isError"] and ("UPDATE" in card or "CẬP NHẬT" in card) and INSTALLS[-1][1].get("force_update") is True, card)
+
+    INSTALL_REPLY["tts_cc"] = {"status": "success", "message": "updated", "restart_required": True, "restarting": False}
+    r = await call("market_install", {"item": "tts_cc"}, approve=lambda *a, **kw: _capture(a, kw))
+    check("N14 cần khởi động lại → nói Codex bảo chủ, KHÔNG tự khởi động",
+          not r["isError"] and "restart" in r["content"][0]["text"] and "NOT restarted" in r["content"][0]["text"], r)
+
+    async def decline(*a, **kw):
+        return False, "The owner declined.", None
+    INSTALLS.clear()
+    r = await call("market_install", {"item": "tts_vb"}, approve=decline)
+    check("N15 chủ từ chối → không cài", r["isError"] and not INSTALLS, r)
+
+    # cài từ git URL qua tubecli_api: được, nhưng LUÔN hỏi (kể cả «Không cần hỏi»)
+    api = TL.TOOLS["tubecli_api"]
+    check("N16 tubecli_api POST /api/v1/extensions/install → luôn hỏi; GET và route khác → như cũ",
+          api.asks_always({"method": "POST", "path": "/api/v1/extensions/install"})
+          and not api.asks_always({"method": "GET", "path": "/api/v1/extensions/install"})
+          and not api.asks_always({"method": "POST", "path": "/api/v1/demo/x"}))
+    CAPTURED.clear()
+    await call("tubecli_api", {"method": "POST", "path": "/api/v1/extensions/install", "body": {"git_url": "https://x/y.git"}},
+               approve=lambda *a, **kw: _capture(a, kw))
+    check("N17 … và approve nhận force", CAPTURED and CAPTURED[-1][1] == {"force": True}, CAPTURED[-1:] if CAPTURED else None)
 
 
 if __name__ == "__main__":

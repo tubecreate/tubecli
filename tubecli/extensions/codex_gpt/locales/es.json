@@ -192,6 +192,7 @@
   "cg.tool.board_task": "Ver una tarea",
   "cg.tool.board_create": "Crear una tarea",
   "cg.tool.town_agent_offer": "Publicar un agente en Agent Town",
+  "cg.tool.market_install": "Instalar desde el Market",
   "cg.tool.browser_profiles": "Ver perfiles de navegador",
   "cg.tool.browser_open": "Abrir un navegador",
   "cg.tool.browser_goto": "Ir a una página",

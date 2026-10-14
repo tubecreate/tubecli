@@ -192,6 +192,7 @@
   "cg.tool.board_task": "작업 보기",
   "cg.tool.board_create": "작업 만들기",
   "cg.tool.town_agent_offer": "에이전트를 Agent Town에 올리기",
+  "cg.tool.market_install": "마켓에서 설치",
   "cg.tool.browser_profiles": "브라우저 프로필 목록",
   "cg.tool.browser_open": "브라우저 열기",
   "cg.tool.browser_goto": "페이지로 이동",

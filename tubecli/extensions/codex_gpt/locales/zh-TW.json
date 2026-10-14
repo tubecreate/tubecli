@@ -192,6 +192,7 @@
   "cg.tool.board_task": "查看任務",
   "cg.tool.board_create": "建立任務",
   "cg.tool.town_agent_offer": "把智慧體放上 Agent Town",
+  "cg.tool.market_install": "從市集安裝",
   "cg.tool.browser_profiles": "列出瀏覽器設定檔",
   "cg.tool.browser_open": "開啟瀏覽器",
   "cg.tool.browser_goto": "開啟網頁",
