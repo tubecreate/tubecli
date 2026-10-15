@@ -448,8 +448,9 @@ def _maybe_publish(agent_id: str, run_id: str, outcome: str, trigger: str = "") 
             # commit_published() ngược về đây. Một lượt dựng thủ công cũng có
             # thể bật publish, và nó KHÔNG được tiêu một suất của trần ngày.
             "autopublish": True,
-            # Ảnh đại diện qua Thumbnail Studio; là bước mềm — không cài thì bỏ qua.
-            "thumbnail": True,
+            # Ảnh đại diện qua Thumbnail Studio; là bước mềm — không cài thì bỏ qua. Agent tắt được (publish_thumbnail,
+            # 15/10/2026): kênh chưa xác minh không nhận thumbnail tuỳ chỉnh — không vẽ, không gắn; prompt vẫn viết.
+            "thumbnail": bool(getattr(agent, "publish_thumbnail", True)),
         }
         if publish:
             options.update({

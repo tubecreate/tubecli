@@ -63,6 +63,9 @@ PUBLISH_DEFAULTS = {
     "publish_slots": "",
     "publish_tz": "",
     "publish_tz_offset": "",
+    # Vẽ + gắn ảnh đại diện cho video agent tự làm (15/10/2026). Tắt cho kênh CHƯA xác minh số điện thoại — YouTube
+    # không nhận thumbnail tuỳ chỉnh, vẽ ra chỉ tốn công và lần đăng nào cũng báo «không gắn được». Prompt vẫn viết.
+    "publish_thumbnail": True,
 }
 RESEARCH_PROMPT_MAX = 2000
 YOUTUBE_SUBS_MAX = 5
@@ -85,7 +88,7 @@ def coerce_publish_value(key: str, value: Any) -> Any:
     một dòng hỏng không được phép làm chết cả server. Tầng API mới là chỗ
     nói "sai rồi" (422) — xem AgentCreateRequest/AgentUpdateRequest.
     """
-    if key in ("auto_publish", "publish_monetize", "auto_video"):
+    if key in ("auto_publish", "publish_monetize", "auto_video", "publish_thumbnail"):
         return bool(value)
     if key == "youtube_subs_per_run":
         try:
@@ -277,6 +280,7 @@ class Agent:
         publish_slots: str = "",
         publish_tz: str = "",
         publish_tz_offset: Any = "",
+        publish_thumbnail: bool = True,
         # Schedule Settings
         schedule_enabled: bool = False,
         schedule_repeat: str = "Daily",
@@ -370,6 +374,7 @@ class Agent:
             "publish_slots": publish_slots,
             "publish_tz": publish_tz,
             "publish_tz_offset": publish_tz_offset,
+            "publish_thumbnail": publish_thumbnail,
         }).items():
             setattr(self, _k, _v)
 
@@ -451,6 +456,7 @@ class Agent:
             "publish_slots": getattr(self, "publish_slots", "") or "",
             "publish_tz": getattr(self, "publish_tz", "") or "",
             "publish_tz_offset": getattr(self, "publish_tz_offset", ""),
+            "publish_thumbnail": bool(getattr(self, "publish_thumbnail", True)),
             "schedule_enabled": getattr(self, "schedule_enabled", False),
             "schedule_repeat": getattr(self, "schedule_repeat", "Daily"),
             "schedule_interval": getattr(self, "schedule_interval", 60),

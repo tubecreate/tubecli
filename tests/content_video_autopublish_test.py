@@ -860,6 +860,17 @@ o = PLAN_CALLS[-1]["options"]
 check("O có kênh → đăng như cũ (publish=True + đủ thông tin kênh)",
       o["publish"] is True and o["publish_channel_id"] == "UC123" and o["publish_token_id"] == "tok-1"
       and PLAN_CALLS[-1]["job_label"] == A.JOB_LABEL, o)
+check("O mặc định vẫn vẽ + gắn ảnh đại diện (thumbnail=True)", o.get("thumbnail") is True, o)
+# 15/10/2026: «Học Code» chưa xác minh số điện thoại → YouTube không nhận thumbnail tuỳ chỉnh. Agent tắt được.
+r = fresh(auto_publish=True, auto_video=True, publish_thumbnail=False)
+o = PLAN_CALLS[-1]["options"]
+check("O publish_thumbnail=False → task không vẽ/gắn ảnh đại diện, vẫn đăng",
+      r.startswith("queued:") and o.get("thumbnail") is False and o["publish"] is True, o)
+from tubecli.core.agent import Agent as _Agent, coerce_publish_value as _cpv     # noqa: E402
+_a = _Agent(name="t", publish_thumbnail=False)
+check("O publish_thumbnail lưu/nạp qua to_dict, mặc định True",
+      _a.to_dict().get("publish_thumbnail") is False and _Agent(name="u").to_dict().get("publish_thumbnail") is True
+      and _cpv("publish_thumbnail", 0) is False, _a.to_dict().get("publish_thumbnail"))
 r = fresh(auto_publish=False, auto_video=False)
 check("O tắt cả hai → không làm gì", r == "skip: auto video and auto-publish off" and not PLAN_CALLS, r)
 r = fresh(auto_publish=False, auto_video=True, publish_min_pages=5)
