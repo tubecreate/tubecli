@@ -189,6 +189,9 @@ try:
 except M.MuseError as e:
     ok(e.kind == "auth" and "not signed in" in str(e), "lỗi đăng nhập → MuseError(auth)", e.kind)
 ok(not M._BUSY, "chỗ ngồi được nhả sau lỗi")
+# 15/10/2026: tài khoản chưa đăng nhập bị GẮN CỜ (lượt sau báo lỗi ngay, không mở trình duyệt nữa).
+ok(M._SIGNED_OUT.get("chayagent", 0) > 0, "tài khoản chưa đăng nhập bị gắn cờ", M._SIGNED_OUT)
+M._SIGNED_OUT.clear()                       # các ca sau giả lập tài khoản đã đăng nhập lại
 M.set_settings(profile="")
 try:
     M.ask("q5")

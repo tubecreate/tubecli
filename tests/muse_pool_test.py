@@ -63,6 +63,7 @@ def reset():
     M._BUSY.clear()
     M._LAST_USED.clear()
     M._DOWN.clear()
+    M._SIGNED_OUT.clear()
     M._THREAD_OWNER.clear()
     M._BUSY_SINCE.clear()
     M._LAST_OK.clear()
@@ -190,7 +191,8 @@ M.run_tool = muse2_signed_out
 M._LAST_USED.update({"chayagent": 3.0, "muse2": 1.0, "muse3": 2.0})
 r = M.ask("q")
 ok(tried == ["muse2", "muse3"] and r["profile"] == "muse3", "muse2 chưa đăng nhập → thử lại ở tài khoản khác", tried)
-ok(M._DOWN.get("muse2", 0) > time.time(), "muse2 bị bỏ qua một lúc")
+ok(M._SIGNED_OUT.get("muse2", 0) > time.time() + M.DOWN_SECONDS,
+   "muse2 bị GẮN CỜ chưa đăng nhập (lâu hơn 10 phút của lỗi trình duyệt)", M._SIGNED_OUT)
 tried.clear()
 for _ in range(4):
     M.ask("q")
@@ -234,6 +236,42 @@ ok(list(rows) == ["chayagent", "muse2", "muse3"] and s["logged_in"] is True and 
    "status: dòng cho mỗi tài khoản, trường ngoài là của hồ sơ chính", s)
 ok(rows["muse2"]["logged_in"] is False and "not signed in" in rows["muse2"]["message"]
    and rows["muse3"]["running"] is False, "status: muse2 chưa đăng nhập, muse3 đang tắt", rows)
+
+# ── G2 (15/10/2026): chưa đăng nhập ⇒ GẮN CỜ + chuyển seat, không thử mãi rồi hỏng ở cuối ─────────────────
+print("G2. tài khoản chưa đăng nhập: gắn cờ, chuyển seat")
+ok(rows["muse2"]["signed_out"] is True and M._SIGNED_OUT.get("muse2", 0) > time.time(),
+   "status thấy muse2 chưa đăng nhập ⇒ gắn cờ TRƯỚC khi có ảnh nào rơi vào nó", rows["muse2"])
+M._cdp_port = lambda profile: PORTS[profile]
+tried.clear()
+M.run_tool = muse2_signed_out
+M._LAST_USED.update({"chayagent": 9.0, "muse2": 0.0, "muse3": 5.0})
+for _ in range(5):
+    M.ask("q")
+ok("muse2" not in tried and len(tried) == 5, "5 ảnh liền: không ảnh nào giao cho muse2 có cờ", tried)
+M.run_tool = lambda port, action, req=None, timeout=60: {"ok": True, "logged_in": True, "verified": True}
+s2 = M.status()
+ok(not M._SIGNED_OUT.get("muse2") and {r["profile"]: r for r in s2["pool"]}["muse2"]["signed_out"] is False,
+   "«Kiểm tra đăng nhập» thấy muse2 đã đăng nhập lại ⇒ gỡ cờ ngay", M._SIGNED_OUT)
+reset()
+tried.clear()
+M.run_tool = lambda port, action, req=None, timeout=60: (tried.append(BY_PORT[port]) or
+                                                         {"ok": False, "kind": "auth", "error": "not signed in"})
+t0 = time.time()
+try:
+    M.ask("q")
+    ok(False, "mọi tài khoản chưa đăng nhập → MuseError")
+except M.MuseError as e:
+    ok(e.kind == "auth" and sorted(tried) == ["chayagent", "muse2", "muse3"] and not M._BUSY,
+       "mọi tài khoản chưa đăng nhập: mỗi tài khoản thử ĐÚNG MỘT lần rồi báo lỗi", (e.kind, tried))
+    ok("No signed-in Muse account" in str(e) and "muse2" in str(e), "câu lỗi nói rõ tài khoản nào cần đăng nhập lại",
+       str(e))
+tried.clear()
+try:
+    M.ask("q")
+except M.MuseError as e:
+    ok(e.kind == "auth" and not tried, "ảnh sau: báo lỗi NGAY, không mở trình duyệt của tài khoản có cờ", tried)
+ok(time.time() - t0 < 5, "không nghỉ / không thử lại vòng vòng", round(time.time() - t0, 2))
+reset()
 
 from tubecli.api import muse_routes as R  # noqa: E402
 r = asyncio.run(R.api_put_settings(R.MuseSettingsRequest(extra_profiles=["muse3"], lanes=2)))
@@ -396,8 +434,10 @@ try:
     M.ask("q")
 except M.MuseError:
     pass
-ok(len(alerts) == 1 and alerts[0][0].startswith("auth:") and "not signed in" in alerts[0][1],
-   "mọi tài khoản chưa đăng nhập → một dòng Telegram", alerts)
+# 15/10/2026: mỗi tài khoản chưa đăng nhập bị gắn cờ + MỘT dòng Telegram nêu tên nó (biết hồ sơ nào cần đăng nhập lại).
+ok(sorted(a[0] for a in alerts) == ["auth:chayagent", "auth:muse2", "auth:muse3"]
+   and all("not signed in" in a[1] for a in alerts),
+   "mọi tài khoản chưa đăng nhập → mỗi tài khoản đúng một dòng Telegram, có tên", alerts)
 reset()
 alerts.clear()
 M.run_tool = lambda port, action, req=None, timeout=60: {"ok": False, "kind": "refused", "error": "policy"}

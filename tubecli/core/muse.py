@@ -89,6 +89,14 @@ _LAST_OK: Dict[str, float] = {}     # hồ sơ → lần tạo thành công gầ
 _HUNG_RESET: Dict[str, float] = {}  # khoá chỗ ngồi → lúc người gác đã đóng phiên (một lần mỗi lượt)
 _WATCHDOG: Dict[str, Any] = {"thread": None}
 _DOWN: Dict[str, float] = {}        # hồ sơ → hết hạn bỏ qua
+# CHƯA ĐĂNG NHẬP (user 15/10/2026: «chỗ tạo ảnh với muse nếu browser lỗi login thì gắn cờ và chuyển ảnh cho seats khác
+# chứ không thử liên tục rồi báo lỗi ở cuối cùng» — task «Die Streichholz-Theorie»: 21/127 ảnh). Trước đây hồ sơ chưa
+# đăng nhập chỉ bị bỏ qua DOWN_SECONDS (10 phút) rồi lại nhận ảnh, chuyển seat chỉ MỘT lần và không tính nút từ xa ⇒ ảnh
+# rơi vào nó cứ hỏng. Nay: gắn cờ AUTH_FLAG_SECONDS (đăng nhập không tự lành); _acquire KHÔNG BAO GIỜ giao cho hồ sơ có
+# cờ — hết seat sạch thì báo lỗi ngay; ảnh hỏng vì nó chuyển sang seat khác tới khi hết seat. Gỡ cờ khi hồ sơ ấy chạy
+# thành công hay «Kiểm tra đăng nhập» thấy đã đăng nhập.
+AUTH_FLAG_SECONDS = 6 * 3600
+_SIGNED_OUT: Dict[str, float] = {}  # hồ sơ / remote<i> → hết hạn cờ «chưa đăng nhập»
 # CHẶN KHU VỰC cho video (10/10/2026, #333 cảnh 19303: «video generation isn't available in your region» — IP của trình
 # duyệt ở VN lúc bị chặn lúc không; chữ và ảnh vẫn chạy): hồ sơ ấy không nhận lượt VIDEO tới 0 GIỜ NGÀY HÔM SAU (user
 # 10/10/2026 «gắn cờ cho đến ngày hôm sau check lại»), cờ LƯU trong muse_state.json (khởi động lại không mất); clip đó
@@ -707,6 +715,17 @@ def _alert(reason: str, text: str) -> bool:
         return False
 
 
+def _flag_signed_out(profile: str, err: Optional["MuseError"] = None) -> None:
+    """Gắn cờ «chưa đăng nhập» cho hồ sơ (hay nút từ xa) — lượt sau không giao cho nó nữa; một dòng Telegram."""
+    first = _SIGNED_OUT.get(profile, 0) <= time.time()
+    _SIGNED_OUT[profile] = time.time() + AUTH_FLAG_SECONDS
+    if first:
+        _alert(f"auth:{profile}", f"⚠️ Muse: account «{profile}» is not signed in to muse.ai"
+                                  + (f" ({str(err)[:120]})" if err else "")
+                                  + " — its image and video requests now go to the other accounts. Sign in again in "
+                                    "that browser profile, then use «Check sign-in» in Cloud API Keys → Muse.")
+
+
 def _alert_text(err: "MuseError", profile: str, attempts: int) -> str:
     if err.kind == "browser":
         return (f"⚠️ Muse: the browser of account «{profile}» failed {attempts} times in a row — its session was closed "
@@ -948,7 +967,13 @@ def status(quick: bool = False) -> dict:
     _no_video_load()
     for p in st["pool"]:
         row = _profile_status(p, busy_by.get(p, 0) >= st["lanes"], probe=not quick)
+        # «Kiểm tra đăng nhập» thấy đã đăng nhập ⇒ gỡ cờ ngay; thấy chưa ⇒ gắn cờ trước khi có ảnh nào rơi vào nó.
+        if row.get("logged_in") is True:
+            _SIGNED_OUT.pop(p, None)
+        elif row.get("logged_in") is False:
+            _flag_signed_out(p)
         row["down"] = _DOWN.get(p, 0) > now
+        row["signed_out"] = _SIGNED_OUT.get(p, 0) > now
         row["video_blocked"] = _NO_VIDEO.get(p, 0) > now  # Muse báo chặn khu vực cho video — tạm không giao clip
         row["video_blocked_until"] = _NO_VIDEO.get(p) if row["video_blocked"] else None
         row["last_used"] = _LAST_USED.get(p) or None      # epoch giây — hộp cài đặt hiện «used 2 min ago»
@@ -981,8 +1006,14 @@ def _acquire(pool: List[str], lanes: int, want: str = "", timeout: float = QUEUE
     with _POOL:
         while True:
             now = time.time()
-            live = [want] if want else ([p for p in names if _DOWN.get(p, 0) <= now and p not in skip]
-                                        or [p for p in names if _DOWN.get(p, 0) <= now] or list(names))
+            out_ = {p for p in names if _SIGNED_OUT.get(p, 0) > now}
+            ok = [p for p in names if p not in out_]
+            if not want and not ok:
+                raise MuseError("auth", "No signed-in Muse account left — not signed in to muse.ai: "
+                                + ", ".join(sorted(out_)) + ". Sign in again in those browser profiles, then use "
+                                  "«Check sign-in» in Cloud API Keys → Muse.")
+            live = [want] if want else ([p for p in ok if _DOWN.get(p, 0) <= now and p not in skip]
+                                        or [p for p in ok if _DOWN.get(p, 0) <= now] or list(ok))
             load: Dict[str, int] = {}
             for p in _BUSY.values():
                 load[p] = load.get(p, 0) + 1
@@ -1109,6 +1140,7 @@ def ask(prompt: str, *, want_images: bool = False, files: Optional[List[str]] = 
             if res.get("thread_id"):
                 _THREAD_OWNER[str(res["thread_id"])] = prof
             _DOWN.pop(prof, None)
+            _SIGNED_OUT.pop(prof, None)
             _LAST_OK[prof] = time.time()
             _release(key)
             return res
@@ -1140,6 +1172,7 @@ def ask(prompt: str, *, want_images: bool = False, files: Optional[List[str]] = 
         if not res.get("ok"):
             raise MuseError(str(res.get("kind") or "error"), str(res.get("error") or "Muse request failed."))
         _DOWN.pop(prof, None)
+        _SIGNED_OUT.pop(prof, None)
         _LAST_OK[prof] = time.time()
         res["profile"] = prof
         return res
@@ -1148,8 +1181,19 @@ def ask(prompt: str, *, want_images: bool = False, files: Optional[List[str]] = 
         e.profile = prof
       finally:
         _release(key)
-    if failed.kind in ("browser", "auth") and (len(pool) + len(remotes)) > 1:
+    if failed.kind == "browser" and (len(pool) + len(remotes)) > 1:
         _DOWN[prof] = time.time() + DOWN_SECONDS
+    if failed.kind == "auth":
+        _flag_signed_out(prof, failed)
+        if not pinned:
+            # Chuyển ảnh sang seat khác (cục bộ hay nút từ xa) — _acquire bỏ qua mọi hồ sơ có cờ, hết seat sạch thì nó
+            # ném «auth» ngay, nên vòng này dừng sau tối đa số seat; không mở lại trình duyệt của hồ sơ chưa đăng nhập.
+            logger.warning("muse: account %s is not signed in (%s) — flagged, sending this request to another seat",
+                           prof, failed)
+            return ask(prompt, want_images=want_images, files=files, image_dir=image_dir, max_images=max_images,
+                       timeout=timeout, fresh=fresh, launch=launch, want_videos=want_videos, video_dir=video_dir,
+                       max_videos=max_videos, thread_id=thread_id, _failover=_failover, _attempt=_attempt,
+                       avoid=avoid)
     if failed.kind == "browser" and launch and _attempt < MUSE_ATTEMPTS:
         # Trình duyệt treo/đóng («cannot attach to the browser on CDP port…» — 8/10/2026 làm #302/#306 mất clip): ĐÓNG
         # HẲN phiên của hồ sơ (giải phóng RAM), nghỉ, rồi thử lại — ensure_browser mở lại; tài khoản vừa hỏng bị bỏ qua
@@ -1162,11 +1206,6 @@ def ask(prompt: str, *, want_images: bool = False, files: Optional[List[str]] = 
                    timeout=timeout, fresh=fresh, launch=launch, want_videos=want_videos, video_dir=video_dir,
                    max_videos=max_videos, thread_id=thread_id, _failover=_failover, _attempt=_attempt + 1,
                    avoid=avoid)
-    if failed.kind == "auth" and len(pool) > 1 and _failover and not pinned:
-        logger.warning("muse: account %s unusable (%s) — trying another account", prof, failed)
-        return ask(prompt, want_images=want_images, files=files, image_dir=image_dir, max_images=max_images,
-                   timeout=timeout, fresh=fresh, launch=launch, want_videos=want_videos, video_dir=video_dir,
-                   max_videos=max_videos, thread_id=thread_id, _failover=False, _attempt=_attempt, avoid=avoid)
     if failed.kind == "timeout" and want_videos:
         # user 10/10/2026: «chỉ check trong 1 lần gọi sau 3 phút ko thấy trả về video hoặc báo lỗi thì bỏ qua» — lượt
         # video quá VIDEO_TIMEOUT: đóng phiên (có thể kẹt, giải phóng RAM) rồi ném NGAY, không ngồi thử lại cùng tài khoản.
