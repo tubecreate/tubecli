@@ -118,5 +118,6 @@
   "market.type_skill": "⚡ 스킬",
   "card.tpl_video": "영상 템플릿",
   "card.tpl_layout": "썸네일 레이아웃",
-  "card.open_studio": "Content Studio 열기"
+  "card.open_studio": "Content Studio 열기",
+  "card.update": "업데이트"
 }

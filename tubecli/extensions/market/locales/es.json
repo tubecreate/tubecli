@@ -118,5 +118,6 @@
   "market.type_skill": "⚡ Habilidades",
   "card.tpl_video": "Plantilla de vídeo",
   "card.tpl_layout": "Diseño de portada",
-  "card.open_studio": "Abrir Content Studio"
+  "card.open_studio": "Abrir Content Studio",
+  "card.update": "Actualizar"
 }

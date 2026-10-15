@@ -118,5 +118,6 @@
   "market.type_skill": "⚡ Skill",
   "card.tpl_video": "Mẫu video",
   "card.tpl_layout": "Mẫu bìa",
-  "card.open_studio": "Mở Content Studio"
+  "card.open_studio": "Mở Content Studio",
+  "card.update": "Cập nhật"
 }

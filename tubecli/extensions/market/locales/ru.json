@@ -118,5 +118,6 @@
   "market.type_skill": "⚡ Навыки",
   "card.tpl_video": "Шаблон видео",
   "card.tpl_layout": "Макет обложки",
-  "card.open_studio": "Открыть Content Studio"
+  "card.open_studio": "Открыть Content Studio",
+  "card.update": "Обновить"
 }

@@ -118,5 +118,6 @@
   "market.type_skill": "⚡ 技能",
   "card.tpl_video": "视频模板",
   "card.tpl_layout": "封面版式",
-  "card.open_studio": "打开 Content Studio"
+  "card.open_studio": "打开 Content Studio",
+  "card.update": "更新"
 }

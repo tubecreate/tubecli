@@ -10,8 +10,8 @@ trong Content Studio (Chợ › Đã mua › Cài vào Studio › hộp thoại 
 
 Nhập theo mặc định AN TOÀN của Studio (mẫu mới → thêm; trùng y hệt → bỏ qua; trùng tên khác
 nội dung → giữ cả hai, đổi tên bản nhập). «Cập nhật» (force_update) thì chọn thay thế đúng
-những mẫu trùng tên. Sổ `content_studio/market_installed.json` nhớ mã Chợ → tên mẫu đã cài để
-trang Chợ biết «Đã cài».
+những mẫu trùng tên. Sổ `content_studio/market_template_versions.json` nhớ mã Chợ → tên mẫu +
+PHIÊN BẢN đã cài để trang Chợ biết «Đã cài» và khi người bán đăng bản mới thì mời «Cập nhật».
 """
 import asyncio
 import json
@@ -35,8 +35,15 @@ def _studio_dir() -> str:
     return os.path.join(str(DATA_DIR), "content_studio")
 
 
-def _record_path() -> str:
+def _legacy_record_path() -> str:
     return os.path.join(_studio_dir(), "market_installed.json")
+
+
+def _record_path() -> str:
+    """Sổ PHIÊN BẢN mẫu cài từ Chợ: mã → {title, version, presets, at}. File RIÊNG (15/10/2026): trước đây sổ này
+    ghi chung market_installed.json với Content Studio, mà Studio ghi file đó dạng «tên mẫu → mã» và bỏ mọi dòng
+    khác mỗi lần nó cài một mẫu ⇒ phiên bản đã cài mất sạch, không bao giờ biết mẫu nào có bản mới."""
+    return os.path.join(_studio_dir(), "market_template_versions.json")
 
 
 def _read_json(path: str, default):
@@ -48,15 +55,21 @@ def _read_json(path: str, default):
 
 
 def _records() -> Dict[str, Any]:
+    """Mã → bản ghi. Đọc cả dòng dạng dict còn sót trong market_installed.json (bản cũ); sổ riêng thắng."""
+    legacy = _read_json(_legacy_record_path(), {})
+    out = {str(k): v for k, v in (legacy.items() if isinstance(legacy, dict) else []) if isinstance(v, dict)}
     d = _read_json(_record_path(), {})
-    return d if isinstance(d, dict) else {}
+    if isinstance(d, dict):
+        out.update({str(k): v for k, v in d.items() if isinstance(v, dict)})
+    return out
 
 
 def _record(public_id: str, title: str, version: str, saved: List[str]) -> None:
     recs = _records()
     old = recs.get(public_id) if isinstance(recs.get(public_id), dict) else {}
     names = sorted(set((old.get("presets") or []) + list(saved)))
-    recs[public_id] = {"title": title, "version": version, "presets": names, "at": int(time.time())}
+    recs[public_id] = {"title": title, "version": version or str(old.get("version") or ""), "presets": names,
+                       "at": int(time.time())}
     os.makedirs(_studio_dir(), exist_ok=True)
     tmp = _record_path() + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
@@ -81,16 +94,26 @@ def _preset_names() -> set:
 
 def installed(public_id: str, title: str) -> Dict[str, Any]:
     """Đã cài khi: máy này từng cài mã này từ Chợ, HOẶC chính máy này là nơi đăng mẫu
-    (market_links: tên mẫu → mã), HOẶC Content Studio đã có mẫu trùng đúng tên."""
+    (market_links: tên mẫu → mã), HOẶC Content Studio đã có mẫu trùng đúng tên.
+
+    local_version (15/10/2026, user «mẫu template cũng có phiên bản để người bán cập nhật và người mua update»):
+    CHỈ là phiên bản thật khi máy cài mã này từ Chợ và sổ ghi được phiên bản — trang Chợ so nó với bản trên Chợ để
+    hiện «Cập nhật». Máy là NGƯỜI BÁN, hay mẫu trùng tên do người dùng tự tạo ⇒ "" (không biết, không mời cập nhật:
+    cập nhật = thay mẫu trùng tên, đè mất mẫu của chính họ)."""
     rec = _records().get(public_id)
     if isinstance(rec, dict):
-        return {"installed": True, "path": "content_studio", "local_version": str(rec.get("version") or "0.0.0")}
+        return {"installed": True, "path": "content_studio", "local_version": str(rec.get("version") or "")}
     links = _read_json(os.path.join(_studio_dir(), "market_links.json"), {})
     if isinstance(links, dict) and public_id in {str(v) for v in links.values()}:
-        return {"installed": True, "path": "content_studio", "local_version": "0.0.0"}
+        return {"installed": True, "path": "content_studio", "local_version": "", "seller": True}
+    # Cài trong Content Studio (tab Chợ của Studio): Studio chỉ ghi «tên → mã», không ghi phiên bản. Hàng mua thật
+    # ⇒ cho phép Cập nhật (trang Chợ hiện nút thường, không giục); cập nhật một lần là sổ có phiên bản.
+    studio = _read_json(_legacy_record_path(), {})
+    if isinstance(studio, dict) and public_id in {v for v in studio.values() if isinstance(v, str)}:
+        return {"installed": True, "path": "content_studio", "local_version": "", "version_unknown": True}
     if title and title.strip() in _preset_names():
-        return {"installed": True, "path": "content_studio", "local_version": "0.0.0"}
-    return {"installed": False, "path": "", "local_version": "0.0.0"}
+        return {"installed": True, "path": "content_studio", "local_version": ""}
+    return {"installed": False, "path": "", "local_version": ""}
 
 
 def _detail(r) -> str:

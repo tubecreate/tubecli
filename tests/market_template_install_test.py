@@ -90,7 +90,7 @@ check("khoá Chợ của người dùng đi qua header X-Market-Token (không v�
 check("nhập bằng upload_id của gói đã tải", all(b.get("upload_id") == "u123" for _, p, b, _ in seen if p.endswith("/import")))
 check("kết quả: mẫu đã thêm", out["saved"] == ["Math Noir"], out)
 st = T.installed("feqs1ISYn8x6", "Tên khác")
-check("sổ market_installed.json → Chợ biết «Đã cài» (kể cả khi tên hiện khác)",
+check("sổ phiên bản → Chợ biết «Đã cài» + bản đã cài (kể cả khi tên hiện khác)",
       st["installed"] and st["local_version"] == "2026.09.29", st)
 check("mã chưa cài → chưa cài", not T.installed("zzzzzzzzzzzz", "Không có")["installed"])
 
@@ -136,6 +136,55 @@ src = open(R.__file__, encoding="utf-8").read()
 check("route install có nhánh template TRƯỚC nhánh extension",
       src.index('if category == "template":\n        from tubecli.extensions.market import templates as _tpl')
       < src.index('if category == "extension" and _builtin_extension(req.item_name) is not None'))
+
+# ── 5. phiên bản (15/10/2026: «mẫu template cũng có phiên bản để người bán cập nhật và người mua update») ──
+sd = os.path.join(_tmp, "content_studio")
+legacy = os.path.join(sd, "market_installed.json")
+check("sổ phiên bản là file RIÊNG, không ghi vào market_installed.json của Studio",
+      os.path.basename(T._record_path()) == "market_template_versions.json"
+      and "feqs1ISYn8x6" in json.load(open(T._record_path(), encoding="utf-8"))
+      and not os.path.exists(legacy))
+# Studio cài một mẫu khác: ghi market_installed.json dạng «tên → mã» — trước đây xoá mất phiên bản.
+json.dump({"Tâm Lý Nhật": "W0414Ym5u2vP"}, open(legacy, "w", encoding="utf-8"))
+check("Studio ghi đè market_installed.json → phiên bản đã cài vẫn còn",
+      T.installed("feqs1ISYn8x6", "Math Noir")["local_version"] == "2026.09.29")
+st = T.installed("W0414Ym5u2vP", "Tâm Lý Nhật")
+check("Studio cài (không ghi phiên bản) → đã cài, không rõ bản (version_unknown: cho Cập nhật, không giục)",
+      st == {"installed": True, "path": "content_studio", "local_version": "", "version_unknown": True}, st)
+# Bản ghi kiểu cũ (dict) còn sót trong market_installed.json vẫn được đọc.
+json.dump({"Tâm Lý Nhật": "W0414Ym5u2vP", "OLDcode00001": {"title": "Cũ", "version": "2026.09.01", "presets": ["Cũ"]}},
+          open(legacy, "w", encoding="utf-8"))
+check("bản ghi cũ trong market_installed.json vẫn cho ra phiên bản",
+      T.installed("OLDcode00001", "Cũ")["local_version"] == "2026.09.01")
+st = T.installed("6idWd68b2XfZ", "Codex Sacra")
+check("máy NGƯỜI BÁN → đã cài, không có phiên bản (không tự mời thay mẫu gốc của mình)",
+      st["installed"] and st["local_version"] == "" and st.get("seller") is True, st)
+st = T.installed("SelfMade0001", "Tâm Lý Nhật")
+check("mẫu trùng tên do người dùng tự tạo → đã cài, không phiên bản, KHÔNG cho cập nhật (đè mẫu của họ)",
+      st == {"installed": True, "path": "content_studio", "local_version": ""}, st)
+json.dump({"Codex Sacra": "6idWd68b2XfZ"}, open(legacy, "w", encoding="utf-8"))
+st = T.installed("6idWd68b2XfZ", "Codex Sacra")
+check("người bán tự cài lại mẫu của mình trong Studio → vẫn là người bán, không cho cập nhật",
+      st.get("seller") is True and not st.get("version_unknown"), st)
+check("chưa cài → local_version rỗng", T.installed("zzzzzzzzzzzz", "Không có")["local_version"] == "")
+
+
+async def run_v(handler, version, **kw):
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as c:
+        return await T.install("feqs1ISYn8x6", "Math Noir", "tok-abc", version=version,
+                               base_url="http://studio", client=c, **kw)
+
+
+_, h = studio(existing=("Math Noir",))
+asyncio.run(run_v(h, "2026.10.15.1429", force_update=True))
+check("người bán đăng bản mới → người mua Cập nhật → sổ lên bản mới",
+      T.installed("feqs1ISYn8x6", "Math Noir")["local_version"] == "2026.10.15.1429")
+_, h = studio(existing=("Math Noir",))
+asyncio.run(run_v(h, "", force_update=True))
+check("Chợ không trả phiên bản → giữ phiên bản cũ, không xoá trắng",
+      T.installed("feqs1ISYn8x6", "Math Noir")["local_version"] == "2026.10.15.1429")
+check("route _check_item_installed trả local_version của sổ",
+      R._check_item_installed("feqs1ISYn8x6", "Math Noir", "template")["local_version"] == "2026.10.15.1429")
 
 print()
 print(f"{PASS} pass, {FAIL} fail")

@@ -166,5 +166,35 @@ check('F1 đăng nhập email gọi market.tubecreate.com/api/market-cli/login',
   JSON.stringify(FETCHES.map((f) => f.url)));
 check('F2 lưu khoá + làm tiếp việc chờ đúng một lần', store.get('user_token') === 'tok-mail' && resumed === 1, `resumed=${resumed}`);
 
+// ── G. mẫu có phiên bản (15/10/2026): người bán đăng bản mới → người đã cài thấy «Cập nhật» ───────────────
+const TPL = { public_id: 'tplFree001', title: 'Paper Brief', category: 'template', price: 0, version: '2026.10.15.1429' };
+const cardOf = (installData) => run(`createCard(${JSON.stringify(TPL)}, ${JSON.stringify(installData)})`).innerHTML;
+let html = cardOf({ installed: true, local_version: '2026.10.06.0543' });
+check('G1 bản đã cài cũ hơn → thẻ có nút Cập nhật gọi installItem(…, "template", true)',
+  /id="cardUpdateBtn_tplFree001"/.test(html) && /installItem\('tplFree001', 'Paper Brief', 'template', true\)/.test(html),
+  html.slice(html.indexOf('card-footer'), html.indexOf('card-footer') + 600));
+html = cardOf({ installed: true, local_version: '2026.10.15.1429' });
+check('G2 đã là bản mới nhất → «Đã cài», không có nút Cập nhật', !/cardUpdateBtn_/.test(html) && /Đã cài/.test(html));
+html = cardOf({ installed: true, local_version: '' });
+check('G3 không rõ bản đã cài (máy người bán / mẫu trùng tên tự tạo) → không mời cập nhật', !/cardUpdateBtn_/.test(html));
+html = cardOf({ installed: true, local_version: '', version_unknown: true });
+check('G3b mua qua Content Studio, không rõ bản → thẻ không giục (nút Update chỉ trong chi tiết)', !/cardUpdateBtn_/.test(html));
+const DSRC = SRC.slice(SRC.indexOf('async function openDetailModal'), SRC.indexOf('function closeDetailModal'));
+check('G3c chi tiết: nút Update mẫu hiện khi có bản mới HOẶC version_unknown, gọi installItem(…, true)',
+  /item\.category === 'template'[\s\S]{0,200}tplNewer \|\| \(!checkData\.local_version && checkData\.version_unknown\)/.test(DSRC)
+  && /installItem\(publicId, item\.title, 'template', true\)/.test(DSRC));
+store.set('user_token', 'tok-cloud');
+route = (url, opts) => {
+  if (url.endsWith('/api/v1/market/items/tplFree001')) return { status: 200, body: { status: 'success', item: TPL } };
+  if (url.endsWith('/install') && opts.method === 'POST') return { status: 200, body: { status: 'success', type: 'template', message: 'Template installed', open: 'content_studio' } };
+  return { status: 200, body: { status: 'success' } };
+};
+FETCHES.length = 0;
+await run(`installItem('tplFree001', 'Paper Brief', 'template', true)`);
+const up = installCalls()[0];
+const upBody = up ? JSON.parse(up.opts.body) : {};
+check('G4 bấm Cập nhật → lệnh cài force_update=true, item_data mang phiên bản mới (lõi ghi vào sổ)',
+  upBody.force_update === true && JSON.parse(upBody.item_data).version === '2026.10.15.1429', up && up.opts.body);
+
 console.log(`\n${pass}/${pass + fail} PASS`);
 process.exit(fail ? 1 : 0);

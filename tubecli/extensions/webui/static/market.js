@@ -390,6 +390,10 @@ function createCard(item, installData) {
         
         if (hasUpdate && category === 'extension') {
             quickBtnHtml = `<button id="cardUpdateBtn_${item.public_id}" class="card-price paid" style="cursor:pointer; background: #d97706 linear-gradient(135deg, #f59e0b, #d97706); color: white; border:none;" onclick="event.stopPropagation(); updateLocalItem('${item.public_id}', '${escapeHtml(item.title).replace(/'/g, '\\\'')}', '${escapeHtml(category)}')">Cập nhật</button>`;
+        } else if (hasUpdate && isTpl) {
+            // Mẫu (15/10/2026): người bán đăng bản mới ⇒ người đã cài thấy «Cập nhật» = tải gói mới và THAY những mẫu
+            // trùng tên (force_update). Lõi chỉ báo local_version khi máy cài mã này từ Chợ — không mời người bán.
+            quickBtnHtml = `<button id="cardUpdateBtn_${item.public_id}" class="card-price paid" title="${escapeHtml(installData.local_version)} → ${escapeHtml(item.version)}" style="cursor:pointer; background: #d97706 linear-gradient(135deg, #f59e0b, #d97706); color: white; border:none;" onclick="event.stopPropagation(); installItem('${item.public_id}', '${escapeHtml(item.title).replace(/'/g, '\\\'')}', 'template', true)">${T('card.update') || 'Update'}</button>`;
         } else {
             quickBtnHtml = `<button class="card-price free" style="cursor:default; background: var(--mk-w05); border: 1px solid var(--border); color: var(--text-muted);" onclick="event.stopPropagation();">Đã cài</button>`;
         }
@@ -823,6 +827,22 @@ async function openDetailModal(publicId) {
                     upBtn.onclick = () => updateLocalItem(publicId, item.title, item.category);
                     actionRow.appendChild(upBtn);
                 }
+
+                // Mẫu: hiện khi Chợ có bản mới hơn bản máy đã cài (nút sáng, ghi «cũ → mới»), hoặc khi mẫu mua về qua
+                // Content Studio mà không rõ bản (nút thường). Máy người bán / mẫu trùng tên tự tạo: không có nút —
+                // cập nhật THAY mẫu trùng tên.
+                const tplNewer = checkData.local_version && cmpVersions(item.version, checkData.local_version) > 0;
+                if (item.category === 'template' && actionRow && !document.getElementById('updateBtn_' + publicId)
+                        && (tplNewer || (!checkData.local_version && checkData.version_unknown))) {
+                    const upBtn = document.createElement('button');
+                    upBtn.id = 'updateBtn_' + publicId;
+                    upBtn.className = 'btn-update';
+                    if (tplNewer) upBtn.style.boxShadow = '0 0 18px rgba(245,158,11,0.55)';
+                    upBtn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"></path><path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path><path d="M3 22v-6h6"></path><path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path></svg> ${T('card.update') || 'Update'}`
+                        + (tplNewer ? ` ${escapeHtml(checkData.local_version)} → ${escapeHtml(item.version)}` : (item.version ? ` → ${escapeHtml(item.version)}` : ''));
+                    upBtn.onclick = () => installItem(publicId, item.title, 'template', true);
+                    actionRow.appendChild(upBtn);
+                }
             }
         } catch (e) {
             console.warn('[Market] Check installed error:', e);
@@ -927,7 +947,8 @@ async function installItem(publicId, itemName, category, forceUpdate = false) {
     const modalBtn = document.getElementById('installBtn_' + publicId);
     const cardInstallBtn = document.getElementById('cardInstallBtn_' + publicId);
     const cardUpdateBtn = document.getElementById('cardUpdateBtn_' + publicId);
-    const btns = [modalBtn, cardInstallBtn, cardUpdateBtn].filter(Boolean);
+    const modalUpdateBtn = document.getElementById('updateBtn_' + publicId);   // nút cập nhật mẫu trong chi tiết
+    const btns = [modalBtn, cardInstallBtn, cardUpdateBtn, modalUpdateBtn].filter(Boolean);
     
     let originalTexts = [];
     btns.forEach((btn, i) => {
@@ -1012,7 +1033,9 @@ async function installItem(publicId, itemName, category, forceUpdate = false) {
             }
 
             btns.forEach((btn) => {
-                if (btn.id.startsWith('card')) {
+                if (btn.id.startsWith('updateBtn_')) {
+                    btn.remove();          // đã lên bản mới — nút Cài bên cạnh thành «Mở Content Studio»
+                } else if (btn.id.startsWith('card')) {
                     btn.innerHTML = 'Đã cài';
                     btn.style.background = 'var(--mk-w05)';
                     btn.style.border = '1px solid var(--border)';

@@ -118,5 +118,6 @@
   "market.type_skill": "⚡ Yetenekler",
   "card.tpl_video": "Video şablonu",
   "card.tpl_layout": "Kapak düzeni",
-  "card.open_studio": "Content Studio'yu aç"
+  "card.open_studio": "Content Studio'yu aç",
+  "card.update": "Güncelle"
 }

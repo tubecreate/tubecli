@@ -118,5 +118,6 @@
   "market.type_skill": "⚡ Skills",
   "card.tpl_video": "Video template",
   "card.tpl_layout": "Cover layout",
-  "card.open_studio": "Open Content Studio"
+  "card.open_studio": "Open Content Studio",
+  "card.update": "Update"
 }

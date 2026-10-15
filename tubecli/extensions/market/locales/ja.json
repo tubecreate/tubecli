@@ -118,5 +118,6 @@
   "market.type_skill": "⚡ スキル",
   "card.tpl_video": "動画テンプレート",
   "card.tpl_layout": "サムネイルレイアウト",
-  "card.open_studio": "Content Studio を開く"
+  "card.open_studio": "Content Studio を開く",
+  "card.update": "更新"
 }
