@@ -701,6 +701,13 @@ const CODEX = (() => {
       </article>`;
   }
 
+  /** Nút «Xem live» ở đầu bảng (11/10/2026 — user: «live view là trang chung task board luôn chứ không phải từng bài»,
+   *  «link kiểu …/taskboard/live»): một trang cho MỌI task đang chạy; mang theo theme của bảng sang tab mới. */
+  function liveLinkHref() {
+    const theme = document.documentElement.getAttribute('data-theme') || '';
+    return '/taskboard/live' + (theme ? '?theme=' + encodeURIComponent(theme) : '');
+  }
+
   /** Dòng 2 của thẻ: giai đoạn · ngôn ngữ · mẫu · model · giọng · agent · lúc nào — từ task.meta (máy chủ ghi). */
   function metaChips(task) {
     const m = task.meta || {};
@@ -3347,6 +3354,8 @@ const CODEX = (() => {
   async function init() {
     // Khung chờ NGAY; chữ giao diện và danh sách tải SONG SONG (trước đây tuần tự: chữ 228 KB rồi mới tới danh sách).
     renderList(true);
+    const liveLink = $('cx-live-open');
+    if (liveLink) liveLink.href = liveLinkHref();
     const auto = $('cx-auto');
     if (auto) state.auto = !!auto.checked;
     const i18nReady = (typeof loadI18nFromApi === 'function')

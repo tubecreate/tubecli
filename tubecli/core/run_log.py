@@ -108,6 +108,33 @@ def redact(text: Optional[str]) -> Optional[str]:
         return "(redaction failed — content withheld)"
 
 
+_FLAG_ARG = re.compile(r"--(" + "|".join(re.escape(f) for f in _SECRET_FLAGS) + r")(=.*)?$", re.IGNORECASE | re.S)
+
+
+def redact_argv(args) -> str:
+    """argv (list) → one display line with secrets masked PER ELEMENT, then redact() as a second net.
+
+    Joining first and masking after only hides the first word of a value that has spaces: 12/10/2026 /browser/status
+    showed `--login-2fa *** <rest of the 2FA secret>` (a TOTP secret is written as space-separated groups)."""
+    try:
+        out, hide = [], False
+        for a in args or []:
+            s = str(a)
+            if hide:
+                out.append("***")
+                hide = False
+                continue
+            m = _FLAG_ARG.match(s)
+            if m:
+                out.append(f"--{m.group(1)}=***" if m.group(2) is not None else s)
+                hide = m.group(2) is None
+                continue
+            out.append(s)
+        return redact(" ".join(out)) or ""
+    except Exception:
+        return "(redaction failed — content withheld)"
+
+
 def _tail(text: Optional[str], limit: int = LOG_TAIL_MAX) -> Optional[str]:
     if not text:
         return None

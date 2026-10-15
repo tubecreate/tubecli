@@ -718,15 +718,37 @@ def _alert_text(err: "MuseError", profile: str, attempts: int) -> str:
     return f"⚠️ Muse: {err.kind} — {str(err)[:200]}"
 
 
-def _cdp_port(profile: str) -> int:
+def _port_open(port, timeout: float = 0.2) -> bool:
+    """Có gì đang nghe ở 127.0.0.1:port không — cổng sống bắt tay tức thì; cổng chết trên Windows thử lại SYN ~1 s
+    nên cắt ở `timeout`."""
+    import socket
     try:
-        from tubecli.extensions.browser.routes import _live_cdp_port
-        port = int(_live_cdp_port(profile) or 0)
-        if port:
-            return port
+        with socket.create_connection(("127.0.0.1", int(port)), timeout=timeout):
+            return True
+    except (OSError, ValueError):
+        return False
+
+
+def _cdp_port_known(profile: str, quick: bool = False) -> int:
+    """Cổng CDP theo sổ của trình duyệt (preview_cdp.json / DevToolsActivePort) — KHÔNG quét tiến trình.
+    quick: trình quản lý không thấy hồ sơ chạy thì chỉ gõ cửa cổng trong file DevToolsActivePort 0,2 s — file cổng cũ
+    của hồ sơ đã tắt trỏ vào cổng chết, thử /json/version ở đó mất trọn 1,5 s (đo 11/10/2026: muse2 + muse3 tắt = 3 s
+    mỗi lượt status). Không bỏ hẳn: Chromium sống qua lần khởi động lại lõi thì trình quản lý không biết mà vẫn chạy."""
+    try:
+        from tubecli.extensions.browser.routes import _devtools_active_port, _live_cdp_port, is_profile_running
+        if quick and not is_profile_running(profile):
+            port, _mt = _devtools_active_port(profile)
+            if not port or not _port_open(port):
+                return 0
+        return int(_live_cdp_port(profile) or 0)
     except Exception as e:      # noqa: BLE001
         logger.info("muse: cannot read the CDP port of %s: %s", profile, e)
-    return _cdp_port_from_processes(profile)
+        return 0
+
+
+def _cdp_port(profile: str) -> int:
+    # Quét tiến trình chỉ khi sổ không biết (Chromium mở ngoài trình quản lý) — trên Windows ~1,5 s mỗi hồ sơ đang TẮT.
+    return _cdp_port_known(profile) or _cdp_port_from_processes(profile)
 
 
 def _launch_hidden(profile: str) -> None:
@@ -860,10 +882,12 @@ def parse_tool_output(stdout: str, stderr: str = "") -> dict:
 
 # ── trạng thái + một lượt hỏi ─────────────────────────────────────────────────
 
-def _profile_status(profile: str, busy: bool) -> dict:
-    """Trạng thái MỘT hồ sơ: {profile, running, logged_in, verified, busy, message}. Không mở trình duyệt."""
+def _profile_status(profile: str, busy: bool, probe: bool = True) -> dict:
+    """Trạng thái MỘT hồ sơ: {profile, running, logged_in, verified, busy, message}. Không mở trình duyệt.
+    probe=False: không chạy công cụ «status» trên trang muse.ai, không quét tiến trình tìm cổng (chỉ đọc sổ trình duyệt;
+    hồ sơ tắt mỗi lần quét ~1,5 s trên Windows) — logged_in để None."""
     out = {"profile": profile, "running": False, "logged_in": None, "verified": False, "busy": busy, "message": ""}
-    port = _cdp_port(profile)
+    port = _cdp_port(profile) if probe else _cdp_port_known(profile, quick=True)
     if not port:
         # Tắt KHÔNG phải hỏng: lượt hỏi đầu tiên tự mở nó ẩn.
         out["message"] = f"Browser profile '{profile}' is closed — it opens in the background on the first request."
@@ -871,6 +895,8 @@ def _profile_status(profile: str, busy: bool) -> dict:
     out["running"] = True
     if busy:
         out["message"] = "Muse is answering another request."
+        return out
+    if not probe:
         return out
     res = run_tool(port, "status", timeout=20)
     if res.get("ok"):
@@ -891,10 +917,12 @@ def _busy_by_profile() -> Dict[str, int]:
         return out
 
 
-def status() -> dict:
+def status(quick: bool = False) -> dict:
     """Không mở trình duyệt, không gõ gì: {configured, profile, running, logged_in, verified, message, pool[…]}.
 
-    Các trường cấp ngoài là của hồ sơ CHÍNH (như trước); `pool` có một dòng cho mỗi tài khoản."""
+    Các trường cấp ngoài là của hồ sơ CHÍNH (như trước); `pool` có một dòng cho mỗi tài khoản.
+    quick=True: chỉ sổ trong bộ nhớ (bận / hỏng / bị chặn video / mở hay tắt), không hỏi trang muse.ai đã đăng nhập chưa —
+    cho trang «Xem live» của bảng việc hỏi vài chục giây một lần (bản đủ ~5–6 s mỗi hồ sơ đang mở)."""
     st = settings()
     profile = st["profile"]
     remotes = st.get("remotes") or []
@@ -919,7 +947,7 @@ def status() -> dict:
     now = time.time()
     _no_video_load()
     for p in st["pool"]:
-        row = _profile_status(p, busy_by.get(p, 0) >= st["lanes"])
+        row = _profile_status(p, busy_by.get(p, 0) >= st["lanes"], probe=not quick)
         row["down"] = _DOWN.get(p, 0) > now
         row["video_blocked"] = _NO_VIDEO.get(p, 0) > now  # Muse báo chặn khu vực cho video — tạm không giao clip
         row["video_blocked_until"] = _NO_VIDEO.get(p) if row["video_blocked"] else None

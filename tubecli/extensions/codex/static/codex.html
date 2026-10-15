@@ -79,6 +79,13 @@
         <span class="material-symbols-outlined">refresh</span>
       </button>
 
+      <!-- «Xem live» (11/10/2026): MỘT trang chung cho cả bảng — mọi task đang chạy, mở tab mới. codex.js gắn ?theme=. -->
+      <a class="cx-btn cx-btn-ghost" id="cx-live-open" href="/taskboard/live" target="_blank" rel="noopener"
+         data-i18n-title="codex.live_open_title" title="Open the live view of every running task in a new tab">
+        <span class="material-symbols-outlined">open_in_new</span>
+        <span data-i18n="codex.live_open">Live view</span>
+      </a>
+
       <button type="button" class="cx-btn cx-btn-primary" onclick="CODEX.openNewTask()">
         <span class="material-symbols-outlined">add</span>
         <span data-i18n="codex.btn_new_task">New task</span>

@@ -128,9 +128,10 @@ class BrowserProcessManager:
         # what gets executed (args is). Before this, the account password went to
         # the server log via logger.info, into debug_info["command"] which spawn()
         # returns to the caller, and into the instance record that /instances and
-        # /status hand to the dashboard in plaintext.
-        from tubecli.core.run_log import redact
-        cmd_str = redact(" ".join(args))
+        # /status hand to the dashboard in plaintext. Masked PER ARGUMENT (redact_argv): joining first left the 2FA
+        # secret's later space-separated groups in clear (12/10/2026).
+        from tubecli.core.run_log import redact_argv
+        cmd_str = redact_argv(args)
         logger.info(f"[Browser] Spawning: {cmd_str}")
         debug_info["command"] = cmd_str
 

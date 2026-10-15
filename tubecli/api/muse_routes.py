@@ -57,8 +57,9 @@ class MuseSettingsRequest(BaseModel):
 
 
 @router.get("/status")
-async def api_status():
-    return await asyncio.to_thread(muse.status)
+async def api_status(quick: int = 0):
+    """quick=1: không hỏi trang muse.ai từng hồ sơ (nhanh, cho trang «Xem live» hỏi định kỳ)."""
+    return await asyncio.to_thread(muse.status, bool(quick))
 
 
 def _public_settings() -> dict:

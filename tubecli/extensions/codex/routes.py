@@ -59,8 +59,22 @@ async def serve_codex_ui(request: Request):
     return _stamped_html(os.path.join(_STATIC_DIR, "codex.html"), request)
 
 
+@ui_router.get("/taskboard")
+async def serve_taskboard_ui(request: Request):
+    """Tên dễ nhớ của bảng việc — cùng trang với /codex."""
+    return _stamped_html(os.path.join(_STATIC_DIR, "codex.html"), request)
+
+
+@ui_router.get("/taskboard/live")
+async def serve_taskboard_live(request: Request):
+    """«Xem live» CHUNG của bảng việc (11/10/2026 — user: «live view là trang chung task board luôn chứ không phải từng
+    bài», «link kiểu …/taskboard/live»): mọi task đang chạy, lưới ảnh / clip từng cảnh, hàng đợi, vừa xong / vừa lỗi."""
+    return _stamped_html(os.path.join(_STATIC_DIR, "live.html"), request)
+
+
 def _stamped_html(path: str, request: Request):
-    """HTML của bảng với `src="/codex/codex.js?v=<bản>"`, `href="/codex/codex.css?v=<bản>"`; ETag kể cả bản lõi."""
+    """HTML của bảng với `src="/codex/codex.js?v=<bản>"`, `href="/codex/codex.css?v=<bản>"` (trang live: cả live.js /
+    live.css); ETag kể cả bản lõi."""
     from tubecli import __version__ as _ver
     st = os.stat(path)
     etag = f'W/"{int(st.st_mtime)}-{st.st_size}-{_ver}"'
@@ -70,7 +84,9 @@ def _stamped_html(path: str, request: Request):
     with open(path, "r", encoding="utf-8") as f:
         html = f.read()
     html = (html.replace('src="/codex/codex.js"', f'src="/codex/codex.js?v={_ver}"')
-                .replace('href="/codex/codex.css"', f'href="/codex/codex.css?v={_ver}"'))
+                .replace('href="/codex/codex.css"', f'href="/codex/codex.css?v={_ver}"')
+                .replace('src="/codex/live.js"', f'src="/codex/live.js?v={_ver}"')
+                .replace('href="/codex/live.css"', f'href="/codex/live.css?v={_ver}"'))
     return Response(html, media_type="text/html", headers=headers)
 
 

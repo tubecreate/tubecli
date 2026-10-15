@@ -40,6 +40,7 @@ os.makedirs(tempfile.tempdir, exist_ok=True)
 CFG.GLOBAL_SETTINGS_FILE = TMP / "global_settings.json"
 from tubecli.core import muse as M  # noqa: E402
 _REAL_RUN_TOOL = M.run_tool        # các phần sau thay bằng bản giả; phần K cần bản thật
+_REAL_CDP_PORT = M._cdp_port       # phần H kiểm thứ tự sổ → quét của bản thật
 
 PROFILES = TMP / "profiles"
 (PROFILES / "chayagent").mkdir(parents=True)
@@ -612,6 +613,38 @@ ok(c.put("/api/v1/muse/settings", json={"turns_per_chat": 5}).json()["turns_per_
 M._cdp_port = lambda profile: 0
 r = c.get("/api/v1/muse/status").json()
 ok(r["configured"] and not r["running"] and "background" in r["message"], "status: hồ sơ tắt không phải hỏng", r)
+# quick=1 (trang «Xem live» của bảng việc hỏi định kỳ): hồ sơ đang mở mà KHÔNG chạy công cụ «status» trên trang muse.ai
+_probed, _scanned = [], []
+_saved_tool, _saved_port, _saved_known, _saved_scan = M.run_tool, M._cdp_port, M._cdp_port_known, M._cdp_port_from_processes
+M._cdp_port = lambda profile: 9333
+M._cdp_port_known = lambda profile, quick=False: 9333 if profile == "chayagent" else 0
+M._cdp_port_from_processes = lambda profile: (_scanned.append(profile), 0)[1]
+M.run_tool = lambda *a, **k: (_probed.append(a), {"ok": True, "logged_in": True, "verified": True})[1]
+try:
+    rq = c.get("/api/v1/muse/status?quick=1").json()
+    ok(rq["pool"] and rq["pool"][0]["running"] and rq["pool"][0]["logged_in"] is None and not _probed and not _scanned,
+       "status?quick=1: hồ sơ mở, không hỏi trang muse.ai, không quét tiến trình (logged_in = None)",
+       (rq.get("pool"), _probed, _scanned))
+    rf = c.get("/api/v1/muse/status").json()
+    ok(rf["pool"][0]["logged_in"] is True and _probed, "status (đủ) vẫn hỏi trang như cũ", rf.get("pool"))
+    M._cdp_port = _REAL_CDP_PORT
+    ok(M._cdp_port("muse2") == 0 and _scanned == ["muse2"] and M._cdp_port("chayagent") == 9333 and _scanned == ["muse2"],
+       "_cdp_port: sổ biết thì không quét; sổ không biết mới quét tiến trình", _scanned)
+finally:
+    M.run_tool, M._cdp_port, M._cdp_port_known, M._cdp_port_from_processes = _saved_tool, _saved_port, _saved_known, _saved_scan
+
+import socket as _sock  # noqa: E402
+import time as _tm  # noqa: E402
+_srv = _sock.socket()
+_srv.bind(("127.0.0.1", 0))
+_srv.listen(1)
+_open_port = _srv.getsockname()[1]
+_t0 = _tm.time()
+_live_ok = M._port_open(_open_port)
+_srv.close()
+_dead_ok = M._port_open(_open_port)
+ok(_live_ok and not _dead_ok and _tm.time() - _t0 < 1.2, "_port_open: cổng đang nghe → True; đóng rồi → False, nhanh",
+   (_live_ok, _dead_ok, round(_tm.time() - _t0, 2)))
 
 # ── I ─────────────────────────────────────────────────────────────────────────
 print("I. cloud_api + server + driver")

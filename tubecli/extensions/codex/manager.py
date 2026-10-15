@@ -169,7 +169,10 @@ BOARD_KEYS = ("id", "seq", "title", "status", "lane", "hold", "priority", "retry
               "assignee_type", "assignee_id", "assignee_name", "created_at", "updated_at", "started_at",
               "finished_at", "drive", "meta")
 META_KEYS = ("stage", "kind", "language", "target_language", "text_model", "image_model", "preset", "voice",
-             "source", "parent_id", "parent_seq")
+             "source", "parent_id", "parent_seq",
+             # tập Content Studio của task video (11/10/2026): bảng việc hỏi /api/v1/studio/episodes/{id}/live để vẽ
+             # lưới ảnh / clip từng cảnh ngay trong bước đang chạy
+             "episode_id", "drama_id")
 _COUNTER_RE = re.compile(r"(\d+)\s*(?:-\s*(\d+))?\s*(?:/|\bof\b)\s*(\d+)", re.I)
 
 

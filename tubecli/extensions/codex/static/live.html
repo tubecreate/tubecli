@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Live — TubeCLI</title>
+<script>
+/* Cùng giao ước theme với codex.html: ?theme=light|dark|glass; không có thì theo hệ điều hành. */
+(function () {
+    try {
+        var t = new URLSearchParams(window.location.search).get('theme');
+        if (t === 'glass' || t === 'light') document.documentElement.setAttribute('data-theme', 'light');
+        else if (t === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+    } catch (e) { /* mặc định tối */ }
+})();
+</script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+<link rel="stylesheet" href="/codex/codex.css">
+<link rel="stylesheet" href="/codex/live.css">
+</head>
+<body>
+<div class="lv-app" id="lv-app" aria-busy="true">
+  <div class="lv-skel"><div></div><div></div><div></div></div>
+</div>
+<script>window.I18N_NS = ['codex'];</script>
+<script src="/static/i18n.js"></script>
+<script src="/codex/live.js"></script>
+</body>
+</html>

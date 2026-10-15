@@ -79,6 +79,20 @@ def main():
 
         check("None khong lam no vo", run_log.redact(None) is None)
 
+        # 12/10/2026: /browser/status lộ phần sau của khoá 2FA — giá trị có dấu cách, nối argv rồi mới che chỉ che chữ đầu
+        argv = ["node", "open.js", "--profile", "p1", "--prompt", "watch a video about Laozi",
+                "--login-email", "a@b.com", "--login-password", "pass with spaces",
+                "--login-2fa", "abcd efgh ijkl mnop", "--token=tok en", "--headless"]
+        r3 = run_log.redact_argv(argv)
+        check("argv: khoa 2FA co dau cach bi che HET",
+              not any(w in r3 for w in ("abcd", "efgh", "ijkl", "mnop")), r3)
+        check("  mat khau co dau cach bi che het", "with spaces" not in r3 and "spaces" not in r3, r3)
+        check("  --token=... bi che", "tok" not in r3.replace("--token", ""), r3)
+        check("  phan khong bi mat giu nguyen",
+              "--prompt watch a video about Laozi" in r3 and "--headless" in r3 and "--profile p1" in r3, r3)
+        check("  ban cu (noi roi che) dung la lo — de test nay co nghia",
+              "efgh" in run_log.redact(" ".join(argv)))
+
         print("\n=== 2. GHI VA GAP MOT LAN CHAY THANH CONG ===")
         reset()
         rid = run_log.new_run_id()

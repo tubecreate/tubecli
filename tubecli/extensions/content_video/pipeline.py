@@ -2358,6 +2358,8 @@ def _step_studio(state: Dict, options: Dict) -> None:
         _checkpoint_merge(state, {"drama_id": drama_id, "episode_id": ep_id, "title": title,
                                   "preset": state.get("preset_name", "")})
     state["drama_id"], state["episode_id"], state["title"] = drama_id, ep_id, title
+    # thẻ bảng việc biết tập nào → hỏi Studio tiến độ từng cảnh (lưới ảnh / clip) khi bước images chạy
+    _task_meta(state.get("task_id"), episode_id=ep_id, drama_id=drama_id)
 
     shots = _storyboards(ep_id)
     if shots and _duplicate_ratio(shots) >= 0.3:
@@ -8370,6 +8372,7 @@ def backfill_task_meta(limit: int = 400) -> int:
         parent = str(payload.get("plan_task_id") or payload.get("source_task_id") or "")
         meta: Dict[str, Any] = {
             "stage": stage or None, "kind": kind or None,
+            "episode_id": ck.get("episode_id") or None, "drama_id": ck.get("drama_id") or None,
             "language": str(ck.get("language") or payload.get("language") or _meta_language(opts) or ""),
             "preset": str(ck.get("preset") or payload.get("preset") or opts.get("preset") or ""),
             "source": _meta_source(opts) if stage in ("plan", "auto") else None,
@@ -8386,6 +8389,24 @@ def backfill_task_meta(limit: int = 400) -> int:
             title = str((_read_checkpoint(parent) or {}).get("title") or "")
         if title and _GENERIC_TITLE_RE.match(str(t.get("title") or "")):
             codex_manager.set_title(tid, title, actor="board")
+        done += 1
+    return done
+
+
+def backfill_episode_meta(limit: int = 400) -> int:
+    """Task video đã có meta nhưng chưa có `episode_id` (tạo trước 11/10/2026): đọc checkpoint MỘT lần → meta. Task mà
+    checkpoint không có tập (mới lên kế hoạch, chưa vào Studio) được đánh dấu `episode_id: 0` để lần khởi động sau
+    không đọc lại; bước studio ghi đè số thật khi chạy."""
+    from tubecli.extensions.codex.manager import codex_manager
+
+    todo = [t for t in codex_manager.list_tasks(limit=0)
+            if isinstance(t.get("meta"), dict) and "episode_id" not in t["meta"]
+            and str(t["meta"].get("stage") or "") in ("auto", "render", "clone", "drive")]
+    done = 0
+    for t in todo[:max(0, int(limit))]:
+        tid = str(t["id"])
+        ck = _read_checkpoint(tid) or {}
+        codex_manager.set_meta(tid, {"episode_id": ck.get("episode_id") or 0, "drama_id": ck.get("drama_id") or None})
         done += 1
     return done
 

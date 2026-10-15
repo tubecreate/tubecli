@@ -94,6 +94,15 @@ class ContentVideoExtension(Extension):
                     logger.info(f"[ContentVideo] filled title/meta for {n} older video task(s)")
             except Exception as e:
                 logger.warning(f"[ContentVideo] could not fill title/meta of older tasks: {e}")
+            # Bảng việc realtime (11/10/2026): task cũ có meta nhưng chưa biết tập Studio → đọc checkpoint một lần.
+            try:
+                from tubecli.extensions.content_video.pipeline import backfill_episode_meta
+
+                n = backfill_episode_meta()
+                if n:
+                    logger.info(f"[ContentVideo] filled episode id for {n} older video task(s)")
+            except Exception as e:
+                logger.warning(f"[ContentVideo] could not fill episode ids of older tasks: {e}")
 
         # Một chip trong tab Kỹ năng của agent. Verb thì vô hình — nó nổ khi model
         # quyết định, nên chủ máy không nhìn thấy agent có khả năng này và cũng
