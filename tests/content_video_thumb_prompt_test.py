@@ -93,6 +93,10 @@ ok(c["image"] and c["engine"] == "image" and c["style"] == "Bold comic" and c["m
 c = P.thumb_config("Auto", {"thumbnail_style": "Neon poster", "thumbnail_engine": "studio"})
 ok(c["style"] == "Neon poster" and c["engine"] == "studio", "form thắng mẫu", c)
 ok(P.thumb_config("", {"thumbnail": True})["image"], "form bật ảnh khi mẫu không khai")
+# 15/10/2026: layout Thumbnail Studio ra ảnh lạc kiểu video ⇒ không ai chọn engine thì vẽ bằng model ảnh.
+ok(P.thumb_config("Chalk", {"thumbnail": True})["engine"] == "image", "không chọn engine ⇒ model ảnh (không phải layout)")
+ok(P.thumb_config("Chalk", {"thumbnail": True, "thumbnail_template": "news"})["engine"] == "studio",
+   "chỉ định mẫu Thumbnail Studio ⇒ vẫn dùng Studio")
 
 print("── 2. prompt: nội dung + dòng STYLE riêng ─────────────────────")
 ASKS.clear()
@@ -174,6 +178,16 @@ st = st_new(checkpoint={"thumbnail_prompt": "YouTube thumbnail, 16:9.\nSUBJECT: 
 P._step_thumbnail(st, {"thumbnail": True, "thumbnail_engine": "image"})
 ok(not DRAWS and st["thumbnail_path"] == HOOK and st["thumbnail_prompt"].endswith("old"),
    "chạy tiếp từ checkpoint: không viết lại, không vẽ lại")
+# Agent tự đăng chỉ gửi thumbnail=True (không engine) — trước 15/10 rơi vào layout Thumbnail Studio.
+DRAWS.clear()
+CK.clear()
+_cj = P.check_job
+P.check_job = lambda job: (_ for _ in ()).throw(AssertionError("Thumbnail Studio must not be asked"))
+st = st_new()
+P._step_thumbnail(st, {"thumbnail": True})
+P.check_job = _cj
+ok(DRAWS and DRAWS[-1][4] == HOOK and st.get("thumbnail_path") == DRAWS[-1][1],
+   "thumbnail=True, không engine (agent tự đăng) ⇒ vẽ bằng model ảnh từ ảnh hook", DRAWS[-1:])
 P.draw_thumbnail = _draw
 
 print("── 5. draw_thumbnail ──────────────────────────────────────────")
@@ -263,7 +277,11 @@ P.check_job = lambda job: {"ready": job != "thumbnail", "missing": ["thumbnail_s
 row = next(r for r in P.plan({}) if r["step"] == "thumbnail")
 ok(row["will_run"], "mặc định: bước thumbnail chạy (viết prompt), không cần Thumbnail Studio", row)
 row = next(r for r in P.plan({"thumbnail": True}) if r["step"] == "thumbnail")
-ok(not row["available"], "vẽ bằng Thumbnail Studio mà thiếu ⇒ báo thiếu", row)
+ok(row["available"], "bật ảnh, không chọn engine ⇒ model ảnh, không cần Thumbnail Studio", row)
+row = next(r for r in P.plan({"thumbnail": True, "thumbnail_template": "news"}) if r["step"] == "thumbnail")
+ok(not row["available"], "chỉ định mẫu Thumbnail Studio mà thiếu ⇒ báo thiếu", row)
+row = next(r for r in P.plan({"thumbnail": True, "thumbnail_engine": "studio"}) if r["step"] == "thumbnail")
+ok(not row["available"], "chọn rõ Thumbnail Studio mà thiếu ⇒ báo thiếu", row)
 row = next(r for r in P.plan({"thumbnail": True, "thumbnail_engine": "image"}) if r["step"] == "thumbnail")
 ok(row["available"], "vẽ bằng model ảnh ⇒ không cần Thumbnail Studio", row)
 ran = []

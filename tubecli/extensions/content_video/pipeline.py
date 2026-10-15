@@ -154,7 +154,8 @@ DEFAULTS: Dict[str, Any] = {
     "thumbnail": False, "thumbnail_template": "",
     # Prompt ảnh đại diện LUÔN viết (nút copy trên thẻ Codex + dòng trong Sheet); False = bỏ hẳn. thumbnail_engine
     # "image" = ảnh vẽ một lượt bằng model ảnh từ prompt đó, ảnh hook làm tham chiếu (thumbnail_image_model
-    # "nhà|model", trống = Muse rồi gpt-image-2); khác = Thumbnail Studio. thumbnail_style = chữ thay dòng STYLE (trống
+    # "nhà|model", trống = Muse rồi gpt-image-2); khác = Thumbnail Studio; TRỐNG = model ảnh, trừ khi có
+    # thumbnail_template (15/10/2026 — xem thumb_config). thumbnail_style = chữ thay dòng STYLE (trống
     # = tự theo vibe video). Mẫu khai wizThumbAuto / wizThumbEngine / wizThumbModel / wizThumbStyle.
     "thumbnail_prompt": True, "thumbnail_engine": "", "thumbnail_image_model": "", "thumbnail_style": "",
     # ── Lưu lên Google Drive (bước "drive", sau cùng) ────────────────
@@ -6524,15 +6525,22 @@ def thumb_config(preset_name: str, options: Optional[Dict] = None) -> Dict[str, 
 
     style: chữ người dùng thay dòng STYLE (thumbnail_style / wizThumbStyle); trống = tự theo vibe video.
     image: có vẽ ảnh không (options.thumbnail hay wizThumbAuto). engine: "image" = model vẽ một lượt; khác = Thumbnail
-    Studio (đường cũ). model: "nhà|model" (thumbnail_image_model / wizThumbModel); trống = Muse/gpt-image-2."""
+    Studio (đường cũ). model: "nhà|model" (thumbnail_image_model / wizThumbModel); trống = Muse/gpt-image-2.
+
+    Không ai chọn engine ⇒ MODEL ẢNH (15/10/2026, user «nên sử dụng AI tạo ảnh để tạo thay vì dùng layout thumbnail…
+    sai font mẫu lạc so với video»): ảnh hook làm tham chiếu nên cùng chất liệu, chủ thể với video. Layout Thumbnail
+    Studio ra người mẫu ảnh kho + font lạc (Lão Tử thuỷ mặc thành anh đeo tai nghe; bảng phấn thành phòng máy chủ +
+    một ảnh toà nhà lặp ở mọi video). Thumbnail Studio CHỈ khi chọn rõ: engine khác "image", hay có thumbnail_template."""
     options = options or {}
     wiz = _preset_wiz(preset_name)
     wiz_auto = _truthy(wiz.get("wizThumbAuto"), False)
+    engine = str(options.get("thumbnail_engine") or wiz.get("wizThumbEngine") or "").strip().lower()
+    if not engine:
+        engine = "studio" if str(options.get("thumbnail_template") or "").strip() else "image"
     return {
         "style": str(options.get("thumbnail_style") or wiz.get("wizThumbStyle") or "").strip()[:600],
         "image": bool(options.get("thumbnail")) or wiz_auto,
-        "engine": str(options.get("thumbnail_engine") or wiz.get("wizThumbEngine")
-                      or ("image" if wiz_auto else "")).strip().lower(),
+        "engine": engine,
         "model": str(options.get("thumbnail_image_model") or wiz.get("wizThumbModel") or "").strip(),
         "aspect": str(wiz.get("wizAspectRatio") or ""),
     }
@@ -6698,7 +6706,10 @@ def thumbnail_prompt_for_task(task_id: str, force: bool = False, style: str = ""
 def _step_thumbnail(state: Dict, options: Dict) -> None:
     """Ảnh đại diện: luôn VIẾT prompt (nút copy trên thẻ, dòng trong Sheet); VẼ ảnh khi bật — model ảnh một lượt với
     ảnh hook làm tham chiếu (engine "image") hay Thumbnail Studio (đường cũ). Hỏng chỉ là cảnh báo (bước tuỳ chọn)."""
-    cfg = thumb_config(str(state.get("preset_name") or ""), options)
+    # Mẫu thumbnail ghi trong metadata của preset cũng là lựa chọn RÕ của Thumbnail Studio (thumb_config chỉ thấy options).
+    cfg = thumb_config(str(state.get("preset_name") or ""),
+                       dict(options, thumbnail_template=str(options.get("thumbnail_template")
+                                                            or _preset_meta(state).get("thumbnail_template") or "")))
     want_prompt = options.get("thumbnail_prompt", True) is not False
     say = state["_say"]
     if not want_prompt and not cfg["image"]:
@@ -7824,7 +7835,10 @@ def plan(options: Dict[str, Any]) -> List[Dict[str, Any]]:
         if sid == "thumbnail":
             # Prompt ảnh đại diện luôn viết bằng model của agent; Thumbnail Studio chỉ cần khi VẼ ảnh bằng nó.
             wanted = wanted or options.get("thumbnail_prompt", True) is not False
-            if not (options.get("thumbnail") and str(options.get("thumbnail_engine") or "").lower() != "image"):
+            # Cùng luật với thumb_config: không chọn engine ⇒ model ảnh, trừ khi có thumbnail_template.
+            eng = str(options.get("thumbnail_engine")
+                      or ("studio" if str(options.get("thumbnail_template") or "").strip() else "image")).lower()
+            if not (options.get("thumbnail") and eng != "image"):
                 cap = {"ready": True, "missing": [], "disabled": []}
         out.append({"step": sid, "label": label, "job": job, "enabled": wanted,
                     "available": cap["ready"], "will_run": wanted and cap["ready"],
