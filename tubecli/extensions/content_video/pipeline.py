@@ -149,6 +149,12 @@ DEFAULTS: Dict[str, Any] = {
     "seo_tags": [],
     # Hồ sơ trình duyệt ép dùng khi đăng bằng script (rỗng = tự chọn, xem _login_profile).
     "publish_profile": "",
+    # Cảnh trong video (ô «Scenes» của form Codex, 12/10/2026): "" = theo mẫu (clip Muse nếu mẫu bật) | "stills" = chỉ
+    # ảnh tĩnh chuyển động — không clip cảnh, không clip mở đầu (xem _scene_media_meta).
+    "scene_media": "",
+    # Watermark chữ ký trôi (ô «Watermark» của form Codex, 14/10/2026): "" = theo mẫu (wizWatermark), xem _scene_media_meta.
+    "watermark": "",
+    "watermark_size": "",       # "" = theo mẫu (wizWatermarkSize) | small | medium | large | xlarge
     # Ảnh đại diện qua Thumbnail Studio: tắt mặc định; chat "có thumbnail" hay lượt
     # tự động đăng bật lên. thumbnail_template = id mẫu ("" = Studio tự chọn họ mẫu).
     "thumbnail": False, "thumbnail_template": "",
@@ -2296,6 +2302,25 @@ def _stream_storyboard(ep_id: int, state: Dict, append: bool = False) -> None:
                 state["_say"]("studio", "running", str(ev["message"])[:120])
 
 
+def _scene_media_meta(options: Dict) -> Dict[str, Any]:
+    """Metadata drama cho ô «Scenes» (user 12/10/2026: «thêm option chọn tạo video hoặc dùng ảnh tĩnh»). "stills" →
+    Content Studio không quay clip nào: clip_mode "hook" = trần clip cảnh 0 (engines/key_scenes.plan), hook_video "" =
+    không clip mở đầu 10 s (hook_video.kind_of rỗng). "" = giữ nguyên mẫu. Đè lên metadata của mẫu (agent_meta đứng sau)."""
+    out: Dict[str, Any] = {}
+    if str((options or {}).get("scene_media") or "").strip().lower() == "stills":
+        out.update({"clip_mode": "hook", "hook_video": ""})
+    # Watermark chữ ký trôi (ô «Watermark» của form Codex, 14/10/2026): chữ riêng của task đè chữ của mẫu; trống = theo
+    # mẫu (Content Studio engines/watermark đọc metadata.watermark lúc xuất video).
+    wm = " ".join(str((options or {}).get("watermark") or "").split())[:60]
+    if wm:
+        out["watermark"] = wm
+    # Cỡ chữ watermark (15/10/2026): small | medium | large | xlarge; trống / lạ = theo mẫu (metadata.watermark_size).
+    wsz = str((options or {}).get("watermark_size") or "").strip().lower()
+    if wsz in ("small", "medium", "large", "xlarge"):
+        out["watermark_size"] = wsz
+    return out
+
+
 def _step_studio(state: Dict, options: Dict) -> None:
     agent = state["agent"]
     ck = state.get("checkpoint") or {}
@@ -2323,6 +2348,7 @@ def _step_studio(state: Dict, options: Dict) -> None:
             else:
                 agent_meta["tts_voice"] = a_voice or _edge_voice(lang_code)
                 agent_meta["tts_engine"] = "edge"
+        agent_meta.update(_scene_media_meta(options))
         body = {
             "title": title, "style": options.get("style") or DEFAULTS["style"],
             "language": lang_code,

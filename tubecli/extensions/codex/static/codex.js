@@ -2042,6 +2042,7 @@ const CODEX = (() => {
     $('cx-v-drive-share').value = lsGet(CV_DRIVE_SHARE_KEY) === 'private' ? 'private' : 'public';
     $('cx-v-thumb').checked = lsGet(CV_THUMB_KEY) === '1';
     $('cx-v-thumb-style').value = lsGet(CV_THUMB_STYLE_KEY) || '';
+    if ($('cx-v-media')) $('cx-v-media').value = lsGet(CV_MEDIA_KEY) === 'stills' ? 'stills' : '';
     resetYtForm();
     state.googleTokens = null;          // nạp lại mỗi lần mở: có thể vừa cấp quyền tài khoản mới
     $('cx-v-preset').innerHTML = '<option value="">…</option>';
@@ -2162,6 +2163,8 @@ const CODEX = (() => {
     if (thumb) lsSet(CV_THUMB_KEY, thumb.checked ? '1' : '0');
     const thumbStyle = $('cx-v-thumb-style');
     if (thumbStyle) lsSet(CV_THUMB_STYLE_KEY, (thumbStyle.value || '').trim().slice(0, 600));
+    const media = $('cx-v-media');
+    if (media) lsSet(CV_MEDIA_KEY, media.value === 'stills' ? 'stills' : '');
   }
 
   /** Chọn lại giá trị đã nhớ nếu nó vẫn còn trong danh sách (agent/nhóm có thể đã bị xoá). */
@@ -2853,6 +2856,8 @@ const CODEX = (() => {
   // Ảnh đại diện: vẽ ảnh bằng model (prompt thì luôn viết) + style thay dòng STYLE của prompt — nhớ lần gần nhất.
   const CV_THUMB_KEY = 'codex.cvThumb';              // '1' | '0'
   const CV_THUMB_STYLE_KEY = 'codex.cvThumbStyle';
+  // Cảnh trong video: '' = theo mẫu (clip Muse nếu mẫu bật) | 'stills' = chỉ ảnh tĩnh (12/10/2026) — nhớ lần gần nhất.
+  const CV_MEDIA_KEY = 'codex.cvMedia';
   // PHẢI khớp content_video/pipeline.py (WORDS_PER_MINUTE, _WORDS_MIN/_WORDS_MAX,
   // DEFAULT_WORDS, _VIDEO_LENGTH_WORDS, content_words) — lệch nhau là ô ước lượng
   // nói một đằng, video ra một nẻo. tests/codex_video_length_test.js canh.
@@ -3214,6 +3219,14 @@ const CODEX = (() => {
     }
     const thumbStyleText = (($('cx-v-thumb-style') || {}).value || '').trim().slice(0, 600);
     if (thumbStyleText) options.thumbnail_style = thumbStyleText;
+    // Chỉ ảnh tĩnh: pipeline đặt drama không quay clip cảnh nào, kể cả clip mở đầu.
+    if ((($('cx-v-media') || {}).value || '') === 'stills') options.scene_media = 'stills';
+    // Watermark riêng cho task (14/10/2026); trống = watermark của mẫu.
+    const wmText = (($('cx-v-watermark') || {}).value || '').trim().slice(0, 60);
+    if (wmText) options.watermark = wmText;
+    // Cỡ chữ watermark riêng cho task (15/10/2026); trống = cỡ của mẫu.
+    const wmSize = (($('cx-v-watermark-size') || {}).value || '');
+    if (wmSize) options.watermark_size = wmSize;
     // Đăng YouTube khi xong: cách đăng, kênh, chế độ hiển thị, giờ công khai (ngay / khung hằng ngày / giờ tự chọn).
     if (yt) Object.assign(options, yt);
 

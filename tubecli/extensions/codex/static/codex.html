@@ -380,6 +380,39 @@
                    placeholder="Empty = match the look and mood of the video">
           </div>
 
+          <!-- Cảnh trong video (12/10/2026): theo mẫu (clip Muse nếu mẫu bật) hay CHỈ ảnh tĩnh — không clip cảnh, không clip
+               mở đầu (pipeline options.scene_media = "stills" → drama clip_mode "hook" + hook_video ""). -->
+          <div class="cx-field">
+            <label for="cx-v-media" data-i18n="codex.field_video_media">Scenes</label>
+            <select id="cx-v-media">
+              <option value="" data-i18n="codex.cv_media_template">Video clips (as the template sets)</option>
+              <option value="stills" data-i18n="codex.cv_media_stills">Still images only (no clips)</option>
+            </select>
+            <div class="cx-field-meta" data-i18n="codex.field_video_media_hint">Still images play with a slow camera move. Faster to make, and no clip can time out.</div>
+          </div>
+
+          <!-- Watermark chữ ký trôi (14/10/2026): chữ riêng cho task này; trống = theo mẫu (Content Studio wizWatermark)
+               → pipeline options.watermark → drama metadata.watermark. -->
+          <div class="cx-field">
+            <label for="cx-v-watermark" data-i18n="codex.field_watermark">Watermark</label>
+            <input type="text" id="cx-v-watermark" maxlength="60" spellcheck="false"
+                   data-i18n-placeholder="codex.field_watermark_ph" placeholder="Template's text (empty = template)">
+            <div class="cx-field-meta" data-i18n="codex.field_watermark_hint">White signature text drifting in a few random moments. Empty = use the template's watermark.</div>
+          </div>
+
+          <!-- Cỡ chữ watermark (15/10/2026 «thêm tính năng cho chỉnh size»): "" = theo mẫu (wizWatermarkSize, mặc định nhỏ)
+               → pipeline options.watermark_size → drama metadata.watermark_size → engines/watermark.SIZES. -->
+          <div class="cx-field">
+            <label for="cx-v-watermark-size" data-i18n="codex.field_watermark_size">Watermark size</label>
+            <select id="cx-v-watermark-size">
+              <option value="" data-i18n="codex.wm_size_template">Template's size</option>
+              <option value="small" data-i18n="codex.wm_size_small">Small</option>
+              <option value="medium" data-i18n="codex.wm_size_medium">Medium</option>
+              <option value="large" data-i18n="codex.wm_size_large">Large</option>
+              <option value="xlarge" data-i18n="codex.wm_size_xlarge">Extra large</option>
+            </select>
+          </div>
+
           <div class="cx-field">
             <label for="cx-v-title" data-i18n="codex.field_title">Title (optional)</label>
             <input type="text" id="cx-v-title"
