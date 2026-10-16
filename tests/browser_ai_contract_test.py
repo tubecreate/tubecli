@@ -92,8 +92,9 @@ try:
     # the PUT response still shows the EFFECTIVE settings (defaults merged)
     resp = run(wr.save_global_settings(Req({"theme": "light"})))
     body = json.loads(resp.body.decode("utf-8"))
-    check("PUT response still carries merged defaults for the UI",
-          body["settings"].get("default_model"), "qwen:latest")
+    # 16/10/2026: không còn độn "qwen:latest" — máy chưa chọn AI thì default_model là "" (UI đòi chọn).
+    check("PUT response still carries merged defaults for the UI (default_model unset = '')",
+          body["settings"].get("default_model"), "")
     check("PUT response carries the new key", body["settings"].get("browser_ai_model"), "")
 
     # ── 3. The settings round-trip builder C could not test live ──────

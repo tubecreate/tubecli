@@ -52,7 +52,9 @@ def _default_settings():
     except Exception:
         port = "5295"
     return {
-        "default_model": "qwen:latest",
+        # KHÔNG độn model: máy mới chưa chọn AI nào thì nói là chưa chọn (user 16/10/2026: «mặc định không chọn qwen vì
+        # thật sự nó chưa có, để ban đầu none và yêu cầu người dùng thêm tối thiểu»). Cloud/bảng điều khiển thấy "" → đòi chọn.
+        "default_model": "",
         # The AI that drives a browser session when the agent running it has not
         # picked one. Empty means "not set" — callers fall through to
         # default_model — so it must never be seeded with a model name here, or
