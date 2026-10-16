@@ -192,6 +192,68 @@ async def install_app(name: str, req: InstallReq):
     return {"status": "installing", "port": spec["port"]}
 
 
+def _start_worker(name: str, spec: dict):
+    """Bật app đã cài: có unit systemd thì `systemctl start`, không thì chạy binary rời (Windows / máy không systemd)."""
+    try:
+        port = spec["port"]
+        if _port_alive(port):
+            _set(name, "running", f"✓ {spec['label']} đã chạy sẵn ở cổng {port}.")
+            return
+        binpath = shutil.which(spec["bin"])
+        if not binpath:
+            _set(name, "error", f"{spec['label']} chưa cài (không thấy {spec['bin']}). Cài trước rồi bật.")
+            return
+        unit = f"/etc/systemd/system/{name}.service"
+        if shutil.which("systemctl") and os.path.exists(unit):
+            _set(name, "starting", f"systemctl start {name} …")
+            rc, out = _sudo(["systemctl", "start", f"{name}.service"], timeout=60)
+            if rc != 0:
+                _set(name, "error", "Bật service lỗi:\n" + out[-1200:])
+                return
+        else:
+            # Không có service: chạy rời, tách khỏi tiến trình TubeCLI (khởi động lại TubeCLI không kéo nó chết).
+            exec_line = spec["exec"].format(bin=binpath, port=port)
+            env = dict(os.environ)
+            for k, v in (spec.get("env") or {}).items():
+                env[k] = v
+            _set(name, "starting", f"Chạy: {exec_line}")
+            kw = {"env": env, "stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
+            if os.name == "nt":
+                kw["creationflags"] = 0x00000008 | 0x00000200   # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+            else:
+                kw["start_new_session"] = True
+            subprocess.Popen(exec_line.split(), **kw)
+        for _ in range(30):
+            if _port_alive(port):
+                _set(name, "running", f"✓ {spec['label']} đang chạy ở cổng {port}.")
+                return
+            time.sleep(2)
+        _set(name, "error", f"Đã bật nhưng cổng {port} chưa phản hồi sau 60 s.")
+    except Exception as e:  # noqa: BLE001
+        _set(name, "error", f"Lỗi khi bật: {e}")
+
+
+@router.post("/{name}/start")
+async def start_app(name: str):
+    """Bật một app đã cài (9Router, Ollama) — bảng chọn model trên cloud gọi khi thấy 9Router tắt (16/10/2026).
+    Không cài gì mới; chưa cài thì báo. Trả ngay, trạng thái theo dõi ở GET /{name}/status."""
+    spec = APP_REGISTRY.get(name)
+    if not spec:
+        raise HTTPException(404, f"App '{name}' không được hỗ trợ")
+    with _LOCK:
+        cur = _STATUS.get(name)
+        if cur and cur["status"] in ("installing", "starting"):
+            return {"status": cur["status"], "message": "Đang bật, chờ chút…", "port": spec["port"]}
+    if _port_alive(spec["port"]):
+        _set(name, "running", f"✓ {spec['label']} đã chạy sẵn ở cổng {spec['port']}.")
+        return {"status": "running", "port": spec["port"]}
+    if not shutil.which(spec["bin"]):
+        raise HTTPException(409, f"{spec['label']} chưa cài trên máy này — cài trước (POST /{name}/install) rồi bật.")
+    _set(name, "starting", "")
+    threading.Thread(target=_start_worker, args=(name, spec), daemon=True).start()
+    return {"status": "starting", "port": spec["port"]}
+
+
 @router.get("/{name}/status")
 async def app_status(name: str):
     spec = APP_REGISTRY.get(name)

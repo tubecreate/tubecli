@@ -276,9 +276,8 @@ async def api_test_provider_model(provider: str, req: TestModelRequest):
         raise HTTPException(500, str(e))
 
 
-@router.get("/9router/status")
-async def api_9router_status():
-    """Check if 9Router is running and get its models."""
+def _9router_status_sync() -> dict:
+    """Hỏi 9Router (chặn tới 3 s cục bộ / 10 s từ xa) — chạy trong thread, xem api_9router_status."""
     import requests as _req
     from tubecli.extensions.cloud_api.extension import key_manager
     try:
@@ -300,6 +299,16 @@ async def api_9router_status():
                 "status_code": resp.status_code}
     except Exception:
         return {"running": False, "model_count": 0, "models": []}
+
+
+@router.get("/9router/status")
+async def api_9router_status():
+    """Check if 9Router is running and get its models.
+
+    requests.get chặn — từng chạy thẳng trong async def nên mỗi lượt gõ cửa (bảng chọn model trên cloud gọi vài lượt
+    song song) đóng băng cả máy chủ tới 3–10 s (16/10/2026). Giờ đẩy sang thread."""
+    import asyncio
+    return await asyncio.to_thread(_9router_status_sync)
 
 
 # ── Cloudflare Credential Routes ──────────────────────────────────────
@@ -334,6 +343,19 @@ async def api_add_cloudflare_profile(req: AddCloudflareKeyRequest):
     result = key_manager.add_cloudflare_key(req.api_token, req.account_id, req.label, req.email)
     if result["status"] == "error":
         raise HTTPException(400, result["message"])
+    # Lưu khoá xong là tải luôn danh sách model (test_key không làm việc này): bảng chọn trên cloud nối Cloudflare
+    # tại chỗ rồi có model ngay, không cần thêm lượt «Lấy từ API» (16/10/2026). Hỏi API chặn → thread; hỏng thì
+    # vẫn trả success của bước lưu, kèm lý do.
+    try:
+        import asyncio
+        rm = await asyncio.to_thread(key_manager.refresh_models, "cloudflare")
+        result["models_refreshed"] = rm.get("status") == "success"
+        result["model_count"] = rm.get("count") or len(rm.get("models") or [])
+        if rm.get("status") != "success":
+            result["models_error"] = str(rm.get("message") or "")[:300]
+    except Exception as e:  # noqa: BLE001
+        result["models_refreshed"] = False
+        result["models_error"] = str(e)[:300]
     return result
 
 

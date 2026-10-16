@@ -578,6 +578,21 @@ class AgentManager:
         self._save()
         return agent
 
+    def set_model_for_all(self, model: str) -> int:
+        """Đổi model của MỌI agent rồi ghi file MỘT lần. Trả số agent đã đổi.
+
+        PUT /api/v1/settings {default_model} từng gọi update() cho từng agent → mỗi lượt rewrite trọn agents.json
+        (kèm history_log của mọi agent) ngay trên event loop: N agent = N lần ghi, bảng chọn model trên cloud «đơ»
+        (user 16/10/2026). Ghi một lần, và bên gọi đẩy sang thread."""
+        n = 0
+        for agent in self.agents.values():
+            if getattr(agent, "model", None) != model:
+                agent.model = model
+                n += 1
+        if n:
+            self._save()
+        return n
+
     def delete(self, agent_id: str) -> bool:
         if agent_id in self.agents:
             del self.agents[agent_id]

@@ -113,13 +113,14 @@ async def save_global_settings(request: Request):
     with open(p, "w", encoding="utf-8") as f:
         json.dump(existing, f, indent=2, ensure_ascii=False)
 
-    # Auto-update all agents when global default model changes
+    # Auto-update all agents when global default model changes — MỘT lần ghi agents.json, ngoài event loop.
+    # Trước đây update() từng agent = N lần rewrite trọn file ngay trên loop → chọn model trên cloud «đơ» (16/10/2026).
     if "default_model" in body:
         new_model = body["default_model"]
         try:
+            import asyncio
             from tubecli.core.agent import agent_manager
-            for agent in agent_manager.get_all():
-                agent_manager.update(agent.id, model=new_model)
+            await asyncio.to_thread(agent_manager.set_model_for_all, new_model)
         except Exception:
             pass
 
