@@ -263,6 +263,17 @@
                       placeholder="e.g. warm tone, speak to the viewer as «tú», end with a question to the audience…"></textarea>
           </div>
 
+          <!-- ADN nội dung (16/10/2026, extension content_dna): cấu trúc + giọng văn học từ bài mẫu. "" = ADN của mẫu,
+               "none" = không dùng ADN. Ẩn khi đọc nguyên văn (không có lượt viết). → options.content_dna -->
+          <div class="cx-field" id="cx-v-dna-wrap">
+            <label for="cx-v-dna" data-i18n="codex.field_dna">Content DNA</label>
+            <select id="cx-v-dna">
+              <option value="" data-i18n="codex.dna_template">Template's DNA</option>
+              <option value="none" data-i18n="codex.dna_none">No DNA</option>
+            </select>
+            <div class="cx-field-meta" data-i18n="codex.field_dna_hint">Structure and writing style learned from sample pieces on the Content DNA page.</div>
+          </div>
+
           <label class="cx-check">
             <input type="checkbox" id="cx-v-review" checked>
             <span>

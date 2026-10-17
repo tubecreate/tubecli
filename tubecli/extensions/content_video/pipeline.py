@@ -155,6 +155,9 @@ DEFAULTS: Dict[str, Any] = {
     # Watermark chữ ký trôi (ô «Watermark» của form Codex, 14/10/2026): "" = theo mẫu (wizWatermark), xem _scene_media_meta.
     "watermark": "",
     "watermark_size": "",       # "" = theo mẫu (wizWatermarkSize) | small | medium | large | xlarge
+    # ADN nội dung (extension content_dna, 16/10/2026): "" = theo mẫu (metadata.content_dna) | "none" = tắt | mã ADN.
+    # Khối cấu trúc + giọng văn chèn vào system prompt của bước viết kịch bản — xem _dna_note.
+    "content_dna": "",
     # Ảnh đại diện qua Thumbnail Studio: tắt mặc định; chat "có thumbnail" hay lượt
     # tự động đăng bật lên. thumbnail_template = id mẫu ("" = Studio tự chọn họ mẫu).
     "thumbnail": False, "thumbnail_template": "",
@@ -602,11 +605,38 @@ def resolve_words(options: Dict, preset: Optional[Dict]) -> Tuple[int, str]:
     pasted = str(options.get("source_text") or "")
     if pasted.strip() and str(options.get("length_mode") or "").strip().lower() != "template":
         return max(_WORDS_MIN, min(_WORDS_MAX, content_words(pasted))), "content"
-    length = str((((preset or {}).get("fields") or {}).get("metadata") or {})
-                 .get("video_length") or "").strip()
+    meta = (((preset or {}).get("fields") or {}).get("metadata") or {})
+    # Mẫu chọn «độ dài theo ADN» (content_dna_length = "dna"): độ dài thường gặp của bài mẫu đã học.
+    dna_words = _dna_usual_words(options, meta)
+    if dna_words > 0:
+        return max(_WORDS_MIN, min(_WORDS_MAX, dna_words)), "content DNA"
+    length = str(meta.get("video_length") or "").strip()
     if length in _VIDEO_LENGTH_WORDS:
         return _VIDEO_LENGTH_WORDS[length], "template"
     return DEFAULT_WORDS, "default"
+
+
+def _dna_usual_words(options: Dict, preset_meta: Dict) -> int:
+    try:
+        from tubecli.extensions.content_dna import apply as _dna
+        return int(_dna.usual_words(options, preset_meta) or 0)
+    except Exception as e:      # noqa: BLE001 — ADN hỏng không được làm hỏng cả lượt viết
+        logger.info(f"[ContentVideo] content DNA length unavailable: {e}")
+        return 0
+
+
+def _dna_note(state: Dict, options: Dict, words: int, structure: bool = True) -> str:
+    """Khối «CONTENT DNA» (extension content_dna) cho system prompt của người viết; "" khi không có ADN. Ghi tên ADN
+    vào state để bản kế hoạch / bảng việc nói được kịch bản viết theo ADN nào."""
+    try:
+        from tubecli.extensions.content_dna import apply as _dna
+        text, rec = _dna.note_for(options, _preset_meta(state), words, structure)
+    except Exception as e:      # noqa: BLE001
+        logger.warning(f"[ContentVideo] content DNA not applied: {e}")
+        return ""
+    if rec:
+        state["content_dna"] = {"id": rec.get("id"), "name": rec.get("name"), "version": rec.get("version")}
+    return text
 
 
 def scene_budget(words: int) -> Tuple[int, int, int]:
@@ -2121,6 +2151,12 @@ def _step_script(state: Dict, options: Dict) -> None:
     system_prompt += instructions_note(options)
     if not pasted and not reference:
         system_prompt += research_note(agent)
+    # ADN nội dung (16/10/2026): cấu trúc + giọng văn của kênh mẫu. «Tham khảo cấu trúc» thì cấu trúc là của video
+    # tham khảo — ADN chỉ mang GIỌNG.
+    dna_note = _dna_note(state, options, words, structure=not reference)
+    if dna_note:
+        system_prompt += dna_note
+        state["_say"]("script", "running", f"writing with the content DNA “{state['content_dna']['name']}”")
     fmt = (
         "Format, exactly:\n"
         "TITLE: <a punchy title>\n\n"

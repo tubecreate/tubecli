@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script>(function(){try{var r=document.documentElement;var t=new URLSearchParams(location.search).get('theme');if(t==='glass'||t==='light'){r.setAttribute('data-theme','light')}else if(t==='dark'){r.setAttribute('data-theme','dark')}}catch(e){}})();</script>
+<script>(function(){try{var c=localStorage.getItem('tubecli_lang');document.documentElement.lang=c||(navigator.language||'en').slice(0,2)}catch(e){}})();</script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title data-i18n="dna.app.title">Content DNA</title>
+<link rel="stylesheet" href="/content-dna-static/app.css?v=__ASSET_VER__">
+</head>
+<body>
+<!-- Content DNA — cấu trúc + văn phong của một kênh, đúc từ bài mẫu. Trái: danh sách ADN; phải: chi tiết sửa được.
+     Chữ viết sẵn tiếng Anh + data-i18n: mất từ điển trang vẫn đọc được. -->
+<div class="app">
+  <header class="top">
+    <div class="brand"><span class="brand-dot" aria-hidden="true"></span><span data-i18n="dna.brand">Content DNA</span><small>· TubeCLI</small></div>
+    <p class="lede" data-i18n="dna.lede">Learn a channel's structure and writing style from sample pieces, then pick it in a Content Studio template or a Codex video task.</p>
+    <button id="btnLearn" class="btn primary" type="button" data-i18n="dna.action.learn_new">+ Learn a new DNA</button>
+  </header>
+
+  <div class="cols">
+    <aside class="list" aria-label="Content DNAs" data-i18n-aria-label="dna.list.aria">
+      <div id="listBox"></div>
+      <p id="listEmpty" class="empty" hidden data-i18n="dna.list.empty">No content DNA yet. Learn one from a few sample scripts, articles or YouTube videos of the channel you want to write like.</p>
+    </aside>
+
+    <main class="detail">
+      <div id="detailEmpty" class="empty big" data-i18n="dna.detail.pick">Pick a DNA on the left, or learn a new one.</div>
+      <form id="detail" hidden autocomplete="off" onsubmit="return false">
+        <div class="head">
+          <input id="fName" class="title-in" maxlength="120" aria-label="DNA name" data-i18n-aria-label="dna.f.name">
+          <div class="head-actions">
+            <button id="btnSave" class="btn primary" type="button" data-i18n="dna.action.save">Save</button>
+            <button id="btnRelearn" class="btn" type="button" data-i18n="dna.action.relearn">Learn again</button>
+            <button id="btnDelete" class="btn danger" type="button" data-i18n="dna.action.delete">Delete</button>
+          </div>
+        </div>
+        <p id="meta" class="meta"></p>
+        <p id="status" class="status" role="status" aria-live="polite"></p>
+
+        <section class="card">
+          <h2 data-i18n="dna.sec.structure">Structure</h2>
+          <div class="row2">
+            <label class="field"><span data-i18n="dna.f.format">Kind of piece</span><input id="fFormat" maxlength="120"></label>
+            <label class="field narrow"><span data-i18n="dna.f.words">Usual length (words)</span><input id="fWords" type="number" min="0" max="20000" step="10"></label>
+          </div>
+          <label class="field"><span data-i18n="dna.f.format_desc">Description</span><input id="fFormatDesc" maxlength="600"></label>
+          <div class="beats-head">
+            <span data-i18n="dna.f.beats">Beats, in order</span>
+            <span id="shareTotal" class="pill"></span>
+          </div>
+          <ol id="beats" class="beats"></ol>
+          <button id="btnAddBeat" class="btn ghost" type="button" data-i18n="dna.action.add_beat">+ Add a beat</button>
+          <div class="row2">
+            <label class="field"><span data-i18n="dna.f.transitions">Transitions (one per line)</span><textarea id="fTransitions" rows="3"></textarea></label>
+            <label class="field"><span data-i18n="dna.f.pacing">Pacing</span><textarea id="fPacing" rows="3" maxlength="400"></textarea></label>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2 data-i18n="dna.sec.voice">Voice</h2>
+          <div class="row2">
+            <label class="field"><span data-i18n="dna.f.language">Language</span><input id="fLanguage" maxlength="40"></label>
+            <label class="field"><span data-i18n="dna.f.genre">Genre</span><input id="fGenre" maxlength="200"></label>
+          </div>
+          <label class="field"><span data-i18n="dna.f.audience">Audience</span><input id="fAudience" maxlength="400"></label>
+          <label class="field"><span data-i18n="dna.f.persona">Narrator</span><input id="fPersona" maxlength="600"></label>
+          <label class="field"><span data-i18n="dna.f.tone">Tone</span><input id="fTone" maxlength="400"></label>
+          <label class="field"><span data-i18n="dna.f.style">Style summary</span><textarea id="fStyle" rows="5" maxlength="1500"></textarea></label>
+        </section>
+
+        <section class="card">
+          <h2 data-i18n="dna.sec.techniques">Techniques <small>(one per line)</small></h2>
+          <div class="row2">
+            <label class="field"><span data-i18n="dna.f.openings">Openings</span><textarea id="fOpenings" rows="4"></textarea></label>
+            <label class="field"><span data-i18n="dna.f.closings">Closings</span><textarea id="fClosings" rows="4"></textarea></label>
+          </div>
+          <div class="row2">
+            <label class="field"><span data-i18n="dna.f.devices">Rhetorical devices</span><textarea id="fDevices" rows="4"></textarea></label>
+            <label class="field"><span data-i18n="dna.f.phrases">Signature phrases (the writer uses at most one)</span><textarea id="fPhrases" rows="4"></textarea></label>
+          </div>
+          <label class="field"><span data-i18n="dna.f.avoid">Never</span><textarea id="fAvoid" rows="3"></textarea></label>
+        </section>
+
+        <section class="card">
+          <h2 data-i18n="dna.sec.topics">Topics &amp; titles</h2>
+          <div id="clusters" class="clusters"></div>
+          <div class="row2">
+            <label class="field"><span data-i18n="dna.f.title_formulas">Title formulas (one per line)</span><textarea id="fTitleFormulas" rows="4"></textarea></label>
+            <label class="field"><span data-i18n="dna.f.hooks">Hook types (one per line)</span><textarea id="fHooks" rows="4"></textarea></label>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2 data-i18n="dna.sec.preview">What the script writer receives</h2>
+          <div class="preview-bar">
+            <label class="field inline"><span data-i18n="dna.f.preview_words">For a script of</span><input id="pvWords" type="number" min="60" max="20000" step="50" value="800"><span data-i18n="dna.f.words_unit">words</span></label>
+            <button id="btnPreview" class="btn" type="button" data-i18n="dna.action.preview">Show the prompt</button>
+          </div>
+          <pre id="preview" class="preview" hidden></pre>
+        </section>
+      </form>
+    </main>
+  </div>
+</div>
+
+<dialog id="learnDlg" class="dlg">
+  <form method="dialog" id="learnForm" autocomplete="off">
+    <h2 id="learnTitle" data-i18n="dna.learn.title">Learn a new DNA</h2>
+    <p class="hint" data-i18n="dna.learn.hint">Give 3–20 sample pieces of the channel you want to write like. Each sample is analysed on its own, then the AI merges what repeats into one DNA. Takes a few minutes.</p>
+    <label class="field"><span data-i18n="dna.f.name">Name</span><input id="lName" maxlength="120" required placeholder="e.g. Momento bíblico — teachings" data-i18n-placeholder="dna.learn.name_ph"></label>
+    <label class="field"><span data-i18n="dna.learn.agent">AI model (from an agent)</span><select id="lAgent"></select></label>
+    <label class="field"><span data-i18n="dna.learn.links">YouTube links (one per line — their subtitles are read)</span><textarea id="lLinks" rows="4" placeholder="https://www.youtube.com/watch?v=…"></textarea></label>
+    <label class="field"><span data-i18n="dna.learn.files">Files (.txt .md .srt .vtt .docx)</span><input id="lFiles" type="file" multiple accept=".txt,.md,.srt,.vtt,.docx"></label>
+    <label class="field"><span data-i18n="dna.learn.paste">Pasted text (separate pieces with a line ---)</span><textarea id="lTexts" rows="5"></textarea></label>
+    <div id="learnLog" class="log" hidden></div>
+    <div class="dlg-actions">
+      <button id="lCancel" class="btn" type="button" data-i18n="dna.common.close">Close</button>
+      <button id="lStart" class="btn primary" type="button" data-i18n="dna.learn.start">Start learning</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="/content-dna-static/app.js?v=__ASSET_VER__"></script>
+</body>
+</html>

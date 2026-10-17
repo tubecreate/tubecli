@@ -574,6 +574,8 @@ class ExtensionManager:
         # Sibling of video_studio: the content-video pipeline (corpus → Content
         # Studio → mp4) hosted on codex. Talks to the Studio over HTTP only.
         "tubecli.extensions.content_video",
+        # ADN nội dung (16/10/2026): cấu trúc + văn phong học từ bài mẫu; content_video chèn vào prompt người viết.
+        "tubecli.extensions.content_dna",
         # Bundled so the workflow builder's Video node group exists on every
         # install. The AI prompt instructs the model to use video_processing for
         # any video task; when this was a Marketplace-only extension, a server

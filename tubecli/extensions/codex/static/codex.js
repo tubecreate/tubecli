@@ -2043,6 +2043,7 @@ const CODEX = (() => {
     $('cx-v-thumb').checked = lsGet(CV_THUMB_KEY) === '1';
     $('cx-v-thumb-style').value = lsGet(CV_THUMB_STYLE_KEY) || '';
     if ($('cx-v-media')) $('cx-v-media').value = lsGet(CV_MEDIA_KEY) === 'stills' ? 'stills' : '';
+    loadDnaOptions();
     resetYtForm();
     state.googleTokens = null;          // nạp lại mỗi lần mở: có thể vừa cấp quyền tài khoản mới
     $('cx-v-preset').innerHTML = '<option value="">…</option>';
@@ -2858,6 +2859,23 @@ const CODEX = (() => {
   const CV_THUMB_STYLE_KEY = 'codex.cvThumbStyle';
   // Cảnh trong video: '' = theo mẫu (clip Muse nếu mẫu bật) | 'stills' = chỉ ảnh tĩnh (12/10/2026) — nhớ lần gần nhất.
   const CV_MEDIA_KEY = 'codex.cvMedia';
+
+  // ADN nội dung (16/10/2026, extension content_dna): danh sách ADN đã học, nạp mỗi lần mở cửa sổ. KHÔNG nhớ lựa chọn —
+  // mặc định luôn là ADN của mẫu, đè thì chọn lại cho đúng task đó.
+  async function loadDnaOptions() {
+    const sel = $('cx-v-dna');
+    if (!sel) return;
+    sel.value = '';
+    let items = [];
+    try { items = ((await request('/api/v1/content-dna')) || {}).items || []; } catch (e) { items = []; }
+    Array.from(sel.options).slice(2).forEach(o => o.remove());
+    for (const it of items) {
+      const o = document.createElement('option');
+      o.value = it.id;
+      o.textContent = it.language ? `${it.name} (${it.language})` : it.name;
+      sel.appendChild(o);
+    }
+  }
   // PHẢI khớp content_video/pipeline.py (WORDS_PER_MINUTE, _WORDS_MIN/_WORDS_MAX,
   // DEFAULT_WORDS, _VIDEO_LENGTH_WORDS, content_words) — lệch nhau là ô ước lượng
   // nói một đằng, video ra một nẻo. tests/codex_video_length_test.js canh.
@@ -3010,6 +3028,8 @@ const CODEX = (() => {
     // Nguyên văn không có lượt viết để dặn → ẩn ô lời dặn.
     const instr = $('cx-v-instructions-wrap');
     if (instr) instr.classList.toggle('hidden', mode === 'verbatim');
+    const dnaWrap = $('cx-v-dna-wrap');          // ADN cũng chỉ có tác dụng khi có lượt viết
+    if (dnaWrap) dnaWrap.classList.toggle('hidden', mode === 'verbatim');
     return mode === 'verbatim';
   }
 
@@ -3200,6 +3220,9 @@ const CODEX = (() => {
     // Lời dặn đi RIÊNG (options.instructions): gõ vào ô nội dung thì pipeline coi là dữ liệu ngoài.
     const instructions = ($('cx-v-instructions').value || '').trim().slice(0, CV_INSTR_MAX);
     if (instructions && scriptMode !== 'verbatim') options.instructions = instructions;
+    // ADN nội dung: '' = theo mẫu (không gửi), 'none' = tắt ADN của mẫu, còn lại = mã ADN.
+    const dna = (($('cx-v-dna') || {}).value || '');
+    if (dna && scriptMode !== 'verbatim') options.content_dna = dna;
     if (scriptMode === 'verbatim') {
       // Nguyên văn: độ dài là của chính bài dán; ô "Độ dài video" đang ẩn, không gửi.
       options.length_mode = 'content';

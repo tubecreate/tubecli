@@ -478,6 +478,7 @@ const EXT_REGISTRY = [
     { id:'file_browser',    tab:'ext-file-manager', icon:'folder',     name:'Files',           type:'static' },
     { id:'media_library',   tab:'ext-media-library', icon:'perm_media', name:'media_library',   type:'static' },
     { id:'content_queue',   tab:'ext-content-queue', icon:'queue_play_next', name:'content_queue', type:'static' },
+    { id:'content_dna',     tab:'ext-content-dna',   icon:'genetics',   name:'content_dna',     type:'static' },
 ];
 
 // ── IDs that cannot be grouped (core nav) ──

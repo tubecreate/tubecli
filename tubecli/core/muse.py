@@ -1380,6 +1380,31 @@ def _to_jpeg(data: bytes) -> bytes:
 # Băm các ảnh Muse đã gửi trong từng chat phụ (giữ THREAD_IMAGES_KEEP ảnh cuối mỗi chat).
 _THREAD_IMAGES: Dict[str, List[str]] = {}
 THREAD_IMAGES_KEEP = 40
+# Muse KHÔNG có tham số kích thước — khung hình chỉ xin bằng chữ. Đo 16/10/2026 (#414, 47 ảnh 16:9 trong chat phụ dùng
+# chung): 22 tấm ra 1920×1280 (3:2), dồn về cuối lô (cảnh 35–47 gần như toàn 3:2) — chat càng dài Muse càng trôi về khổ
+# 3:2 mặc định. Lệch quá ASPECT_TOLERANCE so với khung đã xin ⇒ vẽ lại MỘT lần trong chat mới (như ảnh trùng);
+# vẫn lệch thì giữ (bộ dựng cắt cho vừa khung).
+ASPECT_TOLERANCE = 0.08
+
+
+def aspect_off(data: bytes, aspect_ratio: str) -> float:
+    """Độ lệch tương đối giữa khung ảnh thật và khung đã xin (0 = đúng); không đo được ⇒ 0 (không vẽ lại vô cớ)."""
+    try:
+        a, b = (float(x) for x in str(aspect_ratio).split(":"))
+        from PIL import Image
+        w, h = Image.open(io.BytesIO(data)).size
+        return abs((w / h) / (a / b) - 1.0) if w and h and a and b else 0.0
+    except Exception:       # noqa: BLE001
+        return 0.0
+
+
+def _size_of(data: bytes) -> str:
+    try:
+        from PIL import Image
+        w, h = Image.open(io.BytesIO(data)).size
+        return f"{w}×{h}"
+    except Exception:       # noqa: BLE001
+        return "?"
 
 
 def generate_image_bytes(prompt: str, aspect_ratio: str = "16:9", reference_images: Optional[list] = None,
@@ -1414,6 +1439,12 @@ def generate_image_bytes(prompt: str, aspect_ratio: str = "16:9", reference_imag
         if tid:
             sent.append(digest)
             del sent[:-THREAD_IMAGES_KEEP]
+        off = aspect_off(data, aspect_ratio)
+        if off > ASPECT_TOLERANCE and attempt == 0:
+            logger.warning("muse: chat %s drew a %s image off by %.0f%% from the requested %s — drawing again in a new "
+                           "chat", tid or "?", _size_of(data), off * 100, aspect_ratio)
+            thread_id = "new"
+            continue
         return _to_jpeg(data)
     raise MuseError("error", "Muse sent back an earlier image instead of drawing a new one.")
 

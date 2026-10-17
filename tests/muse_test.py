@@ -209,8 +209,8 @@ def tool_img(port, action, req=None, timeout=60):
     seen_req.update(req)
     path = os.path.join(req["image_dir"], "muse_x_0.webp")
     with open(path, "wb") as f:
-        f.write(png_bytes())
-    return {"ok": True, "text": "", "images": [{"path": path, "width": 64, "height": 36}], "thread_id": "T-img"}
+        f.write(png_bytes((36, 64)))        # khổ dọc — đúng 9:16 mà lượt dưới xin (lệch khổ thì giờ bị vẽ lại)
+    return {"ok": True, "text": "", "images": [{"path": path, "width": 36, "height": 64}], "thread_id": "T-img"}
 
 
 M.run_tool = tool_img
@@ -234,6 +234,32 @@ try:
     ok(False, "hỏi lại → error")
 except M.MuseError as e:
     ok(e.kind == "error" and "Which style" in str(e), "hỏi lại / tán chuyện → error (còn đường lùi)", e.kind)
+
+# 16/10/2026 (#414): chat phụ dùng chung dài → Muse trôi về 3:2 dù xin 16:9 ⇒ vẽ lại MỘT lần trong chat mới.
+asked_threads, sizes = [], [(96, 64), (64, 36)]
+
+
+def tool_size(port, action, req=None, timeout=60):
+    asked_threads.append(req.get("thread", ""))
+    path = os.path.join(req["image_dir"], "muse_s_0.webp")
+    with open(path, "wb") as f:
+        f.write(png_bytes(sizes.pop(0) if sizes else (96, 64)))
+    return {"ok": True, "text": "", "images": [{"path": path}], "thread_id": f"T-size{len(asked_threads)}"}
+
+
+M.run_tool = tool_size
+data = M.generate_image_bytes("a tree", "16:9")
+from PIL import Image as _Im  # noqa: E402
+ok(len(asked_threads) == 2 and asked_threads[1] == "new" and _Im.open(io.BytesIO(data)).size == (64, 36),
+   "ảnh 3:2 khi xin 16:9 → vẽ lại một lần trong CHAT MỚI, lấy tấm đúng khổ", (asked_threads, _Im.open(io.BytesIO(data)).size))
+asked_threads.clear(); sizes[:] = [(64, 36)]
+M.generate_image_bytes("a tree", "16:9")
+ok(len(asked_threads) == 1, "đúng khổ → không vẽ lại", asked_threads)
+asked_threads.clear(); sizes[:] = [(96, 64), (96, 64)]
+data = M.generate_image_bytes("a tree", "16:9")
+ok(len(asked_threads) == 2 and _Im.open(io.BytesIO(data)).size == (96, 64), "lần hai vẫn lệch → giữ ảnh (không lặp mãi)")
+ok(M.aspect_off(png_bytes((1920, 1280)), "16:9") > M.ASPECT_TOLERANCE > M.aspect_off(png_bytes((2048, 1152)), "16:9"),
+   "1920×1280 lệch 16:9 quá ngưỡng, 2048×1152 thì không")
 
 # ── E2 ────────────────────────────────────────────────────────────────────────
 print("E2. video (2/10/2026: image→video 10 s, 704×1104, ~90 s)")
