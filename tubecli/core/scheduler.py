@@ -31,6 +31,83 @@ DEFER_MIN, DEFER_MAX = 2, 6
 STARTUP_GRACE_SEC = int(os.environ.get("TUBECLI_SCHEDULER_STARTUP_GRACE", "60"))
 
 
+# ── Múi giờ của agent (user 17/10/2026) ──────────────────────────────────────
+# Trước đây mọi phép so «đang trong cửa sổ 08:00–23:00 chưa», «hôm nay thứ mấy», «hôm nay đã chạy mấy lượt» đều
+# dùng datetime.now() TRẦN = đồng hồ máy chủ. VPS cài mặc định chạy UTC nên «08:00» của chủ ở Việt Nam thành 15:00
+# và ngày mới bắt đầu lúc 07:00 sáng; agent.timezone có từ lâu nhưng chỉ run_agent_routine dùng để gọi tên buổi.
+# Nay: mọi mốc tính theo múi giờ của agent (thiếu / tên sai → giờ máy chủ như cũ) và lưu ISO CÓ offset để cloud
+# đếm ngược đúng; mốc cũ không offset vẫn đọc được (coi là giờ máy chủ). Lịch đổi → xoá mốc để xếp lại (xem
+# schedule_plan_changed, dùng ở PUT /agents/{id}).
+SCHEDULE_PLAN_FIELDS = ("schedule_enabled", "schedule_repeat", "schedule_interval", "schedule_active_days",
+                        "schedule_start_time", "schedule_end_time", "schedule_max_runs", "timezone")
+
+
+def agent_tz(agent):
+    """ZoneInfo của agent.timezone, hoặc None = giờ máy chủ. Tên lạ / thiếu tzdata → None, không ném."""
+    name = str(getattr(agent, "timezone", None) or "").strip()
+    if not name:
+        return None
+    try:
+        from zoneinfo import ZoneInfo
+        return ZoneInfo(name)
+    except Exception:
+        return None
+
+
+def now_for(agent) -> datetime.datetime:
+    """Bây giờ, CÓ múi giờ, theo múi giờ của agent (hoặc máy chủ)."""
+    now = datetime.datetime.now().astimezone()
+    tz = agent_tz(agent)
+    return now.astimezone(tz) if tz else now
+
+
+def parse_when(value, agent) -> Optional[datetime.datetime]:
+    """Đọc mốc đã lưu (schedule_next_run / schedule_last_run) thành datetime có múi giờ của agent.
+    Mốc không offset (bản cũ) = giờ máy chủ. Chuỗi hỏng → None."""
+    if not value:
+        return None
+    try:
+        dt = datetime.datetime.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return None
+    if dt.tzinfo is None:
+        dt = dt.astimezone()
+    tz = agent_tz(agent)
+    return dt.astimezone(tz) if tz else dt.astimezone()
+
+
+def server_utc_offset_min() -> int:
+    off = datetime.datetime.now().astimezone().utcoffset()
+    return int(off.total_seconds() // 60) if off else 0
+
+
+def schedule_plan_changed(agent, updates) -> bool:
+    """Bản cập nhật có đổi LỊCH (giờ, ngày, số lượt, bật/tắt, múi giờ) so với agent đang lưu không.
+    Có → caller xoá schedule_next_run để scheduler xếp mốc mới trong ≤ 1 nhịp; trước đây mốc cũ giữ nguyên nên
+    nâng 1 → 10 lượt/ngày mà agent vẫn ngủ tới mốc hôm sau. Request tự đặt schedule_next_run thì tôn trọng."""
+    if not isinstance(updates, dict) or "schedule_next_run" in updates:
+        return False
+    for k in SCHEDULE_PLAN_FIELDS:
+        if k not in updates:
+            continue
+        new, old = updates[k], getattr(agent, k, None)
+        if k == "schedule_active_days":
+            new = sorted(str(d).lower() for d in (new or []))
+            old = sorted(str(d).lower() for d in (old or []))
+        elif k in ("schedule_interval", "schedule_max_runs"):
+            try:
+                new, old = int(new), int(old if old is not None else -1)
+            except (TypeError, ValueError):
+                new, old = str(new), str(old)
+        elif k == "schedule_enabled":
+            new, old = bool(new), bool(old)
+        else:
+            new, old = str(new or "").strip(), str(old or "").strip()
+        if new != old:
+            return True
+    return False
+
+
 class Scheduler:
     """Background scheduler that checks agent routines and triggers skills."""
 
@@ -138,17 +215,16 @@ class Scheduler:
             if not getattr(agent, "schedule_enabled", False):
                 continue
 
+            # Từ đây «bây giờ» là theo múi giờ của agent (anow), không phải đồng hồ máy chủ (now).
+            anow = now_for(agent)
             runs_today = getattr(agent, "schedule_runs_today", 0)
             last_run = getattr(agent, "schedule_last_run", None)
 
             if last_run:
-                try:
-                    last_run_date = datetime.datetime.fromisoformat(last_run).date()
-                    if last_run_date < now.date():
-                        runs_today = 0
-                        agent.schedule_runs_today = 0
-                except ValueError:
-                    pass
+                last_run_dt = parse_when(last_run, agent)
+                if last_run_dt is not None and last_run_dt.date() < anow.date():
+                    runs_today = 0
+                    agent.schedule_runs_today = 0
 
             next_run_str = getattr(agent, "schedule_next_run", None)
             should_run_now = False
@@ -162,20 +238,19 @@ class Scheduler:
                 # Never scheduled before (fresh agent or scheduling just enabled).
                 # Do NOT fire immediately — assign a randomized first slot so a
                 # fleet of new/reset agents doesn't stampede at app startup.
-                first_slot = now + datetime.timedelta(minutes=random.randint(MISSED_SPREAD_MIN, MISSED_SPREAD_MAX))
+                first_slot = anow + datetime.timedelta(minutes=random.randint(MISSED_SPREAD_MIN, MISSED_SPREAD_MAX))
                 valid_next = self._calculate_next_schedule_time(agent, first_slot)
                 agent.schedule_next_run = valid_next.isoformat()
                 agent_manager._save()
                 print(f"[Scheduler] Initialized schedule for Agent {agent.name}: first run at {agent.schedule_next_run}")
                 continue
             else:
-                try:
-                    agent_next_run = datetime.datetime.fromisoformat(next_run_str)
-                    if now >= agent_next_run:
-                        should_run_now = True
-                        overdue_sec = (now - agent_next_run).total_seconds()
-                except ValueError:
+                agent_next_run = parse_when(next_run_str, agent)
+                if agent_next_run is None:
                     should_run_now = True
+                elif anow >= agent_next_run:
+                    should_run_now = True
+                    overdue_sec = (anow - agent_next_run).total_seconds()
 
             if should_run_now:
                 # Missed run detection: the run time passed long ago (app was
@@ -184,21 +259,21 @@ class Scheduler:
                 # machine — instead spread them randomly over the next minutes.
                 if overdue_sec > MISSED_RUN_GRACE_SEC:
                     delay_min = random.randint(MISSED_SPREAD_MIN, MISSED_SPREAD_MAX)
-                    valid_next = self._calculate_next_schedule_time(agent, now + datetime.timedelta(minutes=delay_min))
+                    valid_next = self._calculate_next_schedule_time(agent, anow + datetime.timedelta(minutes=delay_min))
                     agent.schedule_next_run = valid_next.isoformat()
                     agent_manager._save()
                     print(f"[Scheduler] Agent {agent.name} missed its run by {int(overdue_sec // 60)} min "
                           f"(app was closed?). Rescheduled to {agent.schedule_next_run} to avoid a launch storm.")
                     continue
 
-                # Check if we are allowed to run now
-                day_name = now.strftime("%a").lower()
+                # Check if we are allowed to run now (ngày / giờ theo múi giờ của agent)
+                day_name = anow.strftime("%a").lower()
                 active_days = getattr(agent, "schedule_active_days", []) or ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
                 active_days = [d.lower() for d in active_days]
 
                 start_time = getattr(agent, "schedule_start_time", "00:00")
                 end_time = getattr(agent, "schedule_end_time", "23:59")
-                current_time_str = now.strftime("%H:%M")
+                current_time_str = anow.strftime("%H:%M")
                 max_runs = getattr(agent, "schedule_max_runs", 10)
 
                 is_active_day = day_name in active_days
@@ -210,7 +285,7 @@ class Scheduler:
                     # per tick. Other due agents get a short random deferral —
                     # they stay inside their time window, just a bit later.
                     if launches_this_tick >= MAX_LAUNCHES_PER_TICK:
-                        self._defer_agent(agent, now, reason="another agent already launched this tick")
+                        self._defer_agent(agent, anow, reason="another agent already launched this tick")
                         self._log_skip(agent, "tick_limit",
                                        "Another agent already launched a browser in this tick.")
                         agent_manager._save()
@@ -219,7 +294,7 @@ class Scheduler:
                     # Concurrency gate: don't pile browsers on top of each other.
                     running_count = self._count_running_agent_browsers()
                     if running_count >= MAX_CONCURRENT_AGENT_BROWSERS:
-                        self._defer_agent(agent, now, reason=f"{running_count} browser session(s) already running")
+                        self._defer_agent(agent, anow, reason=f"{running_count} browser session(s) already running")
                         self._log_skip(agent, "busy",
                                        f"{running_count} browser session(s) already running "
                                        f"(limit {MAX_CONCURRENT_AGENT_BROWSERS}).")
@@ -245,7 +320,7 @@ class Scheduler:
                         self._agent_runner_callback(agent.id, run_id=run_id)
                     launches_this_tick += 1
 
-                    agent.schedule_last_run = now.isoformat()
+                    agent.schedule_last_run = anow.isoformat()
                     agent.schedule_runs_today = runs_today + 1
 
                     # Next run depends on repeat strategy (e.g. interval)
@@ -263,7 +338,7 @@ class Scheduler:
                     # Humanize: add random jitter so runs land "within the
                     # window" rather than at rigid exact times.
                     jitter_min = random.randint(0, max(1, min(15, interval_min // 3)))
-                    raw_next = now + datetime.timedelta(minutes=interval_min + jitter_min)
+                    raw_next = anow + datetime.timedelta(minutes=interval_min + jitter_min)
 
                     valid_next = self._calculate_next_schedule_time(agent, raw_next)
                     agent.schedule_next_run = valid_next.isoformat()
@@ -271,7 +346,7 @@ class Scheduler:
                     self._log_history(f"Agent: {agent.name}", agent.id)
                 else:
                     # We are due to run but not allowed now. Push to next valid slot.
-                    valid_next = self._calculate_next_schedule_time(agent, now)
+                    valid_next = self._calculate_next_schedule_time(agent, anow)
                     agent.schedule_next_run = valid_next.isoformat()
                     agent_manager._save()
                     print(f"[Scheduler] Advanced Agent {agent.name} schedule to {agent.schedule_next_run} because it was due but could not run now (Day active: {is_active_day}, Window active: {is_inside_window}, Not maxed: {is_not_maxed}).")

@@ -2972,7 +2972,16 @@ async def create_agent(req: AgentCreateRequest):
 @app.put("/api/v1/agents/{agent_id}")
 async def update_agent(agent_id: str, req: AgentUpdateRequest):
     from tubecli.core.agent import agent_manager
-    agent = agent_manager.update(agent_id, **req.model_dump(exclude_none=True))
+    from tubecli.core.scheduler import schedule_plan_changed
+    current = agent_manager.get(agent_id)
+    if not current:
+        raise HTTPException(404, f"Agent {agent_id} not found")
+    data = req.model_dump(exclude_none=True)
+    # Lịch đổi (giờ, ngày, số lượt, bật/tắt, múi giờ) → xoá mốc kế tiếp để scheduler xếp lại trong ≤ 30 s. Trước đây
+    # mốc cũ giữ nguyên: nâng 1 → 10 lượt/ngày mà agent vẫn ngủ tới mốc hôm sau (user 17/10/2026).
+    if schedule_plan_changed(current, data):
+        data["schedule_next_run"] = ""
+    agent = agent_manager.update(agent_id, **data)
     if not agent:
         raise HTTPException(404, f"Agent {agent_id} not found")
     return {"status": "updated", "agent": agent.to_dict()}
@@ -3198,12 +3207,18 @@ def get_agent_runs(agent_id: str, days: int = 14, limit: int = 100):
     except Exception:
         pass   # best-effort: thiếu 'live' thì bảng vẫn hiện "Đang chạy" như cũ
 
+    # Đồng hồ máy chủ theo múi giờ của agent (ISO có offset) để cloud đếm ngược tới next_run mà không cần đoán
+    # múi giờ máy chủ; timezone = múi giờ đang áp dụng ("" = giờ máy chủ, kèm offset để hiện «UTC+7»).
+    from tubecli.core.scheduler import agent_tz, now_for, server_utc_offset_min
     return {
         "agent_id": agent_id,
         "scheduled": bool(getattr(agent, "schedule_enabled", False)),
         "next_run": getattr(agent, "schedule_next_run", None),
         "runs_today": getattr(agent, "schedule_runs_today", 0),
         "max_runs": getattr(agent, "schedule_max_runs", 0),
+        "server_now": now_for(agent).isoformat(),
+        "timezone": str(getattr(agent, "timezone", "") or "") if agent_tz(agent) else "",
+        "server_utc_offset_min": server_utc_offset_min(),
         "entries": entries,
     }
 
