@@ -208,5 +208,18 @@
   "cg.default_folder_hint": "仅对新会话生效；已打开的会话保留它开始时的文件夹。",
   "cg.cmds_n": "{n} 条命令",
   "cg.cmds_ok": "全部正常",
-  "cg.cmds_bad": "{n} 条失败"
+  "cg.cmds_bad": "{n} 条失败",
+  "cg.tg_title": "Telegram 聊天机器人",
+  "cg.tg_on": "通过 Telegram 与 Codex 对话——每个允许的聊天就是本机上的一个 Codex 会话",
+  "cg.tg_hint": "用 @BotFather 创建机器人并粘贴令牌。然后给机器人发消息：在你于下方允许之前，它会回复你的聊天 id。请使用没有被任何代理使用的机器人。",
+  "cg.tg_token": "机器人令牌",
+  "cg.tg_token_set": "已保存——粘贴新令牌即可替换",
+  "cg.tg_chats": "允许的聊天 id（逗号分隔）",
+  "cg.tg_test": "发送测试消息",
+  "cg.tg_clear": "移除令牌",
+  "cg.tg_sent": "已发送到 {n} 个聊天",
+  "cg.tg_status_off": "关闭",
+  "cg.tg_status_on": "运行中 {bot} · 允许 {chats} 个聊天 · 已关联 {threads} 个会话",
+  "cg.tg_status_stopped": "已停止",
+  "cg.tg_status_err": "错误：{err}"
 }

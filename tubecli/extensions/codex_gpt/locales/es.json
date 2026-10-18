@@ -208,5 +208,18 @@
   "cg.default_folder_hint": "Se aplica a chats NUEVOS: un chat ya abierto conserva su carpeta inicial.",
   "cg.cmds_n": "{n} comandos",
   "cg.cmds_ok": "todo bien",
-  "cg.cmds_bad": "{n} con error"
+  "cg.cmds_bad": "{n} con error",
+  "cg.tg_title": "Chatbot de Telegram",
+  "cg.tg_on": "Habla con Codex desde Telegram: cada chat permitido es un chat de Codex en esta máquina",
+  "cg.tg_hint": "Crea un bot con @BotFather y pega su token. Luego escribe al bot: responde con tu id de chat hasta que lo permitas abajo. Usa un bot que ningún agente use.",
+  "cg.tg_token": "Token del bot",
+  "cg.tg_token_set": "guardado — pega un token nuevo para reemplazarlo",
+  "cg.tg_chats": "Ids de chat permitidos (separados por comas)",
+  "cg.tg_test": "Enviar mensaje de prueba",
+  "cg.tg_clear": "Quitar token",
+  "cg.tg_sent": "Enviado a {n} chat(s)",
+  "cg.tg_status_off": "Apagado",
+  "cg.tg_status_on": "En marcha {bot} · {chats} chat(s) permitidos · {threads} chat(s) enlazados",
+  "cg.tg_status_stopped": "Detenido",
+  "cg.tg_status_err": "error: {err}"
 }

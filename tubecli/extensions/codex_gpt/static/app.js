@@ -1017,6 +1017,14 @@
     const st = S.status || {}; const s = st.settings || {};
     const sel = (id, val, opts) => '<select class="cg-select-full" id="' + id + '">' + opts.map((o) => '<option value="' + esc(o[0]) + '"' + (o[0] === val ? ' selected' : '') + '>' + esc(o[1]) + '</option>').join('') + '</select>';
     const ins = st.install || {};
+    const tgStatusText = (tg) => {
+      if (!tg) return '';
+      if (!tg.enabled || !tg.token_set) return T('cg.tg_status_off', null, 'Off');
+      const who = tg.bot ? '@' + tg.bot : '';
+      const base = tg.running ? T('cg.tg_status_on', null, 'Running {bot} · {chats} chat(s) allowed · {threads} chat(s) linked', { bot: who, chats: tg.chats || 0, threads: tg.threads || 0 })
+        : T('cg.tg_status_stopped', null, 'Stopped');
+      return tg.error ? base + ' · ' + T('cg.tg_status_err', null, 'error: {err}', { err: tg.error }) : base;
+    };
     const homeCmd = (st.platform === 'windows' ? 'set CODEX_HOME=' + (st.home || '') + ' && codex' : 'CODEX_HOME="' + (st.home || '') + '" codex');
     const p = openPanel(head(T('cg.settings', null, 'Settings')) + '<div class="cg-panel-body">'
       + '<div class="cg-field"><label>' + esc(T('cg.approval', null, 'When Codex wants to run commands')) + '</label>'
@@ -1035,6 +1043,17 @@
       + '<div class="cg-field"><label>' + esc(T('cg.tools_ask_label', null, 'When Codex wants to change something in TubeCLI')) + '</label>'
       + sel('sToolsAuto', s.tools_auto ? 'auto' : 'ask', [['ask', T('cg.tools_ask', null, 'Ask me first (recommended)')], ['auto', T('cg.tools_auto', null, "Just do it — don't ask")]])
       + '<span class="cg-hint" id="sAutoWarn"' + (s.tools_auto ? '' : ' hidden') + '>' + esc(T('cg.tools_auto_warn', null, 'Codex will open browsers, create tasks and call TubeCLI without asking. A web page it reads could try to trick it.')) + '</span></div>'
+      + '<hr style="border:0;border-top:1px solid var(--border-subtle);width:100%">'
+      /* Telegram chatbot (18/10/2026): bot riêng của Codex GPT; chat được phép ↔ phiên Codex; token không bao giờ
+         quay lại trang (chỉ cờ telegram_token_set) nên ô token để trống, có chữ là THAY. */
+      + '<div class="cg-field"><span class="cg-field-label">' + esc(T('cg.tg_title', null, 'Telegram chatbot')) + '</span>'
+      + '<label class="cg-check"><input type="checkbox" id="sTgOn"' + (s.telegram_enabled ? ' checked' : '') + '> ' + esc(T('cg.tg_on', null, 'Chat with Codex from Telegram — each allowed chat is one Codex chat on this machine')) + '</label>'
+      + '<span class="cg-hint">' + esc(T('cg.tg_hint', null, 'Create a bot with @BotFather and paste its token. Then message the bot: it answers with your chat id until you allow it below. Use a bot no agent uses.')) + '</span></div>'
+      + '<div class="cg-field"><label>' + esc(T('cg.tg_token', null, 'Bot token')) + '</label><input class="cg-input mono" id="sTgTok" value="" autocomplete="off" placeholder="' + esc(s.telegram_token_set ? T('cg.tg_token_set', null, 'saved — paste a new token to replace it') : '123456789:ABC-DEF…') + '"></div>'
+      + '<div class="cg-field"><label>' + esc(T('cg.tg_chats', null, 'Allowed chat ids (comma-separated)')) + '</label><input class="cg-input mono" id="sTgChats" value="' + esc((s.telegram_chat_ids || []).join(', ')) + '" placeholder="123456789, -1001234567890"></div>'
+      + '<div class="cg-field"><span class="cg-hint" id="sTgStatus">' + esc(tgStatusText(st.telegram)) + '</span><div class="cg-row">'
+      + '<button type="button" class="cg-btn cg-btn-sm" id="sTgTest">' + esc(T('cg.tg_test', null, 'Send a test message')) + '</button>'
+      + (s.telegram_token_set ? '<button type="button" class="cg-btn cg-btn-sm cg-btn-danger" id="sTgClear">' + esc(T('cg.tg_clear', null, 'Remove token')) + '</button>' : '') + '</div></div>'
       + '<button type="button" class="cg-btn cg-btn-pri" id="sSave">' + esc(T('cg.save', null, 'Save')) + '</button>'
       + '<hr style="border:0;border-top:1px solid var(--border-subtle);width:100%">'
       + '<div class="cg-field"><span class="cg-field-label">Codex CLI</span><div class="cg-row"><span>' + esc(st.version ? 'v' + st.version : '—') + ' · ' + esc(st.source === 'private' ? T('cg.src_private', null, 'TubeCLI copy') : st.source === 'global' ? T('cg.src_global', null, 'system copy') : st.source || '') + '</span>'
@@ -1044,12 +1063,22 @@
       + '</div>');
     $('sSave').onclick = async () => {
       try {
+        const tok = $('sTgTok').value.trim();
         await api('/settings', { method: 'PUT', body: { approval: $('sAppr').value, sandbox: $('sBox').value, cwd: $('sCwd').value.trim(),
-          tools: $('sTools').checked, tools_auto: $('sToolsAuto').value === 'auto' } });
+          tools: $('sTools').checked, tools_auto: $('sToolsAuto').value === 'auto',
+          telegram_enabled: $('sTgOn').checked, telegram_chat_ids: $('sTgChats').value, ...(tok ? { telegram_token: tok } : {}) } });
         toast(T('cg.saved', null, 'Saved')); await refreshStatus(); closePanel(); renderHead();
       } catch (e) { toast(errText(e), 5000); }
     };
     $('sToolsAuto').onchange = () => { $('sAutoWarn').hidden = $('sToolsAuto').value !== 'auto'; };
+    $('sTgTest').onclick = async () => {
+      try { const r = await api('/telegram/test', { method: 'POST' }); toast(T('cg.tg_sent', null, 'Sent to {n} chat(s)', { n: r.sent })); await refreshStatus(); $('sTgStatus').textContent = tgStatusText((S.status || {}).telegram); }
+      catch (e) { toast(errText(e), 5000); }
+    };
+    if ($('sTgClear')) $('sTgClear').onclick = async () => {
+      try { await api('/settings', { method: 'PUT', body: { telegram_token: '', telegram_enabled: false } }); await refreshStatus(); openSettings(); }
+      catch (e) { toast(errText(e), 5000); }
+    };
     $('sUpd').onclick = async () => { try { await api('/install', { method: 'POST' }); } catch (e) { toast(errText(e)); } await refreshStatus(); openSettings(); };
     void p;
   }

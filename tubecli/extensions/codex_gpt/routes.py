@@ -92,6 +92,29 @@ async def install():
     return _ok(install=cli.start_install())
 
 
+@router.on_event("startup")
+async def _telegram_start() -> None:
+    """Bot Telegram của Codex GPT chạy từ lúc server lên (nếu đã bật trong Settings) — không đợi ai mở trang."""
+    try:
+        service.telegram.start()
+    except Exception as e:      # noqa: BLE001
+        print(f"[CodexTG] start failed: {e}")
+
+
+@router.post(API + "/telegram/test")
+async def telegram_test():
+    """Gửi một tin thử tới mọi chat được phép — nút «Gửi tin thử» trong Settings."""
+    tg = service.telegram
+    if not tg.configured():
+        return _fail(GptError("telegram_off", "Turn the Telegram chatbot on and save a bot token first", 400))
+    if not tg.running:
+        tg.start()
+    n = await tg.send_test()
+    if n == 0:
+        return _fail(GptError("telegram_send", tg.error or "No allowed chat received the message", 400))
+    return _ok(sent=n, telegram=tg.public_status())
+
+
 @router.put(API + "/settings")
 async def settings(request: Request):
     try:

@@ -208,5 +208,18 @@
   "cg.default_folder_hint": "新しいチャットに適用されます。開いているチャットは作成時のフォルダーを保ちます。",
   "cg.cmds_n": "コマンド {n} 件",
   "cg.cmds_ok": "すべて成功",
-  "cg.cmds_bad": "{n} 件失敗"
+  "cg.cmds_bad": "{n} 件失敗",
+  "cg.tg_title": "Telegram チャットボット",
+  "cg.tg_on": "Telegram から Codex と会話 — 許可したチャットごとに、このマシン上の Codex チャットが 1 つ対応します",
+  "cg.tg_hint": "@BotFather でボットを作りトークンを貼り付けます。次にボットへメッセージを送ると、下で許可するまであなたのチャット id を返します。エージェントが使っていないボットを使ってください。",
+  "cg.tg_token": "ボットトークン",
+  "cg.tg_token_set": "保存済み — 置き換えるには新しいトークンを貼り付け",
+  "cg.tg_chats": "許可するチャット id（カンマ区切り）",
+  "cg.tg_test": "テスト送信",
+  "cg.tg_clear": "トークンを削除",
+  "cg.tg_sent": "{n} 件のチャットへ送信しました",
+  "cg.tg_status_off": "オフ",
+  "cg.tg_status_on": "稼働中 {bot} · 許可 {chats} 件 · 連携済み {threads} 件",
+  "cg.tg_status_stopped": "停止",
+  "cg.tg_status_err": "エラー: {err}"
 }

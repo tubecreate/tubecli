@@ -208,5 +208,18 @@
   "cg.default_folder_hint": "僅對新的工作階段生效；已開啟的工作階段保留它開始時的資料夾。",
   "cg.cmds_n": "{n} 條命令",
   "cg.cmds_ok": "全部正常",
-  "cg.cmds_bad": "{n} 條失敗"
+  "cg.cmds_bad": "{n} 條失敗",
+  "cg.tg_title": "Telegram 聊天機器人",
+  "cg.tg_on": "透過 Telegram 與 Codex 對話——每個允許的聊天就是本機上的一個 Codex 工作階段",
+  "cg.tg_hint": "用 @BotFather 建立機器人並貼上權杖。然後傳訊息給機器人：在你於下方允許之前，它會回覆你的聊天 id。請使用沒有被任何代理使用的機器人。",
+  "cg.tg_token": "機器人權杖",
+  "cg.tg_token_set": "已儲存——貼上新權杖即可取代",
+  "cg.tg_chats": "允許的聊天 id（逗號分隔）",
+  "cg.tg_test": "傳送測試訊息",
+  "cg.tg_clear": "移除權杖",
+  "cg.tg_sent": "已傳送到 {n} 個聊天",
+  "cg.tg_status_off": "關閉",
+  "cg.tg_status_on": "執行中 {bot} · 允許 {chats} 個聊天 · 已連結 {threads} 個工作階段",
+  "cg.tg_status_stopped": "已停止",
+  "cg.tg_status_err": "錯誤：{err}"
 }

@@ -208,5 +208,18 @@
   "cg.default_folder_hint": "Áp cho phiên MỚI — phiên đang mở giữ thư mục lúc nó được tạo.",
   "cg.cmds_n": "{n} lệnh",
   "cg.cmds_ok": "đều xong",
-  "cg.cmds_bad": "{n} lỗi"
+  "cg.cmds_bad": "{n} lỗi",
+  "cg.tg_title": "Chatbot Telegram",
+  "cg.tg_on": "Chat với Codex từ Telegram — mỗi chat được phép là một phiên chat Codex trên máy này",
+  "cg.tg_hint": "Tạo bot bằng @BotFather rồi dán token. Nhắn cho bot: nó trả lại chat id của bạn cho tới khi bạn cho phép ở dưới. Dùng bot không gắn với agent nào.",
+  "cg.tg_token": "Token bot",
+  "cg.tg_token_set": "đã lưu — dán token mới để thay",
+  "cg.tg_chats": "Chat id được phép (cách nhau bằng dấu phẩy)",
+  "cg.tg_test": "Gửi tin thử",
+  "cg.tg_clear": "Gỡ token",
+  "cg.tg_sent": "Đã gửi tới {n} chat",
+  "cg.tg_status_off": "Tắt",
+  "cg.tg_status_on": "Đang chạy {bot} · {chats} chat được phép · {threads} chat đã nối phiên",
+  "cg.tg_status_stopped": "Đã dừng",
+  "cg.tg_status_err": "lỗi: {err}"
 }

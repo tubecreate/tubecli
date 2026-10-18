@@ -208,5 +208,18 @@
   "cg.default_folder_hint": "YENİ sohbetler için geçerlidir; açık sohbet başladığı klasörü korur.",
   "cg.cmds_n": "{n} komut",
   "cg.cmds_ok": "hepsi başarılı",
-  "cg.cmds_bad": "{n} başarısız"
+  "cg.cmds_bad": "{n} başarısız",
+  "cg.tg_title": "Telegram sohbet botu",
+  "cg.tg_on": "Telegram'dan Codex ile konuşun — izin verilen her sohbet bu makinede bir Codex sohbetidir",
+  "cg.tg_hint": "@BotFather ile bir bot oluşturup jetonunu yapıştırın. Sonra bota yazın: aşağıda izin verene kadar sohbet id'nizi yanıtlar. Hiçbir ajanın kullanmadığı bir bot kullanın.",
+  "cg.tg_token": "Bot jetonu",
+  "cg.tg_token_set": "kaydedildi — değiştirmek için yeni jeton yapıştırın",
+  "cg.tg_chats": "İzin verilen sohbet id'leri (virgülle)",
+  "cg.tg_test": "Test mesajı gönder",
+  "cg.tg_clear": "Jetonu kaldır",
+  "cg.tg_sent": "{n} sohbete gönderildi",
+  "cg.tg_status_off": "Kapalı",
+  "cg.tg_status_on": "Çalışıyor {bot} · {chats} sohbete izin verildi · {threads} sohbet bağlı",
+  "cg.tg_status_stopped": "Durduruldu",
+  "cg.tg_status_err": "hata: {err}"
 }

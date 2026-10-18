@@ -49,7 +49,9 @@ IDLE_STOP_S = 1200
 CONTINUE_TEXT = ("The previous attempt stopped because the subscription hit its usage limit; the session now "
                  "runs on another account. Continue exactly where you left off — do not repeat finished work.")
 SETTINGS_DEFAULT = {"model": "", "effort": "", "approval": "never", "sandbox": "workspace-write", "cwd": "",
-                    "tools": True, "tools_auto": False}
+                    "tools": True, "tools_auto": False,
+                    # Telegram chatbot (telegram.py): bot riêng, chat được phép ↔ phiên Codex (18/10/2026)
+                    "telegram_enabled": False, "telegram_token": "", "telegram_chat_ids": []}
 APPROVAL_POLICIES = ("never", "on-request", "untrusted")
 SANDBOXES = ("read-only", "workspace-write", "danger-full-access")
 TOOL_TIMEOUT_S = 1800            # Codex chờ một lời gọi công cụ tối đa chừng này (gồm cả lúc chờ chủ duyệt)
@@ -96,8 +98,12 @@ def thread_summary(t: Dict[str, Any]) -> Dict[str, Any]:
             "provider": t.get("modelProvider") or ""}
 
 
+from .telegram import TG_TOKEN_RE, TelegramBridge, parse_chat_ids
+
+
 class CodexGptService:
     def __init__(self):
+        self.telegram = TelegramBridge(self)
         self.bridge: Optional[AppServer] = None
         self.bridge_error = ""
         self._lock: Optional[asyncio.Lock] = None
@@ -984,6 +990,16 @@ class CodexGptService:
         for k in ("tools", "tools_auto"):
             if k in patch:
                 s[k] = bool(patch[k])
+        # Telegram chatbot: token kiểm dạng «123456:ABC…» (rỗng = gỡ), chat id chỉ nhận số, cờ bật/tắt.
+        if "telegram_token" in patch:
+            tok = str(patch["telegram_token"] or "").strip()
+            if tok and not TG_TOKEN_RE.match(tok):
+                raise GptError("bad_setting", "Telegram bot token looks wrong (expected 123456789:ABC…)", 400)
+            s["telegram_token"] = tok
+        if "telegram_chat_ids" in patch:
+            s["telegram_chat_ids"] = parse_chat_ids(patch["telegram_chat_ids"])
+        if "telegram_enabled" in patch:
+            s["telegram_enabled"] = bool(patch["telegram_enabled"])
         self.save_state(st)
         if "approval" in patch or "sandbox" in patch or "tools" in patch:
             self.loaded.clear()                 # lượt sau mở lại phiên với chế độ mới
@@ -1000,7 +1016,18 @@ class CodexGptService:
         if "tools" in patch and bool(patch["tools"]) != bool(before) and not self.active_turns:
             async with self.lock:
                 await self._stop_bridge()
+        if any(k in patch for k in ("telegram_token", "telegram_chat_ids", "telegram_enabled")):
+            await self.telegram.reconfigure()        # đổi bot / chat / bật-tắt → vòng poll chạy lại ngay
+        out["telegram"] = self.telegram.public_status()
         return out
+
+    @staticmethod
+    def public_settings(st: Dict[str, Any]) -> Dict[str, Any]:
+        """Settings cho trang: token Telegram KHÔNG bao giờ ra ngoài — chỉ cờ đã lưu."""
+        pub = dict(st["settings"])
+        pub["telegram_token_set"] = bool(pub.get("telegram_token"))
+        pub["telegram_token"] = ""
+        return pub
 
     async def status(self) -> Dict[str, Any]:
         ver = await asyncio.to_thread(cli.version)
@@ -1008,7 +1035,8 @@ class CodexGptService:
         return {"installed": bool(cli.command()), "version": ver, "source": cli.source(),
                 "install": cli.install_state(), "node": bool(shutil.which("node")),
                 "accounts": self.accounts_public(), "active": st.get("active"), "auto_switch": st["auto_switch"],
-                "settings": st["settings"], "recent_cwds": st["recent_cwds"], "workspace": str(self.workspace),
+                "settings": self.public_settings(st), "telegram": self.telegram.public_status(),
+                "recent_cwds": st["recent_cwds"], "workspace": str(self.workspace),
                 "default_cwd": self.default_cwd(),
                 "home": str(self.home), "continue_text": CONTINUE_TEXT,
                 "bridge": {"running": bool(self.bridge and self.bridge.alive), "error": self.bridge_error},

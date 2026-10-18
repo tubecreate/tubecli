@@ -14,4 +14,5 @@ dưới extensions/ chỉ để bộ dịch chung (/api/v1/i18n) gom được lo
   service.py  cầu nối: MỘT CODEX_HOME chung (lịch sử phiên dùng chung) + auth.json của tài khoản đang
               dùng; hết hạn mức thì tự chuyển tài khoản và làm tiếp phiên đang dở
   routes.py   REST /api/v1/codex-gpt/* + WebSocket + trang /codex-gpt
+  telegram.py bot Telegram riêng: chat được phép ↔ phiên Codex, trả lời + nút duyệt về điện thoại (18/10/2026)
 """

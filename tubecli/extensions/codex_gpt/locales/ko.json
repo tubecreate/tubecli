@@ -208,5 +208,18 @@
   "cg.default_folder_hint": "새 대화에 적용됩니다. 이미 열린 대화는 시작할 때의 폴더를 유지합니다.",
   "cg.cmds_n": "명령 {n}개",
   "cg.cmds_ok": "모두 정상",
-  "cg.cmds_bad": "{n}개 실패"
+  "cg.cmds_bad": "{n}개 실패",
+  "cg.tg_title": "Telegram 챗봇",
+  "cg.tg_on": "Telegram에서 Codex와 대화 — 허용된 채팅 하나가 이 머신의 Codex 채팅 하나입니다",
+  "cg.tg_hint": "@BotFather로 봇을 만들고 토큰을 붙여넣으세요. 그런 다음 봇에게 메시지를 보내면 아래에서 허용할 때까지 채팅 id를 알려줍니다. 어떤 에이전트도 쓰지 않는 봇을 사용하세요.",
+  "cg.tg_token": "봇 토큰",
+  "cg.tg_token_set": "저장됨 — 새 토큰을 붙여넣으면 교체",
+  "cg.tg_chats": "허용 채팅 id(쉼표로 구분)",
+  "cg.tg_test": "테스트 메시지 보내기",
+  "cg.tg_clear": "토큰 제거",
+  "cg.tg_sent": "{n}개 채팅에 전송됨",
+  "cg.tg_status_off": "꺼짐",
+  "cg.tg_status_on": "실행 중 {bot} · 허용 {chats}개 · 연결됨 {threads}개",
+  "cg.tg_status_stopped": "중지됨",
+  "cg.tg_status_err": "오류: {err}"
 }

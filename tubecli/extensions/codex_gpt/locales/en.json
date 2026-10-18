@@ -208,5 +208,18 @@
   "cg.default_folder_hint": "Applies to NEW chats - a chat already open keeps the folder it started with.",
   "cg.cmds_n": "{n} commands",
   "cg.cmds_ok": "all fine",
-  "cg.cmds_bad": "{n} failed"
+  "cg.cmds_bad": "{n} failed",
+  "cg.tg_title": "Telegram chatbot",
+  "cg.tg_on": "Chat with Codex from Telegram — each allowed chat is one Codex chat on this machine",
+  "cg.tg_hint": "Create a bot with @BotFather and paste its token. Then message the bot: it answers with your chat id until you allow it below. Use a bot no agent uses.",
+  "cg.tg_token": "Bot token",
+  "cg.tg_token_set": "saved — paste a new token to replace it",
+  "cg.tg_chats": "Allowed chat ids (comma-separated)",
+  "cg.tg_test": "Send a test message",
+  "cg.tg_clear": "Remove token",
+  "cg.tg_sent": "Sent to {n} chat(s)",
+  "cg.tg_status_off": "Off",
+  "cg.tg_status_on": "Running {bot} · {chats} chat(s) allowed · {threads} chat(s) linked",
+  "cg.tg_status_stopped": "Stopped",
+  "cg.tg_status_err": "error: {err}"
 }
