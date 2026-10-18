@@ -30,10 +30,8 @@ const M = await import(pathToFileURL(path.join(BROWSER, 'actions', 'dismiss_popu
 
 let pass = 0, fail = 0, skipped = 0;
 const check = (name, ok, detail = '') => { if (ok) { pass++; console.log(`  ok  ${name}`); } else { fail++; console.log(`  FAIL ${name}  ${detail}`); } };
-// Worktree checkout trên Windows ra CRLF (autocrlf) → so chuỗi nhiều dòng phải bỏ  trước.
-const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8').replace(/
-/g, '
-');
+// Worktree checkout trên Windows ra CRLF (autocrlf) → so chuỗi nhiều dòng phải bỏ \r trước.
+const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8').replace(/\r\n/g, '\n');
 
 console.log('1. nhãn nút');
 for (const t of ['Consentir', 'Aceptar todo', 'Accept all cookies', 'Accept', 'I agree', 'Got it', 'OK', 'Đồng ý', 'Chấp nhận tất cả', 'Đã hiểu', '同意する', 'すべて同意する', '모두 동의', 'Alle akzeptieren', 'Tout accepter', 'Принять все', 'Tümünü kabul et', 'Aceitar tudo', 'Accetta tutto', 'Accept & close']) {
