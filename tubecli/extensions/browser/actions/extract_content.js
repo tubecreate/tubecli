@@ -1,6 +1,7 @@
 import fs from 'fs-extra';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { dismissPopups } from './dismiss_popups.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -66,6 +67,10 @@ export async function extract_content(page, params = {}) {
       console.log(`[EXTRACT_CONTENT] ⛔ Web scraping is disabled for this agent. Skipping extraction.`);
       return null;
   }
+
+  // Đóng hộp cookie / lớp phủ trước khi đọc DOM: chữ của hộp thoại từng lẫn vào bài, và vài CMP che bài bằng
+  // lớp phủ (18/10/2026).
+  await dismissPopups(page, { via: 'extract' });
 
   try {
     // ═══════════════════════════════════════════

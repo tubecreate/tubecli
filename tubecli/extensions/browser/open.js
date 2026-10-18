@@ -42,6 +42,7 @@ import * as saveImageAction from './actions/save_image.js';
 import * as searchExtractAction from './actions/search_extract.js';
 import * as extractContentAction from './actions/extract_content.js';
 import * as readGmailAction from './actions/read_gmail.js';
+import { attachPopupDismisser } from './actions/dismiss_popups.js';
 import { SessionManager } from './session_manager.js';
 import { BrowserManager } from './browser_manager.js';
 import axios from 'axios';
@@ -1336,6 +1337,14 @@ async function main() {
         page = newPage; // Update the main page reference
         console.log(`[TabManager] Now on: ${page.url()}`);
       });
+
+      // --- POPUP DISMISSER (user 18/10/2026) ---
+      // Lượt agent (có prompt / theo lịch / AI) tự đóng hộp xin phép cookie, hộp đăng ký, lớp phủ… sau mỗi lần
+      // tải trang, ở mọi tab (actions/dismiss_popups.js). Mở tay KHÔNG prompt (người dùng tự lướt, Codex đăng
+      // nhập, Muse ẩn) thì không đụng vào trang của họ.
+      if (!isManual || (prompt && String(prompt).trim())) {
+        attachPopupDismisser(context, page);
+      }
 
       // --- AUTO-LOGIN TRIGGER ---
       // Check if we need to login before starting actions/session

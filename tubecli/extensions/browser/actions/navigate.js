@@ -1,3 +1,4 @@
+import { dismissPopups } from './dismiss_popups.js';
 
 /**
  * Generic Navigation Action
@@ -33,6 +34,7 @@ export async function navigate(page, params) {
         console.log(`[NAVIGATE] Attempt ${i + 1}/${MAX_RETRIES}: Going to ${targetUrl}...`);
         await page.goto(targetUrl, { waitUntil: 'load', timeout: 60000 });
         await page.waitForLoadState('networkidle').catch(() => console.log('[NAVIGATE] Network not idle, but continuing...'));
+        await dismissPopups(page, { via: 'navigate' });
         break; // Success
       } catch (err) {
         console.error(`[NAVIGATE] Failed attempt ${i + 1}: ${err.message}`);

@@ -1,4 +1,5 @@
 import { waitForCaptcha, detectCaptcha } from './captcha_helper.js';
+import { dismissPopups } from './dismiss_popups.js';
 
 async function handleCaptcha(page, isRetry) {
   if (await detectCaptcha(page)) {
@@ -113,11 +114,8 @@ export async function search(page, params) {
           await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
           console.log('Navigation complete.');
           
-          // Optional: handle consents popup (e.g. generic cookies)
-          try {
-             const consent = await page.getByRole('button', { name: /Accept|Agree|Consent|Đồng ý/i }).first();
-             if (await consent.isVisible()) await consent.click();
-          } catch(e) {}
+          // Hộp cookie / lớp phủ: bộ chung nhiều thứ tiếng, chạy cả trong iframe (18/10/2026).
+          await dismissPopups(page, { via: 'search-url' });
           
           return; // Done
       } catch (e) {

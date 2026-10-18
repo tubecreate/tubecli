@@ -1,4 +1,5 @@
 import { humanMove } from './mouse_helper.js';
+import { dismissPopups } from './dismiss_popups.js';
 
 /**
  * Action: Simulate natural browsing behavior (scrolling and mouse movements).
@@ -12,6 +13,8 @@ export async function browse(page, params = {}) {
   const iterations = params.iterations
     || (params.duration ? Math.min(40, Math.max(2, Math.round(params.duration / 7))) : 5);
   console.log(`Simulating natural browsing (${iterations} iterations)...`);
+  // Hộp cookie / lớp phủ khoá cuộn thì cả lượt đọc là cuộn vào khoảng không — đóng trước (18/10/2026).
+  await dismissPopups(page, { via: 'browse' });
 
   for (let i = 0; i < iterations; i++) {
     if (page.isClosed()) {
