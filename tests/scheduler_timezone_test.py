@@ -193,7 +193,8 @@ check("GET /runs trả server_now", '"server_now": now_for(agent).isoformat()' i
 check("GET /runs trả timezone + server_utc_offset_min", '"server_utc_offset_min": server_utc_offset_min()' in srv and '"timezone": str(getattr(agent, "timezone", "") or "") if agent_tz(agent) else ""' in srv)
 check("PUT /agents/{id} xoá mốc khi lịch đổi", 'if schedule_plan_changed(current, data):' in srv and 'data["schedule_next_run"] = ""' in srv)
 init = open(os.path.join(ROOT, "tubecli", "__init__.py"), encoding="utf-8").read()
-check("__version__ = 2026.08.09.201", re.search(r'^__version__ = "2026\.08\.09\.201"', init, re.M) is not None)
+_mv = re.search(r'^__version__ = "2026\.08\.09\.(\d+)"', init, re.M)
+check("__version__ >= 2026.08.09.201 (bản mang lịch theo múi giờ)", _mv is not None and int(_mv.group(1)) >= 201, init[:80])
 
 print(f"\n{ok}/{ok + fail} PASS")
 sys.exit(1 if fail else 0)

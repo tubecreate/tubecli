@@ -102,6 +102,8 @@
   "settings.model_desc": "聊天和系統任務的預設模型",
   "settings.browser_ai_model": "預設瀏覽器 AI",
   "settings.browser_ai_model_hint": "當代理未自行選擇時，驅動瀏覽器工作階段的 AI。",
+  "settings.max_browsers": "同時開啟的瀏覽器數",
+  "settings.max_browsers_hint": "當已開啟這麼多瀏覽器工作階段（包括背景的 Muse 工作階段）時，代理會排隊等候。於下一次排程時生效。",
   "settings.browser_ai_inherit": "使用預設 AI 模型",
   "settings.default_browser": "🌐 預設瀏覽器設定檔",
   "settings.browser_desc": "工作流程或 AI 代理在後台使用的反偵測瀏覽器設定檔。",

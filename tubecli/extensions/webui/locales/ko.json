@@ -102,6 +102,8 @@
   "settings.model_desc": "채팅 및 시스템 작업의 기본 모델",
   "settings.browser_ai_model": "기본 브라우저 AI",
   "settings.browser_ai_model_hint": "에이전트가 직접 고르지 않았을 때 브라우저 세션을 구동하는 AI입니다.",
+  "settings.max_browsers": "동시에 여는 브라우저 수",
+  "settings.max_browsers_hint": "이만큼의 브라우저 세션(백그라운드 Muse 세션 포함)이 이미 열려 있으면 에이전트는 차례를 기다립니다. 다음 스케줄러 주기부터 적용됩니다.",
   "settings.browser_ai_inherit": "기본 AI 모델 사용",
   "settings.default_browser": "🌐 기본 브라우저 프로필",
   "settings.browser_desc": "워크플로 또는 AI 에이전트가 백그라운드에서 사용하는 안티-탐지 브라우저 프로필.",

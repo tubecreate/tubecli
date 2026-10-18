@@ -17,6 +17,11 @@ from tubecli.config import DATA_DIR, ensure_data_dirs
 # ── Smart scheduling knobs ───────────────────────────────────────
 # Max agent browser sessions the scheduler may have running at once.
 MAX_CONCURRENT_AGENT_BROWSERS = int(os.environ.get("TUBECLI_MAX_SCHEDULED_BROWSERS", "2"))
+# Global settings (data/global_settings.json — trang Settings của dashboard, ô «Browsers open at once») thắng biến
+# môi trường, đọc lại MỖI nhịp nên đổi không cần khởi động lại. User 13/10/2026 «tăng giới hạn trình duyệt chạy
+# cùng lúc lên 5» + «đặt trong setting global»: máy nhà đặt 5; mặc định vẫn 2 cho VPS 8 GB. Muse mở 3 trình
+# duyệt ẩn cũng bị đếm vào trần này.
+MAX_BROWSERS_SETTING = "max_scheduled_browsers"
 # Max agents launched within a single scheduler tick (staggers launches).
 MAX_LAUNCHES_PER_TICK = 1
 # If a run is overdue by more than this, it was "missed" (app was closed /
@@ -29,6 +34,33 @@ DEFER_MIN, DEFER_MAX = 2, 6
 # Wait this long after app startup before the first tick, so launching the
 # app never immediately spawns browsers while the UI is still loading.
 STARTUP_GRACE_SEC = int(os.environ.get("TUBECLI_SCHEDULER_STARTUP_GRACE", "60"))
+
+
+def max_concurrent_browsers() -> int:
+    """Trần trình duyệt chạy cùng lúc: global_settings `max_scheduled_browsers` → TUBECLI_MAX_SCHEDULED_BROWSERS → 2.
+    Giá trị hỏng / < 1 thì bỏ qua (về mặc định) — một cài đặt gõ sai không được phép chặn đứng mọi agent."""
+    try:
+        from tubecli.config import get_global_setting
+        n = int(get_global_setting(MAX_BROWSERS_SETTING, 0) or 0)
+        if n >= 1:
+            return n
+    except (TypeError, ValueError):
+        pass
+    return max(1, MAX_CONCURRENT_AGENT_BROWSERS)
+
+
+# Khoảng cho phép của trần (cloud node Browser / PUT /api/v1/settings, user 18/10/2026). 20 là đủ cho máy nhà mạnh;
+# VPS 8 GB đặt > 4 là tự làm tràn RAM — nhưng đó là quyền của chủ máy, lõi chỉ chặn số vô nghĩa.
+BROWSER_CAP_MIN, BROWSER_CAP_MAX = 1, 20
+
+
+def clamp_browser_cap(value):
+    """Giá trị người dùng gửi → số nguyên trong [1, 20]; không đọc được → None (caller bỏ khoá, không ghi rác)."""
+    try:
+        n = int(float(value))
+    except (TypeError, ValueError):
+        return None
+    return max(BROWSER_CAP_MIN, min(BROWSER_CAP_MAX, n))
 
 
 # ── Múi giờ của agent (user 17/10/2026) ──────────────────────────────────────
@@ -293,11 +325,12 @@ class Scheduler:
 
                     # Concurrency gate: don't pile browsers on top of each other.
                     running_count = self._count_running_agent_browsers()
-                    if running_count >= MAX_CONCURRENT_AGENT_BROWSERS:
+                    limit = max_concurrent_browsers()
+                    if running_count >= limit:
                         self._defer_agent(agent, anow, reason=f"{running_count} browser session(s) already running")
                         self._log_skip(agent, "busy",
                                        f"{running_count} browser session(s) already running "
-                                       f"(limit {MAX_CONCURRENT_AGENT_BROWSERS}).")
+                                       f"(limit {limit}).")
                         agent_manager._save()
                         continue
 

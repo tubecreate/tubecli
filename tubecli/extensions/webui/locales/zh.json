@@ -102,6 +102,8 @@
   "settings.model_desc": "聊天和系统任务的默认模型",
   "settings.browser_ai_model": "默认浏览器 AI",
   "settings.browser_ai_model_hint": "当代理未自行选择时，驱动浏览器会话的 AI。",
+  "settings.max_browsers": "同时打开的浏览器数",
+  "settings.max_browsers_hint": "当已打开这么多浏览器会话（包括后台的 Muse 会话）时，代理会排队等待。在下一次调度时生效。",
   "settings.browser_ai_inherit": "使用默认 AI 模型",
   "settings.default_browser": "🌐 默认浏览器配置文件",
   "settings.browser_desc": "工作流或 AI 代理在后台使用的反检测浏览器配置文件。",

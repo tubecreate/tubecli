@@ -102,6 +102,8 @@
   "settings.model_desc": "Modelo predeterminado para chat y tareas del sistema",
   "settings.browser_ai_model": "IA del navegador predeterminada",
   "settings.browser_ai_model_hint": "La IA que impulsa las sesiones del navegador cuando un agente no ha elegido la suya.",
+  "settings.max_browsers": "Navegadores abiertos a la vez",
+  "settings.max_browsers_hint": "Los agentes esperan su turno cuando ya hay tantas sesiones de navegador abiertas (las sesiones ocultas de Muse también cuentan). Se aplica en el siguiente ciclo del programador.",
   "settings.browser_ai_inherit": "Usar el modelo de IA predeterminado",
   "settings.default_browser": "🌐 Perfil de navegador predeterminado",
   "settings.browser_desc": "Perfil de navegador antidetección utilizado por Workflow o agentes de IA en segundo plano.",

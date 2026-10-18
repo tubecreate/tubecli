@@ -102,6 +102,8 @@
   "settings.model_desc": "Sohbet ve sistem görevleri için varsayılan model",
   "settings.browser_ai_model": "Varsayılan Tarayıcı AI",
   "settings.browser_ai_model_hint": "Bir ajan kendi seçimini yapmadığında tarayıcı oturumlarını yürüten AI.",
+  "settings.max_browsers": "Aynı anda açık tarayıcı sayısı",
+  "settings.max_browsers_hint": "Bu kadar tarayıcı oturumu zaten açıksa (gizli Muse oturumları da sayılır) ajanlar sırasını bekler. Bir sonraki zamanlayıcı turunda geçerli olur.",
   "settings.browser_ai_inherit": "Varsayılan AI modelini kullan",
   "settings.default_browser": "🌐 Varsayılan Tarayıcı Profili",
   "settings.browser_desc": "İş Akışı veya AI Aracılar tarafından arka planda kullanılan anti-tespit tarayıcı profili.",

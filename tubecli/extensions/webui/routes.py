@@ -51,10 +51,16 @@ def _default_settings():
         port = str(get_api_port())
     except Exception:
         port = "5295"
+    try:
+        # Trần trình duyệt chạy cùng lúc của bộ hẹn giờ khi chưa ai chọn = biến môi trường hoặc 2 (13/10/2026).
+        from tubecli.core.scheduler import MAX_CONCURRENT_AGENT_BROWSERS as max_browsers
+    except Exception:
+        max_browsers = 2
     return {
         # KHÔNG độn model: máy mới chưa chọn AI nào thì nói là chưa chọn (user 16/10/2026: «mặc định không chọn qwen vì
         # thật sự nó chưa có, để ban đầu none và yêu cầu người dùng thêm tối thiểu»). Cloud/bảng điều khiển thấy "" → đòi chọn.
         "default_model": "",
+        "max_scheduled_browsers": max_browsers,
         # The AI that drives a browser session when the agent running it has not
         # picked one. Empty means "not set" — callers fall through to
         # default_model — so it must never be seeded with a model name here, or
@@ -94,6 +100,19 @@ async def get_global_settings():
 @router.put("/api/v1/settings")
 async def save_global_settings(request: Request):
     body = await request.json()
+    # Trần trình duyệt chạy cùng lúc (node Browser trên cloud / API): số nguyên 1..20; giá trị lạ → bỏ khoá đó,
+    # không ghi rác vào global_settings.json (scheduler đọc lại mỗi nhịp).
+    if isinstance(body, dict) and "max_scheduled_browsers" in body:
+        try:
+            from tubecli.core.scheduler import clamp_browser_cap
+            n = clamp_browser_cap(body.get("max_scheduled_browsers"))
+        except Exception:
+            n = None
+        body = dict(body)
+        if n is None:
+            body.pop("max_scheduled_browsers", None)
+        else:
+            body["max_scheduled_browsers"] = n
     p = _settings_path()
     # Only values that were actually chosen reach the disk. This used to start
     # from _DEFAULT_SETTINGS.copy(), so saving ANY unrelated setting — a theme,

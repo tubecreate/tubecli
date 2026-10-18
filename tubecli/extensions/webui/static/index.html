@@ -466,6 +466,12 @@
                         <div class="field-hint" data-i18n="settings.browser_desc">Browser profile used by Workflows & AI Agents.</div>
                     </div>
                     <div class="settings-field" style="margin-top: 16px;">
+                        <label data-i18n="settings.max_browsers">Browsers open at once</label>
+                        <input type="number" id="set-max-browsers" min="1" max="20" step="1" style="width:120px;"
+                               onchange="const n = parseInt(this.value, 10); if (n >= 1) autoSaveSetting('max_scheduled_browsers', n, this);">
+                        <div class="field-hint" data-i18n="settings.max_browsers_hint">Agents wait for their turn when this many browser sessions are already open (hidden Muse sessions count too). Takes effect on the next scheduler tick.</div>
+                    </div>
+                    <div class="settings-field" style="margin-top: 16px;">
                         <label data-i18n="settings.bas_key">BAS Fingerprint API Key (Khóa Fingerprint BAS)</label>
                         <input type="password" id="set-bas-key" onchange="autoSaveSetting('bas_fingerprint_key', this.value, this)" placeholder="Nhập BAS Fingerprint API Key..." data-i18n-placeholder="settings.bas_key_ph" style="width:100%;">
                         <div class="field-hint" data-i18n="settings.bas_key_hint">Dùng để lấy fingerprint cho trình duyệt bảo mật BAS. Nếu để trống sẽ sử dụng mặc định.</div>

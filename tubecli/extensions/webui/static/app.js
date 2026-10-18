@@ -5811,7 +5811,10 @@ async function applyGlobalSettings(s) {
     if (s.bas_fingerprint_key !== undefined && document.getElementById('set-bas-key')) {
         document.getElementById('set-bas-key').value = s.bas_fingerprint_key;
     }
-    
+    if (s.max_scheduled_browsers && document.getElementById('set-max-browsers')) {
+        document.getElementById('set-max-browsers').value = s.max_scheduled_browsers;
+    }
+
     const notifyEnabled = s.ext_update_notifications !== undefined ? s.ext_update_notifications : false;
     if (document.getElementById('set-ext-update-notify')) {
         document.getElementById('set-ext-update-notify').checked = notifyEnabled;

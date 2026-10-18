@@ -102,6 +102,8 @@
   "settings.model_desc": "チャットとシステムタスクのデフォルトモデル",
   "settings.browser_ai_model": "デフォルトのブラウザAI",
   "settings.browser_ai_model_hint": "エージェントが独自に選んでいないとき、ブラウザセッションを動かすAIです。",
+  "settings.max_browsers": "同時に開くブラウザ数",
+  "settings.max_browsers_hint": "この数のブラウザセッション（バックグラウンドの Muse も含む）が開いていると、エージェントは順番を待ちます。次のスケジューラー周期から有効です。",
   "settings.browser_ai_inherit": "デフォルトのAIモデルを使う",
   "settings.default_browser": "🌐 デフォルトブラウザプロファイル",
   "settings.browser_desc": "ワークフローまたはAIエージェントがバックグラウンドで使用するアンチ検出ブラウザプロファイル。",

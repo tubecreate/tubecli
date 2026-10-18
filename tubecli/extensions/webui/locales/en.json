@@ -233,6 +233,8 @@
   "settings.model_desc": "Default model for chat and system tasks",
   "settings.browser_ai_model": "Default Browser AI",
   "settings.browser_ai_model_hint": "The AI that drives browser sessions when an agent has not picked its own.",
+  "settings.max_browsers": "Browsers open at once",
+  "settings.max_browsers_hint": "Agents wait for their turn when this many browser sessions are already open (hidden Muse sessions count too). Takes effect on the next scheduler tick.",
   "settings.browser_ai_inherit": "Use the default AI model",
   "settings.default_browser": "🌐 Default Browser Profile",
   "settings.browser_desc": "Anti-detect browser profile used by Workflow or AI Agents in the background.",

@@ -233,6 +233,8 @@
   "settings.model_desc": "Model mặc định cho chat và các tác vụ hệ thống",
   "settings.browser_ai_model": "AI mặc định cho trình duyệt",
   "settings.browser_ai_model_hint": "AI điều khiển phiên trình duyệt khi agent chưa tự chọn AI riêng.",
+  "settings.max_browsers": "Số trình duyệt chạy cùng lúc",
+  "settings.max_browsers_hint": "Khi đã có chừng này phiên trình duyệt đang mở (kể cả phiên Muse chạy ngầm), agent sẽ chờ tới lượt. Có hiệu lực ở nhịp hẹn giờ kế tiếp.",
   "settings.browser_ai_inherit": "Dùng model AI mặc định",
   "settings.default_browser": "🌐 Default Browser Profile",
   "settings.browser_desc": "Trình duyệt nhận diện mà Workflow hoặc AI Agent sẽ dùng chạy ngầm.",
