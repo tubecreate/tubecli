@@ -434,13 +434,102 @@ def _subtitles_filter_path(p: Path) -> str:
     return f"subtitles='{s}'"
 
 
+async def _finish_video(ffmpeg: str, src: Path, dst: Path, subs: List[Dict], burn: bool,
+                        cover_box: Optional[List[float]], cover_mode: str,
+                        cover_segments: Optional[List[Dict]], logo_boxes: Optional[List[List[float]]],
+                        enc_timeout: int, tmp: Path) -> Dict:
+    """Bước cuối: che phụ đề gốc / logo + ghi phụ đề mới trong MỘT lần encode (audio của
+    `src` chép nguyên). `cover_segments` (reup_cover.scan_subtitle_segments) = che theo ĐOẠN
+    có chữ, ô khít riêng; không có thì che dải `cover_box` suốt video như cũ. `cover_box`
+    còn dùng để neo chữ mới đúng chỗ phụ đề gốc. Trả {applied, covered, logos}: applied=False
+    = không có gì để làm hoặc encode hỏng (đã ghi log) — người gọi giữ bản vào."""
+    from tubecli.core.reup_cover import COVER_MODES, cover_graph, delogo_graph, segments_graph
+
+    nothing = {"applied": False, "covered": False, "logos": 0}
+    if not (burn or cover_box or cover_segments or logo_boxes):
+        return nothing
+    w, h = await video_size(str(src), ffmpeg)
+    if not w or not h:
+        w, h = 720, 1280
+    graph, cur = [], "0:v"
+    if logo_boxes:
+        # logo/watermark: luôn NỘI SUY (bản gốc cũng vậy), trước lớp che phụ đề
+        graph.append(delogo_graph(logo_boxes, w, h, cur, "vlogo"))
+        cur = "vlogo"
+    if cover_mode in COVER_MODES and (cover_segments or cover_box):
+        if cover_segments:
+            graph.append(segments_graph(cover_segments, w, h, cover_mode, inp=cur, out="vcov"))
+        else:
+            graph.append(cover_graph(cover_box, w, h, cover_mode, inp=cur, out="vcov"))
+        cur = "vcov"
+    if burn and subs:
+        ass = tmp / "subs.ass"
+        # ô gốc đã che → chữ mới lấp đúng ô; không che thì đặt chỗ mặc định
+        ass.write_text(build_ass(subs, w, h, cover_box if cur == "vcov" else None), encoding="utf-8")
+        graph.append(f"[{cur}]{_subtitles_filter_path(ass)}[vsub]")
+        cur = "vsub"
+    if not graph:
+        return nothing
+    r = await _run_ff([ffmpeg, "-y", "-i", str(src),
+                       "-filter_complex", ";".join(graph),
+                       "-map", f"[{cur}]", "-map", "0:a?",
+                       "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+                       "-c:a", "copy", str(dst)], enc_timeout)
+    if r.returncode == 0 and dst.exists():
+        return {"applied": True, "covered": "vcov" in ";".join(graph), "logos": len(logo_boxes or [])}
+    logger.warning("che/ghi phụ đề hỏng: %s", (r.stderr or "")[-300:])
+    return nothing
+
+
+async def render_only(video_path: str, subtitles: List[Dict], output_path: str, burn: bool = False,
+                      progress: Optional[Callable[[str, int, int], None]] = None,
+                      cover_box: Optional[List[float]] = None, cover_mode: str = "delogo",
+                      cover_segments: Optional[List[Dict]] = None,
+                      logo_boxes: Optional[List[List[float]]] = None) -> Dict:
+    """KHÔNG lồng tiếng (user 19/10/2026: «chỉ subtitle, không cần lồng tiếng»): âm gốc giữ
+    nguyên, chỉ che phụ đề gốc / logo + ghi phụ đề mới. Không có gì để làm → chép nguyên
+    video. Cùng khuôn trả về với dub_video, engine = "none"."""
+    say = progress or (lambda phase, done, total: None)
+    subs = [s for s in (subtitles or [])
+            if isinstance(s, dict) and str(s.get("text") or "").strip()
+            and float(s.get("end", 0)) > float(s.get("start", 0))]
+    ffmpeg = find_ffmpeg()
+    if not ffmpeg:
+        return {"status": "error", "message": "no_ffmpeg"}
+    video = Path(video_path)
+    out = Path(output_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    tmp = out.parent / f"rendtmp_{uuid.uuid4().hex[:8]}"
+    tmp.mkdir(parents=True, exist_ok=True)
+    try:
+        dur = await media_duration(str(video), ffmpeg)
+        enc_timeout = int(max(900, min(4 * 3600, dur * 3)))
+        say("burn", 0, 1)
+        dst = tmp / "burned.mp4"
+        fin = await _finish_video(ffmpeg, video, dst, subs, burn, cover_box, cover_mode,
+                                  cover_segments, logo_boxes, enc_timeout, tmp)
+        say("burn", 1, 1)
+        if fin["applied"]:
+            shutil.move(str(dst), str(out))
+        else:
+            shutil.copyfile(str(video), str(out))
+        return {"status": "success", "output": str(out), "segments": len(subs), "skipped": 0,
+                "engine": "none", "capcut_lines": 0, "covered": fin["covered"], "logos": fin["logos"]}
+    except Exception as e:      # noqa: BLE001
+        logger.warning("render_only lỗi: %s", e, exc_info=True)
+        return {"status": "error", "message": f"render_failed: {str(e)[:120]}"}
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 async def dub_video(video_path: str, subtitles: List[Dict], voice: str,
                     output_path: str, mode: str = "replace", bg_volume: float = 0.15,
                     burn: bool = False,
                     progress: Optional[Callable[[str, int, int], None]] = None,
                     engine: str = "edge", fallback_voice: str = "vi-VN-HoaiMyNeural",
                     cover_box: Optional[List[float]] = None, cover_mode: str = "delogo",
-                    logo_boxes: Optional[List[List[float]]] = None) -> Dict:
+                    logo_boxes: Optional[List[List[float]]] = None,
+                    cover_segments: Optional[List[Dict]] = None) -> Dict:
     """Trả {"status": "success", "output", "segments", "skipped", "engine"} hay
     {"status": "error", "message"}.
 
@@ -557,43 +646,14 @@ async def dub_video(video_path: str, subtitles: List[Dict], voice: str,
 
         # 5. Che phụ đề gốc + ghi phụ đề mới — MỘT lần encode (bản gốc encode hai lần)
         final = dubbed
-        covered = False
-        logos_done = 0
-        if burn or cover_box or logo_boxes:
+        fin = {"applied": False, "covered": False, "logos": 0}
+        if burn or cover_box or cover_segments or logo_boxes:
             say("burn", 0, 1)
-            w, h = await video_size(str(dubbed), ffmpeg)
-            if not w or not h:
-                w, h = 720, 1280
-            from tubecli.core.reup_cover import COVER_MODES, cover_graph, delogo_graph
-
-            graph, cur = [], "0:v"
-            if logo_boxes:
-                # logo/watermark: luôn NỘI SUY (bản gốc cũng vậy), trước lớp che phụ đề
-                graph.append(delogo_graph(logo_boxes, w, h, cur, "vlogo"))
-                cur = "vlogo"
-            if cover_box and cover_mode in COVER_MODES:
-                graph.append(cover_graph(cover_box, w, h, cover_mode, inp=cur, out="vcov"))
-                cur = "vcov"
-            if burn:
-                ass = tmp / "subs.ass"
-                # ô gốc đã che → chữ mới lấp đúng ô; không che thì đặt chỗ mặc định
-                ass.write_text(build_ass(subs, w, h, cover_box if cur == "vcov" else None),
-                               encoding="utf-8")
-                graph.append(f"[{cur}]{_subtitles_filter_path(ass)}[vsub]")
-                cur = "vsub"
             burned = tmp / "burned.mp4"
-            if graph:
-                r = await _run_ff([ffmpeg, "-y", "-i", str(dubbed),
-                                   "-filter_complex", ";".join(graph),
-                                   "-map", f"[{cur}]", "-map", "0:a?",
-                                   "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
-                                   "-c:a", "copy", str(burned)], enc_timeout)
-                if r.returncode == 0 and burned.exists():
-                    final = burned
-                    covered = "vcov" in ";".join(graph)
-                    logos_done = len(logo_boxes or [])
-                else:
-                    logger.warning("che/ghi phụ đề hỏng: %s", (r.stderr or "")[-300:])
+            fin = await _finish_video(ffmpeg, dubbed, burned, subs, burn, cover_box, cover_mode,
+                                      cover_segments, logo_boxes, enc_timeout, tmp)
+            if fin["applied"]:
+                final = burned
             # hỏng thì vẫn giao bản đã lồng tiếng — đừng mất trắng cả job
             say("burn", 1, 1)
 
@@ -602,7 +662,7 @@ async def dub_video(video_path: str, subtitles: List[Dict], voice: str,
                 "segments": len(entries), "skipped": skipped,
                 # Giọng THẬT đã đọc: capcut chỉ khi CapCut đọc được ít nhất một câu
                 "engine": "capcut" if capcut else "edge", "capcut_lines": len(capcut),
-                "covered": covered, "logos": logos_done}
+                "covered": fin["covered"], "logos": fin["logos"]}
     except Exception as e:      # noqa: BLE001
         logger.warning("dub_video lỗi: %s", e, exc_info=True)
         return {"status": "error", "message": f"dub_failed: {str(e)[:120]}"}

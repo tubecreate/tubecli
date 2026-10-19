@@ -160,5 +160,89 @@ check("đếm câu sai tiếng đích (dịch một bước bị Gemini bỏ qua
                        {"text": "123"}], "vi") == [0])
 check("tên ngôn ngữ đầy đủ gửi cho bộ dịch", pr.LANG_NAMES["vi"] == "Vietnamese")
 
+
+# ── Dò phụ đề theo PIXEL + che theo ĐOẠN (user 19/10/2026) ─────────────────────
+import numpy as np  # noqa: E402
+from PIL import Image, ImageDraw, ImageFont  # noqa: E402
+
+check("mồi Gemini: chỉ ô ở nửa dưới, gần giữa, không quá cao",
+      [b["box"][1] for b in rc.subtitle_prior([
+          {"box": [0.3, 0.86, 0.7, 0.92]},      # phụ đề thật
+          {"box": [0.2, 0.05, 0.8, 0.12]},      # tiêu đề đầu khung
+          {"box": [0.02, 0.9, 0.2, 0.95]},      # nhãn góc trái
+          {"box": [0.1, 0.5, 0.9, 0.95]},       # ô cao bất thường
+      ])] == [0.86])
+
+
+def synth(text="Xin chào các bạn", blade=False, left_label=False, bg=120, W=960, H=150):
+    """Dải đáy giả: nền xám, chữ trắng viền đen căn giữa (như phụ đề cháy), tuỳ chọn vạch
+    sáng mảnh của cảnh cùng hàng (lưỡi kiếm) và nhãn nhỏ góc trái."""
+    im = Image.new("RGB", (W, H), (bg, bg, bg))
+    d = ImageDraw.Draw(im)
+    try:
+        font = ImageFont.truetype("arial.ttf", 28)
+    except OSError:
+        font = ImageFont.load_default(size=28)
+    tb = None
+    if text:
+        x0, y0, x1, y1 = d.textbbox((0, 0), text, font=font, stroke_width=2)
+        tx, ty = (W - (x1 - x0)) // 2 - x0, 80 - y0
+        d.text((tx, ty), text, font=font, fill=(255, 255, 255), stroke_width=2, stroke_fill=(0, 0, 0))
+        tb = (tx + x0, ty + y0, tx + x1, ty + y1)
+    if blade:
+        d.rectangle([100, 86, 440, 94], fill=(20, 20, 20))
+        d.line([(100, 90), (440, 90)], fill=(250, 250, 250), width=2)
+    if left_label:
+        d.text((20, 112), "AI remix", font=font, fill=(230, 230, 230), stroke_width=1, stroke_fill=(0, 0, 0))
+    return np.asarray(im), tb
+
+
+rgb, tb = synth()
+box = rc.frame_text_box(rc.text_mask(rgb))
+check("ô khít quanh chữ trắng viền đen căn giữa (sai ≤ 8 px mỗi cạnh)",
+      box is not None and all(abs(a - b) <= 8 for a, b in zip(box, tb)), (box, tb))
+rgb_b, tb_b = synth(blade=True)
+box_b = rc.frame_text_box(rc.text_mask(rgb_b))
+check("vạch sáng mảnh của cảnh cùng hàng không kéo ô sang trái (cột mạnh ≥3 nét)",
+      box_b is not None and box_b[0] >= tb_b[0] - 40 and abs(box_b[2] - tb_b[2]) <= 8, (box_b, tb_b))
+check("chỉ có vạch cảnh → không coi là phụ đề", rc.frame_text_box(rc.text_mask(synth(text="", blade=True)[0])) is None)
+check("nhãn nhỏ góc trái (lệch tâm) → không coi là phụ đề",
+      rc.frame_text_box(rc.text_mask(synth(text="", left_label=True)[0])) is None)
+rgb_l, tb_l = synth(left_label=True)
+box_l = rc.frame_text_box(rc.text_mask(rgb_l))
+check("có cả nhãn góc lẫn phụ đề → chỉ lấy phụ đề, nhãn góc để nguyên",
+      box_l is not None and box_l[0] >= tb_l[0] - 8 and box_l[1] >= tb_l[1] - 4, (box_l, tb_l))
+check("nền phẳng không chữ → None", rc.frame_text_box(rc.text_mask(synth(text="")[0])) is None)
+cands = rc.frame_text_candidates(rc.text_mask(rgb_l))
+check("ứng viên bị loại nói rõ lý do", any("lệch tâm" in c["why"] for c in cands) and any(not c["why"] for c in cands), cands)
+
+b1 = [0.45, 0.84, 0.55, 0.90]
+b2 = [0.33, 0.84, 0.67, 0.90]
+segs = rc.build_segments([None, b1, b1, None, b1, b1, b1, None, None, None, b2, b2], fps=8, dur=1.6)
+check("đoạn: lấp khe 1 khung, bỏ vệt lẻ, nới mốc ±(½ khung + 0.1 s)",
+      len(segs) == 2 and segs[0]["start"] == 0.0 and segs[0]["end"] == 1.04 and segs[1]["start"] == 1.09
+      and segs[1]["end"] == 1.6, segs)
+check("ô đoạn nới PAD, trị số là float thường (không numpy)",
+      segs[0]["box"][0] == round(0.45 - rc.PAD_X, 4) and all(type(v) is float for v in segs[0]["box"]), segs[0])
+check("khe 2 khung giữa hai ô chồng nhau cũng được lấp",
+      len(rc.build_segments([b1, b1, None, None, b1, b1], fps=8, dur=1.0)) == 1)
+check("khe 2 khung giữa hai ô KHÁC chỗ thì tách đoạn",
+      len(rc.build_segments([b1, b1, None, None, [0.1, 0.1, 0.2, 0.2], [0.1, 0.1, 0.2, 0.2]], fps=8, dur=1.0)) == 2)
+g = rc.segments_graph(segs, 1920, 1080, "delogo")
+check("delogo theo đoạn: hai ô khác nhau → hai filter, mỗi cái enable đúng khoảng",
+      g.count("delogo=") == 2 and "enable='between(t,0.00,1.04)'" in g and "enable='between(t,1.09,1.60)'" in g, g)
+g2 = rc.segments_graph([{"start": 0, "end": 1, "box": b1}, {"start": 2, "end": 3, "box": [0.451, 0.84, 0.551, 0.90]}], 1920, 1080, "delogo")
+check("hai đoạn cùng ô (IoU ≥ 0.8) gộp một filter với tổng các khoảng",
+      g2.count("delogo=") == 1 and "between(t,0.00,1.00)+between(t,2.00,3.00)" in g2, g2)
+g3 = rc.segments_graph(segs, 1920, 1080, "blur", inp="vlogo", out="vcov")
+check("blur/pixel/fill theo đoạn: che ô HỢP, enable gắn vào overlay",
+      g3.startswith("[vlogo]split") and "overlay=" in g3 and ":enable='between(t,0.00,1.04)+between(t,1.09,1.60)'[vcov]" in g3, g3)
+check("ô neo chữ mới = trung vị các ô đoạn", rc.place_box(segs) == [round((segs[0]["box"][i] + segs[1]["box"][i]) / 2, 4) for i in range(4)])
+check("cover_graph vẫn như cũ khi không có enable (tương thích)",
+      rc.cover_graph([0.0, 0.84, 1.0, 0.93], 576, 768, "delogo") == "[0:v]delogo=x=1:y=644:w=574:h=70[vc]")
+check("render_only / dub_video nhận cover_segments; chế độ 'none' không lồng tiếng",
+      "cover_segments" in rd.render_only.__code__.co_varnames and "cover_segments" in rd.dub_video.__code__.co_varnames
+      and "render_only(" in open(os.path.join(os.path.dirname(__file__), "..", "tubecli", "core", "public_reup.py"), encoding="utf-8").read())
+
 print(f"\n{passed} pass, {failed} fail")
 sys.exit(1 if failed else 0)

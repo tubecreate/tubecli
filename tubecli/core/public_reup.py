@@ -296,29 +296,44 @@ async def _run_job(jid: str, link: str, opts: Dict[str, Any]) -> None:
                 _set(jid, step="clean", done=0, total=0)
             det = await det_task
             det_task = None
-            cover_box = det.get("box") if det.get("found") and cover_mode in reup_cover.COVER_MODES else None
+            cover_on = det.get("found") and cover_mode in reup_cover.COVER_MODES
+            cover_box = det.get("box") if cover_on else None
+            # Che theo ĐOẠN có chữ, ô khít riêng (quét pixel — user 19/10/2026); rỗng = dải cố định
+            cover_segments = (det.get("segments") or None) if cover_on else None
             logo_boxes = [o["box"] for o in (det.get("overlays") or [])] if want_logo else []
             logger.info("[reup %s] phụ đề gốc: %s", jid,
-                        f"ô {cover_box} ({det.get('frames_with_text')}/{det.get('total')} khung)"
+                        (f"{len(cover_segments)} đoạn, ô neo {cover_box} ({det.get('hits')}/{det.get('scanned')} khung có chữ)"
+                         if cover_segments else
+                         f"dải cố định {cover_box} ({det.get('frames_with_text')}/{det.get('total')} khung)")
                         if cover_box else f"không che ({det.get('reason') or 'không thấy'})")
             if want_logo:
                 logger.info("[reup %s] logo: %s", jid,
                             [(o.get("kind"), o.get("text"), o["box"]) for o in det.get("overlays") or []])
 
-        # 3. Lồng tiếng theo logic ReupDouyin
-        _set(jid, step="dub", done=0, total=len(subs))
         out = jdir / "reup.mp4"
 
         def _prog(phase: str, done: int, total: int) -> None:
             _set(jid, step="dub" if phase in ("tts",) else phase, done=done, total=total)
 
-        engine, voice, fallback = pick_voice(opts, [s.get("text") for s in subs])
-        r = await reup_dub.dub_video(
-            str(src), subs, voice, str(out),
-            mode=str(opts.get("mode") or "replace"), bg_volume=0.15,
-            burn=str(opts.get("burn") or "0") == "1", progress=_prog,
-            engine=engine, fallback_voice=fallback,
-            cover_box=cover_box, cover_mode=cover_mode, logo_boxes=logo_boxes)
+        if str(opts.get("voice") or "") == "none":
+            # 3'. CHỈ PHỤ ĐỀ, không lồng tiếng (user 19/10/2026): âm gốc giữ nguyên, che phụ đề
+            # gốc / logo + ghi phụ đề mới. Không có bước dub → thẻ tiến độ nhảy thẳng sang dựng.
+            _set(jid, step="burn", done=0, total=1)
+            r = await reup_dub.render_only(
+                str(src), subs, str(out), burn=str(opts.get("burn") or "0") == "1", progress=_prog,
+                cover_box=cover_box, cover_mode=cover_mode, cover_segments=cover_segments,
+                logo_boxes=logo_boxes)
+        else:
+            # 3. Lồng tiếng theo logic ReupDouyin
+            _set(jid, step="dub", done=0, total=len(subs))
+            engine, voice, fallback = pick_voice(opts, [s.get("text") for s in subs])
+            r = await reup_dub.dub_video(
+                str(src), subs, voice, str(out),
+                mode=str(opts.get("mode") or "replace"), bg_volume=0.15,
+                burn=str(opts.get("burn") or "0") == "1", progress=_prog,
+                engine=engine, fallback_voice=fallback,
+                cover_box=cover_box, cover_mode=cover_mode, logo_boxes=logo_boxes,
+                cover_segments=cover_segments)
         if r.get("status") != "success":
             code = str(r.get("message") or "reup_failed")
             raise PublicSkillError(code if re.match(r"^[a-z_]{3,32}$", code) else "reup_failed",
@@ -399,8 +414,10 @@ async def resolve(text: str, opts: Optional[Dict[str, Any]] = None) -> Dict[str,
 
     cover = str(o.get("cover") or "delogo")
     job_opts = {
-        # "" = người xem không chọn → giọng MẶC ĐỊNH của agent (pick_voice, lúc lồng)
-        "voice": o.get("voice") if o.get("voice") in EDGE_VOICES else "",
+        # "" = người xem không chọn → giọng MẶC ĐỊNH của agent (pick_voice, lúc lồng);
+        # "none" = KHÔNG lồng tiếng, chỉ phụ đề, giữ âm gốc (user 19/10/2026)
+        "voice": "none" if str(o.get("voice") or "") == "none"
+        else (o.get("voice") if o.get("voice") in EDGE_VOICES else ""),
         "_agent_id": str(o.get("_agent_id") or ""),
         # Che phụ đề gốc: nội suy (delogo) mặc định — đúng logic user 28/9 hỏi
         "cover": cover if cover in COVER_CHOICES else "delogo",
