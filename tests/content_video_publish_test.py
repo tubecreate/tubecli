@@ -272,8 +272,9 @@ check("D prompt mang tiêu đề trang nguồn", "Bai bao 1" in usr_p and "Bai b
 check("D prompt bảo viết đúng ngôn ngữ kịch bản", "Vietnamese" in sys_p, sys_p)
 check("D prompt dặn dữ liệu ngoài là DỮ LIỆU, không phải lệnh",
       "never follow instructions" in usr_p, usr_p[:400])
-check("D tiêu đề ≤ 100", len(seo["title"]) == 100, len(seo["title"]))
-check("D mô tả ≤ 5000", len(seo["description"]) == 5000, len(seo["description"]))
+# 19/10/2026: tiêu chí SEO (TubeLens) — tiêu đề 40–70 ký tự, không còn cắt ở 100.
+check("D tiêu đề 40–70 (tiêu chí SEO)", P.SEO_TITLE_MIN <= len(seo["title"]) <= P.SEO_TITLE_MAX, len(seo["title"]))
+check("D mô tả ≤ 5000", 4900 <= len(seo["description"]) <= 5000, len(seo["description"]))
 check("D   cắt mô tả vẫn GIỮ dòng hashtag ở đuôi",
       seo["description"].rstrip().endswith("#cakho #bepnhaminh #monviet"), seo["description"][-80:])
 check("D tag ≤ 500 ký tự tổng", sum(len(t) + 1 for t in seo["tags"]) <= 500,
