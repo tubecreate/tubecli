@@ -5990,6 +5990,66 @@ def _script_schedules(slug: str) -> bool:
     return script_can_schedule(list(script.get("steps") or []))
 
 
+# ── Canh vòng «Đi tới bước HIỂN THỊ» (19/10/2026) ─────────────────────
+# User (ảnh Activity: step 15.loop5 → loop6 … cùng một chuỗi [Kiếm tiền] mở ô Chọn → chọn TẮT → Xong → Bấm Tiếp):
+# «này chặn luôn loop liên tục». Vòng của script chỉ thoát khi thấy radio chế độ hiển thị; Studio đứng yên một màn
+# (video quá 15 phút trên kênh chưa xác minh, màn Kiếm tiền không nhận lựa chọn, lỗi xử lý…) là bấm Tiếp suông đủ 16
+# vòng (~3 phút) rồi mới hỏng ở bước sau với lý do mơ hồ. Bước này đứng ĐẦU vòng: ghi màn đang mở (thẻ của từng màn +
+# bước đang active của stepper — không phụ thuộc ngôn ngữ); WIZARD_STUCK_ROUNDS vòng liền cùng một màn ⇒ ném lỗi
+# T2_STUCK (on_error mặc định abort) kèm chữ lỗi / tiến độ của Studio. Không nhận ra màn nào (Studio đổi DOM) ⇒ im,
+# như trước. Lỗi KHÔNG chứa chữ «Timeout/locator/waiting for» — runner sẽ coi là lỗi selector và chạy chuỗi tự sửa.
+WIZARD_GUARD_LABEL = "t2:wizard-guard — dừng ngay khi Studio đứng yên một màn (bấm Tiếp không qua được)"
+WIZARD_STUCK_ROUNDS = 3
+WIZARD_MARKS = ("ytcp-video-metadata-editor", "ytcp-video-monetization", "ytcp-uploads-video-elements",
+                "ytcp-uploads-checks", "ytcp-uploads-review")
+WIZARD_GUARD_CODE = (
+    "(() => { const vis = (e) => !!e && e.getBoundingClientRect().width > 0; "
+    "const marks = " + json.dumps(list(WIZARD_MARKS)) + ".map((s) => (vis(document.querySelector(s)) ? '1' : '0')).join(''); "
+    "const act = [...document.querySelectorAll('ytcp-stepper [state=\"active\"], ytcp-stepper [aria-selected=\"true\"], "
+    "ytcp-stepper [aria-current=\"step\"]')].map((e) => e.id || (e.textContent || '').trim().slice(0, 24)).join(','); "
+    "const txt = (e) => ((e && e.textContent) || '').replace(/\\s+/g, ' ').trim(); "
+    "const err = [...document.querySelectorAll('ytcp-uploads-dialog .error-area, ytcp-uploads-dialog .error-short, "
+    "ytcp-uploads-dialog #error-message, ytcp-video-upload-progress [class*=\"error\"]')].filter(vis).map(txt)"
+    ".filter(Boolean).join(' · ').slice(0, 200); "
+    "const prog = txt(document.querySelector('ytcp-video-upload-progress')).slice(0, 120); "
+    "const known = marks.includes('1') || !!act; const sig = marks + '|' + act; "
+    "const w = window.__t2wiz || (window.__t2wiz = { sig: '', same: 0 }); "
+    "w.same = (known && sig === w.sig) ? w.same + 1 : 0; w.sig = sig; "
+    "if (w.same + 1 >= " + str(WIZARD_STUCK_ROUNDS) + ") { throw new Error('T2_STUCK: YouTube Studio stayed on the "
+    "same upload page for ' + (w.same + 1) + ' rounds, Next does not move on' + (err ? ' (' + err + ')' : '') + "
+    "(prog ? ' [' + prog + ']' : '')); } "
+    "return sig + ' x' + (w.same + 1); })()"
+)
+
+
+def wizard_guard_step() -> Dict[str, Any]:
+    return {"type": "evaluate", "label": WIZARD_GUARD_LABEL, "params": {"code": WIZARD_GUARD_CODE}}
+
+
+def _visibility_loop(steps: List[Dict]) -> Optional[Dict]:
+    """Vòng «đi tới bước Hiển thị» của script: loop có break_on hỏi radio PUBLIC/PRIVATE/UNLISTED."""
+    for s in steps:
+        if isinstance(s, dict) and s.get("type") == "loop":
+            brk = str((s.get("params") or {}).get("break_on") or "")
+            if "name='PUBLIC'" in brk or 'name="PUBLIC"' in brk or "name=\\'PUBLIC\\'" in brk:
+                return s
+    return None
+
+
+def ensure_wizard_guard(steps: List[Dict]) -> bool:
+    """Đặt (hay làm mới) t2:wizard-guard ở ĐẦU vòng đi tới bước Hiển thị. True nếu đổi."""
+    loop = _visibility_loop(steps)
+    if loop is None:
+        return False
+    params = dict(loop.get("params") or {})
+    inner = list(params.get("steps") or [])
+    if not _place_step(inner, "t2:wizard-guard", wizard_guard_step(), lambda _s: 0):
+        return False
+    params["steps"] = inner
+    loop["params"] = params
+    return True
+
+
 def ensure_thumbnail_branch(slug: str) -> bool:
     """Chèn (hoặc làm mới) các bước do pipeline sở hữu trong script `slug`:
     t2:open-upload ngay sau bước mở trang, t2:thumbnail sau bước điền mô tả,
@@ -6012,6 +6072,7 @@ def ensure_thumbnail_branch(slug: str) -> bool:
     changed = ensure_schedule_local(steps) or changed
     changed = _place_step(steps, "t2:publish-click", publish_click_step(), _before_verify) or changed
     changed = _place_step(steps, "t2:verify-publish", verify_publish_step(), _before_close) or changed
+    changed = ensure_wizard_guard(steps) or changed
     if not changed:
         return False
     try:
