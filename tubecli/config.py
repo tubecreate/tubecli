@@ -524,12 +524,21 @@ def migrate_and_link_extensions_data():
                     pass
 
             if old_file_path.exists() and old_file_path.is_file() and not already_linked:
+                # Hai bản KHÁC nhau. Trước đây: xoá bản ở đường MỚI rồi chuyển bản cũ sang — mà từ 13/10/2026
+                # (ce4b1c3) auth_manager ghi NGUYÊN TỬ (file mới thay file cũ) ⇒ hard link đứt ngay lần lưu đầu,
+                # đường cũ đứng yên ở lúc liên kết; mỗi lần khởi động (kể cả một script test import config) lại đưa
+                # bản cũ đè bản mới: token Google cấp sau đó mất sạch (19/10/2026). Giờ: giữ bản SỬA SAU CÙNG (hoà
+                # thì giữ đường mới — chỗ extension đang ghi), bản kia cất `.legacy.bak` cạnh nó; không xoá gì.
                 try:
                     new_file_path.parent.mkdir(parents=True, exist_ok=True)
-                    if new_file_path.exists():
-                        os.remove(new_file_path)
-                    shutil.move(str(old_file_path), str(new_file_path))
-                    print(f"[Migration] Moved file: {old_file_path} -> {new_file_path}")
+                    if new_file_path.exists() and os.path.getmtime(new_file_path) >= os.path.getmtime(old_file_path):
+                        os.replace(str(old_file_path), str(old_file_path) + ".legacy.bak")
+                        print(f"[Migration] Kept {new_file_path} (newer); stale {old_file_path} -> .legacy.bak")
+                    else:
+                        if new_file_path.exists():
+                            os.replace(str(new_file_path), str(new_file_path) + ".legacy.bak")
+                        shutil.move(str(old_file_path), str(new_file_path))
+                        print(f"[Migration] Moved file: {old_file_path} -> {new_file_path}")
                 except Exception as e:
                     print(f"[Migration] Error moving file {filename}: {e}")
 
