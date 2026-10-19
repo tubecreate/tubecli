@@ -55,6 +55,8 @@ dependencies = [
     "openpyxl",
     # Codex «Tạo video từ nội dung»: dán link YouTube → đọc phụ đề làm nguồn (core/youtube_transcript.py).
     "yt-dlp[default]",
+    # Edge-TTS cho lồng tiếng reup / content_video: bản < 7.3 bị Microsoft chặn 403 (19/10/2026)
+    "edge-tts>=7.3.1",
 ]
 
 [project.scripts]

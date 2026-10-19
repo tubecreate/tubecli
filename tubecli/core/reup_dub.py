@@ -428,6 +428,37 @@ def split_long_subtitles(subs: List[Dict], max_chars: int = 56, max_cps: float =
     return out
 
 
+_CJK_RE = re.compile(r"[\u3000-\u30ff\u3400-\u9fff\uac00-\ud7af]")
+TTS_MAX_GAP, TTS_MAX_CHARS, TTS_MAX_DUR = 0.7, 220, 12.0
+
+
+def group_for_tts(subs: List[Dict], max_gap: float = TTS_MAX_GAP, max_chars: int = TTS_MAX_CHARS,
+                  max_dur: float = TTS_MAX_DUR) -> List[Dict]:
+    """Gộp các dòng phụ đề LIỀN NHAU thành đoạn đọc một hơi: [{start, end, text, members}].
+
+    User 19/10/2026: «lồng tiếng bị ngắt theo câu, ngắt giữa các đoạn nghe rất khó chịu — phải
+    đọc đúng đoạn văn, không ngắt theo dòng». Trước đây mỗi dòng (đã cắt ≤56 ký tự cho khung
+    hình) đọc riêng rồi ép khớp từng dòng → ngữ điệu gãy từng khúc. Nay dòng kề nhau (khe ≤
+    max_gap) gộp tới max_chars ký tự / max_dur giây; giọng đọc trọn đoạn rồi khớp vào khoảng
+    của cả đoạn. Phụ đề ghi lên hình và .srt vẫn theo dòng. CJK nối liền, chữ Latin nối bằng
+    dấu cách."""
+    out: List[Dict] = []
+    for i, s in enumerate(subs):
+        text = str(s.get("text") or "").strip()
+        st, en = float(s["start"]), float(s["end"])
+        if out:
+            g = out[-1]
+            sep = "" if (_CJK_RE.search(g["text"][-1:]) and _CJK_RE.search(text[:1])) else " "
+            if (st - g["end"] <= max_gap and len(g["text"]) + len(sep) + len(text) <= max_chars
+                    and en - g["start"] <= max_dur):
+                g["text"] += sep + text
+                g["end"] = max(g["end"], en)
+                g["members"].append(i)
+                continue
+        out.append({"start": st, "end": en, "text": text, "members": [i]})
+    return out
+
+
 def _subtitles_filter_path(p: Path) -> str:
     """Đường dẫn cho filter subtitles trên Windows: \\ -> /, thoát dấu hai chấm ổ đĩa."""
     s = str(p).replace("\\", "/").replace(":", "\\:")
@@ -561,45 +592,72 @@ async def dub_video(video_path: str, subtitles: List[Dict], voice: str,
         video_dur = await media_duration(str(video), ffmpeg)
         total_dur = max(video_dur, max(float(s["end"]) for s in subs) + 0.5)
 
-        # 1+2. TTS từng câu + ép khớp khung — song song, ghép lại theo chỉ số
+        # 1+2. TTS theo ĐOẠN (dòng kề nhau gộp lại — group_for_tts) + ép khớp khoảng của đoạn,
+        # song song, ghép lại theo chỉ số
+        units = group_for_tts(subs)
         tts_sem = asyncio.Semaphore(TTS_CONCURRENCY)
         fit_sem = asyncio.Semaphore(FIT_CONCURRENCY)
         got: Dict[int, tuple] = {}
         done = 0
         capcut: Dict[int, Path] = {}
         if engine == "capcut":
-            capcut = await _capcut_all(subs, voice, tmp, say)
+            capcut = await _capcut_all(units, voice, tmp, say)
         edge_voice = voice if engine != "capcut" else fallback_voice
 
-        async def _one(i: int, s: Dict, count: bool = True) -> None:
-            nonlocal done
-            mp3 = tmp / f"tts_{i:04d}.mp3"
-            wav = tmp / f"seg_{i:04d}.wav"
-            ok = i in capcut
+        async def _tts_fit(key: str, text: str, start: float, end: float, pre: Optional[Path]) -> Optional[tuple]:
+            """Đọc `text` (pre = mp3 CapCut có sẵn) rồi ép khớp [start, end] → (start, wav) hoặc None."""
+            mp3 = pre or (tmp / f"tts_{key}.mp3")
+            wav = tmp / f"seg_{key}.wav"
+            ok = pre is not None
             if not ok:
                 async with tts_sem:
-                    ok = await _edge_tts(str(s["text"]).strip(), edge_voice, mp3)
+                    ok = await _edge_tts(text, edge_voice, mp3)
                     # giãn nhịp TRONG slot: tốc độ gọi tỉ lệ số luồng, không dồn cục
                     await asyncio.sleep(0.15 if ok else 0.2)
             if ok:
                 async with fit_sem:
-                    if await _fit_segment(ffmpeg, mp3, wav,
-                                          float(s["end"]) - float(s["start"])):
-                        got[i] = (float(s["start"]), wav)
+                    if await _fit_segment(ffmpeg, mp3, wav, end - start):
+                        return (start, wav)
+            return None
+
+        async def _one(i: int, s: Dict, count: bool = True) -> None:
+            nonlocal done
+            r = await _tts_fit(f"{i:04d}", str(s["text"]).strip(), float(s["start"]), float(s["end"]),
+                               capcut.get(i))
+            if r is None and len(s.get("members") or []) > 1:
+                # Đoạn gộp đọc hỏng → đọc TỪNG DÒNG của đoạn (ép khớp từng dòng như trước):
+                # mất ngữ điệu liền mạch ở đoạn này còn hơn mất tiếng cả đoạn.
+                parts = []
+                for j in s["members"]:
+                    line = subs[j]
+                    pr = await _tts_fit(f"{i:04d}_{j:04d}", str(line["text"]).strip(),
+                                        float(line["start"]), float(line["end"]), None)
+                    if pr:
+                        parts.append(pr)
+                if parts:
+                    # ghép các dòng thành một wav đặt từ đầu đoạn (giữ khuôn got[i] = (start, wav))
+                    seg = tmp / f"seg_{i:04d}.wav"
+                    base = float(s["start"])
+                    if await _mix_chunk(ffmpeg, [(st - base, w) for st, w in parts],
+                                        float(s["end"]) - base + 0.2, seg):
+                        r = (base, seg)
+            if r is not None:
+                got[i] = r
             # CapCut đã tự báo tiến độ theo đợt; lượt này chỉ còn ép khớp + vá bằng Edge
             if count and engine != "capcut":
                 done += 1
-                say("tts", done, len(subs))
+                say("tts", done, len(units))
 
-        await asyncio.gather(*(_one(i, s) for i, s in enumerate(subs)))
+        await asyncio.gather(*(_one(i, u) for i, u in enumerate(units)))
         # Lượt vét: Edge chập chờn theo đợt — câu hỏng cả 4 lần thường đọc được khi cả
         # lượt đã qua. Hỏng quá nhiều = dịch vụ đang sập, vét chỉ tốn thêm thời gian.
-        miss = [i for i in range(len(subs)) if i not in got]
-        if miss and len(miss) <= max(3, len(subs) // 4):
+        miss = [i for i in range(len(units)) if i not in got]
+        if miss and len(miss) <= max(3, len(units) // 4):
             for i in miss:
-                await _one(i, subs[i], count=False)
+                await _one(i, units[i], count=False)
         entries: List[tuple] = [got[i] for i in sorted(got)]
-        skipped = len(subs) - len(entries)
+        # Số DÒNG không đọc được (đoạn hỏng = mọi dòng trong đoạn hỏng)
+        skipped = sum(len(units[i]["members"]) for i in range(len(units)) if i not in got)
         if not entries:
             return {"status": "error", "message": "tts_failed"}
 
@@ -659,8 +717,8 @@ async def dub_video(video_path: str, subtitles: List[Dict], voice: str,
 
         shutil.move(str(final), str(out))
         return {"status": "success", "output": str(out),
-                "segments": len(entries), "skipped": skipped,
-                # Giọng THẬT đã đọc: capcut chỉ khi CapCut đọc được ít nhất một câu
+                "segments": len(subs) - skipped, "units": len(entries), "skipped": skipped,
+                # Giọng THẬT đã đọc: capcut chỉ khi CapCut đọc được ít nhất một đoạn
                 "engine": "capcut" if capcut else "edge", "capcut_lines": len(capcut),
                 "covered": fin["covered"], "logos": fin["logos"]}
     except Exception as e:      # noqa: BLE001

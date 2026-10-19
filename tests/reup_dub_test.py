@@ -161,6 +161,28 @@ check("đếm câu sai tiếng đích (dịch một bước bị Gemini bỏ qua
 check("tên ngôn ngữ đầy đủ gửi cho bộ dịch", pr.LANG_NAMES["vi"] == "Vietnamese")
 
 
+# ── Đọc theo ĐOẠN, không ngắt theo dòng (user 19/10/2026) ─────────────────────
+vi_lines = [{"start": 0.0, "end": 2.0, "text": "Hôm nay chúng ta nói về trí tuệ nhân tạo,"},
+            {"start": 2.0, "end": 4.0, "text": "và ảnh hưởng của nó tới đời sống."},
+            {"start": 4.0, "end": 5.5, "text": "Trước hết là việc làm."},
+            {"start": 7.0, "end": 9.0, "text": "Sau khe nghỉ dài là câu mới."}]
+g = rd.group_for_tts(vi_lines)
+check("dòng kề nhau gộp thành một đoạn đọc liền; khe > 0.7 s mới tách",
+      len(g) == 2 and g[0]["members"] == [0, 1, 2] and g[0]["start"] == 0.0 and g[0]["end"] == 5.5
+      and g[0]["text"] == "Hôm nay chúng ta nói về trí tuệ nhân tạo, và ảnh hưởng của nó tới đời sống. Trước hết là việc làm."
+      and g[1]["members"] == [3], g)
+cjk = rd.group_for_tts([{"start": 0, "end": 1, "text": "今天我们聊"}, {"start": 1, "end": 2, "text": "人工智能"}])
+check("CJK nối liền không chèn dấu cách", cjk[0]["text"] == "今天我们聊人工智能")
+long = [{"start": i * 2.0, "end": i * 2.0 + 2.0, "text": "x" * 60} for i in range(8)]
+gl = rd.group_for_tts(long)
+check("trần 220 ký tự / 12 s mỗi đoạn", all(len(x["text"]) <= 220 and x["end"] - x["start"] <= 12.0 for x in gl) and len(gl) >= 3, [len(x["text"]) for x in gl])
+pieces = rd.split_long_subtitles([{"start": 7.6, "end": 16.7, "text": long_vi}])
+back = rd.group_for_tts(pieces)
+check("dòng bị cắt ≤56 ký tự cho khung hình → gộp lại nguyên câu để đọc",
+      len(back) == 1 and back[0]["text"] == long_vi and back[0]["start"] == 7.6 and back[0]["end"] == 16.7, back)
+check("dub_video đọc theo units (group_for_tts), .srt / ghi hình vẫn theo dòng",
+      "units = group_for_tts(subs)" in open(os.path.join(os.path.dirname(__file__), "..", "tubecli", "core", "reup_dub.py"), encoding="utf-8").read())
+
 # ── Dò phụ đề theo PIXEL + che theo ĐOẠN (user 19/10/2026) ─────────────────────
 import numpy as np  # noqa: E402
 from PIL import Image, ImageDraw, ImageFont  # noqa: E402
