@@ -77,6 +77,56 @@ mid = [{"start": 0, "end": 5, "text": "a"}, {"start": 5, "end": 5, "text": "b"},
 check("dồn cục ở GIỮA thì để nguyên (không đoán)", pr.rescue_collapsed(mid, 10) == mid)
 check("không có cue dồn cục thì trả nguyên", pr.rescue_collapsed(drift[:5], 148.33) == drift[:5])
 
+# ── Mốc Gemini sai ĐƠN VỊ «phút.giây»: cả video dồn vào giây đầu (user 19/10/2026) ──
+squash = [[0.0, 0.02, "Chư vị đạo hữu, vẫn khỏe chứ?"],
+          [0.02, 0.056, "Chắc hẳn ngươi cũng không phải chuyên đến xem chúng ta làm trò cười đâu nhỉ."],
+          [0.064, 0.069, "Đúng vậy."], [0.07, 0.089, "Ta chính là đến xem ngươi làm trò cười đó."],
+          [0.17, 0.18, "Chào hai thầy."], [0.23, 0.254, "Đạo diễn bảo tôi mang kịch bản mới đến cho hai vị rồi."],
+          [0.28, 0.317, "Hai vị đạo diễn, vai diễn của tôi trong kịch bản không đúng phải không, sao lại ít thế này?"],
+          [0.339, 0.357, "Alo, được được, tôi đến ngay đây."],
+          [0.38, 0.409, "Bình tĩnh nào, lát nữa tôi sẽ nói chuyện với Vọng Ngữ."],
+          [0.409, 0.44, "Hình như tôi cũng không có vai diễn nữa rồi, các bạn có nhớ tôi không?"],
+          [0.46, 0.479, "Ơ, ngươi là"], [0.479, 0.519, "Là ta, Lão Vũ, người đã đại chiến 300 hiệp với Thiên Cô đó."],
+          [0.519, 0.539, "Ừm, ồ, ngươi chắc chắn không phải 30 hiệp chứ?"], [0.545, 0.549, "Thật sao?"],
+          [0.565, 0.587, "Xem ra kịch bản của ba chúng ta đều gần như nhau."],
+          [0.587, 1.022, "Ừm, nhưng mà Ngọc Ngọc, sao vai diễn của em lại nhiều hơn bọn chị?"],
+          [1.05, 1.09, "Nhưng mà kịch bản sau này của ba chị em chúng ta đều giống nhau, sẽ đại triển thân thủ ở Trụy Ma Cốc."],
+          [1.1, 1.109, "Ôi!"], [1.109, 1.119, "Ngươi có biết đánh bài không?"],
+          [1.119, 1.147, "Hắn là địa chủ, ngươi đánh ta hả đồ lão già!"],
+          [1.147, 1.167, "Ta thích đánh thế nào thì đánh thế đó, ngươi quản được ta sao!"],
+          [1.167, 1.179, "Các ngươi đừng đánh nữa!"], [1.189, 1.209, "Các ngươi đừng đánh nữa!"], [1.209, 1.229, "Đừng đánh nữa!"],
+          [1.26, 1.325, "Hề hề, lại có thêm một Nguyên Anh tu sĩ 300 tuổi, còn có nhiều tán tu thực lực như vậy nữa."],
+          [1.325, 1.369, "Lão Lý à, Lạc Vân Tông chúng ta sắp cất cánh rồi!"],
+          [1.39, 1.417, "Được rồi, hôm nay đến đây thôi, ngươi còn gì muốn nói không?"],
+          [1.417, 1.456, "Server mới của tôi sẽ ra mắt vào tuần tới, chư vị đạo hữu có thể mong chờ nhé!"],
+          [1.456, 1.487, "Chuẩn bị xong rồi, cùng uống một ly chứ?"]]
+fx = pr.fix_timescale([{"start": a, "end": b, "text": t} for a, b, t in squash], 112.316)
+check("job thật 112 s: 1.456 → 105.6 s, «Đúng vậy.» 6.4–6.9 s, câu cuối kết thúc 108.7 s",
+      len(fx) == len(squash) and abs(fx[-1]["start"] - 105.6) < 0.01 and abs(fx[-1]["end"] - 108.7) < 0.01
+      and abs(fx[2]["start"] - 6.4) < 0.01 and abs(fx[2]["end"] - 6.9) < 0.01,
+      [(x["start"], x["end"]) for x in fx[:4]] + [(fx[-1]["start"], fx[-1]["end"])])
+check("mọi mốc trong video, tăng dần, không cue 0 s → không kích hoạt tách lại / rescue",
+      all(0 <= x["start"] < x["end"] <= 112.316 for x in fx)
+      and all(a["start"] <= b["start"] for a, b in zip(fx, fx[1:])) and pr.collapsed_count(fx) == 0)
+sp = rd.split_long_subtitles(fx)
+un = rd.group_for_tts(sp)
+check("sau sửa: cắt dòng + gộp đoạn chạy bình thường, đoạn cuối kết thúc trong video",
+      len(sp) >= len(fx) and all(u["end"] > u["start"] for u in un) and un[-1]["end"] <= 112.4, (len(sp), len(un)))
+check("mốc bình thường trả nguyên (video 148 s)", pr.fix_timescale(drift[:14], 148.33) == drift[:14])
+short = [{"start": 0.5, "end": 1.5, "text": "Chào"}, {"start": 2.0, "end": 3.0, "text": "Xin chào"},
+         {"start": 3.5, "end": 4.5, "text": "Tạm biệt"}]
+check("nói ít ở đầu video dài (tốc độ đọc bình thường) → KHÔNG đổi", pr.fix_timescale(short, 120.0) == short)
+fx2 = pr.fix_timescale([{"start": 175.0 + a, "end": 175.0 + b, "text": t} for a, b, t in squash], 300.0)
+check("khúc thứ 2 (từ 175 s) đổi theo đầu khúc", abs(fx2[-1]["start"] - 280.6) < 0.01
+      and all(175 <= x["start"] < x["end"] <= 300 for x in fx2), (fx2[0], fx2[-1]))
+x100 = [{"start": 0.05, "end": 0.10, "text": "a" * 60}, {"start": 0.62, "end": 0.70, "text": "b" * 90},
+        {"start": 0.95, "end": 1.00, "text": "c" * 60}]
+fx3 = pr.fix_timescale(x100, 110.0)
+check("phần lẻ ≥ 60 → không phải phút.giây, đổi ×100 (0.62 → 62 s)", [x["start"] for x in fx3] == [5.0, 62.0, 95.0], fx3)
+check("_run_job sửa đơn vị NGAY sau tách (cả lượt tách lại), trước collapsed_count",
+      open(os.path.join(os.path.dirname(__file__), "..", "tubecli", "core", "public_reup.py"), encoding="utf-8").read()
+      .count("fix_timescale(await _extract(") == 2)
+
 # ── Ghi phụ đề khít ô gốc (neo tâm \an5) ─────────────────────────────────────
 boxed = rd.build_ass([{"start": 0, "end": 2, "text": "Vậy thì bây giờ tôi sẽ dẫn mọi người đi tham quan cảnh"}],
                      1024, 576, [0.118, 0.8795, 0.874, 0.962])

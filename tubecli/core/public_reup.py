@@ -206,6 +206,81 @@ def pick_voice(opts: Dict[str, Any], texts: list) -> tuple:
     return "edge", fallback, fallback
 
 
+CHUNK_SEC = 175.0     # subtitle_extractor cắt audio từng khúc 175 s; mốc trả về = đầu khúc + mốc Gemini trong khúc
+_SQUASH_SPAN = 0.06   # cả khúc nằm trong ≤ 6 % đầu khúc → nghi mốc sai đơn vị
+_SQUASH_CPS = 40.0    # ký tự/giây — nhanh hơn thế không ai đọc được: thời gian không có thật
+
+
+def _as_minsec(v: float) -> float:
+    """Mốc kiểu «phút.giây»: 1.456 → 1 phút 45,6 s = 105.6."""
+    m = int(v)
+    return m * 60.0 + round((v - m) * 100.0, 3)
+
+
+def _scale_ok(starts: list, ends: list, texts: list, limit: float) -> bool:
+    """Cách đổi đơn vị chỉ được nhận khi mốc nằm trong khúc, tăng dần và tốc độ đọc có thật."""
+    if any(a < -0.001 or b > limit + 2.0 for a, b in zip(starts, ends)):
+        return False
+    if any(b < a - 0.3 for a, b in zip(starts, starts[1:])):
+        return False
+    rates = sorted(len(t) / max(0.2, b - a) for a, b, t in zip(starts, ends, texts))
+    return 2.0 <= rates[len(rates) // 2] <= 35.0
+
+
+def fix_timescale(subs: list, video_dur: float) -> list:
+    """Gemini thỉnh thoảng ghi mốc kiểu «phút.giây» (1.456 = 1:45.6) hay chia 100 dù prompt đòi
+    số giây → cả khúc 175 s dồn vào 1–2 giây đầu (job 19/10/2026: video 112 s, 41 dòng trong
+    1,5 s — phụ đề/lồng tiếng dồn hết vào đầu). Xét từng khúc: mọi cue nằm trong vài % đầu khúc
+    mà chữ phải đọc nhanh hơn 40 ký tự/giây thì đổi đơn vị (phút.giây → ×100 → ×60), chỉ nhận
+    cách đổi giữ thứ tự, nằm trong khúc, tốc độ đọc có thật. Mốc bình thường trả nguyên."""
+    if not subs:
+        return subs
+    subs = sorted(subs, key=lambda x: float(x["start"]))
+    out: list = []
+    k_max = int(float(subs[-1]["start"]) // CHUNK_SEC)
+    for k in range(k_max + 1):
+        base = k * CHUNK_SEC
+        grp = [x for x in subs if base <= float(x["start"]) < base + CHUNK_SEC]
+        if not grp:
+            continue
+        chunk_len = min(CHUNK_SEC, video_dur - base) if video_dur > base + 1 else CHUNK_SEC
+        rs = [float(x["start"]) - base for x in grp]
+        re_ = [max(float(x["end"]) - base, 0.0) for x in grp]
+        texts = [str(x.get("text") or "") for x in grp]
+        span = max(max(rs), max(re_))
+        chars = sum(len(t) for t in texts)
+        if len(grp) < 3 or span > _SQUASH_SPAN * chunk_len or chars / max(span, 0.05) < _SQUASH_CPS:
+            out.extend(grp)
+            continue
+        convs = []
+        if all((v - int(v)) * 100.0 < 60.0 for v in rs + re_):
+            convs.append(("minsec", _as_minsec))
+        convs += [("x100", lambda v: v * 100.0), ("x60", lambda v: v * 60.0)]
+        fixed = None
+        for name, conv in convs:
+            ns = [conv(v) for v in rs]
+            ne = [max(conv(v), a) for v, a in zip(re_, ns)]
+            if _scale_ok(ns, ne, texts, chunk_len):
+                fixed = (name, ns, ne)
+                break
+        if fixed is None:
+            out.extend(grp)
+            continue
+        name, ns, ne = fixed
+        logger.warning("[reup] mốc phụ đề khúc %d dồn trong %.2f s / %.0f s → đổi đơn vị %s",
+                       k + 1, span, chunk_len, name)
+        for i, x in enumerate(grp):
+            st = base + ns[i]
+            nxt = base + ns[i + 1] if i + 1 < len(grp) else base + chunk_len
+            en = min(base + ne[i], base + chunk_len)
+            if en <= st + 0.05:                        # cuối thiếu/kẹp → ước theo chữ, không lấn câu sau
+                en = min(nxt if nxt > st + 0.3 else st + 0.3, st + max(0.6, len(texts[i]) / 15.0))
+            elif i + 1 < len(grp) and en > nxt + 1.0:  # «end» bịa (vd. start+0.5 ở đơn vị cũ → +50 s)
+                en = nxt
+            out.append({**x, "start": round(st, 3), "end": round(en, 3)})
+    return out
+
+
 _COLLAPSED = 0.05    # cue ngắn hơn chừng này = bị kẹp về cuối đoạn, không phải câu thật
 
 
@@ -274,17 +349,20 @@ async def _run_job(jid: str, link: str, opts: Dict[str, Any]) -> None:
 
         # 2. Tách phụ đề (+ dịch nếu chọn)
         _set(jid, step="subtitle", done=0, total=0)
-        subs = await _extract(str(src), str(opts.get("lang") or ""), jid)
+        src_dur = await reup_dub.media_duration(str(src))
+        # Mốc Gemini sai ĐƠN VỊ (phút.giây / chia 100) → cả video dồn vào giây đầu; sửa TRƯỚC
+        # khi đếm cue dồn cục, kẻo tách lại vô ích rồi rescue_collapsed kéo sai thêm.
+        subs = fix_timescale(await _extract(str(src), str(opts.get("lang") or ""), jid), src_dur)
         # Gemini đôi khi cho mốc TRÔI dài hơn đoạn audio; subtitle_extractor kẹp về cuối
         # đoạn nên các câu cuối dồn cục, dài 0 s, và bị bỏ khi lồng (demo 28/9: 6 câu
         # cuối video 2:28). Mô hình không tất định — tách lại một lần thường là khỏi.
         if collapsed_count(subs) >= 2:
             _set(jid, step="subtitle", done=0, total=0)
-            again = await _extract(str(src), str(opts.get("lang") or ""), jid)
+            again = fix_timescale(await _extract(str(src), str(opts.get("lang") or ""), jid), src_dur)
             if collapsed_count(again) < collapsed_count(subs):
                 subs = again
         if collapsed_count(subs):
-            subs = rescue_collapsed(subs, await reup_dub.media_duration(str(src)))
+            subs = rescue_collapsed(subs, src_dur)
         subs = await _ensure_translated(subs, str(opts.get("lang") or ""))
         # Bước 3.5 của ReupDouyin: cắt dòng dài trước khi lồng — phụ đề giao ra (.srt)
         # cũng là bản đã cắt, đúng như bản gốc cho người dùng duyệt.
