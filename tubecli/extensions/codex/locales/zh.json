@@ -223,6 +223,8 @@
   "codex.cv_yt_tz_local": "这台电脑的时区",
   "codex.field_video_yt_monetize": "开启创收",
   "codex.field_video_yt_monetize_hint": "适用于加入 YouTube 合作伙伴计划的频道。只有浏览器配置文件方式能做到。",
+  "codex.field_video_yt_unverified": "频道尚未验证",
+  "codex.field_video_yt_unverified_hint": "未用电话验证的频道，YouTube 只接受最长 15 分钟的视频，也不能直播或使用自定义缩略图。较长的视频会照常制作并保留，但不会上传。",
   "codex.toast_video_yt_channel_required": "请选择要上传到的 YouTube 频道",
   "codex.cv_drive_loading": "正在加载 Google 账号…",
   "codex.cv_drive_none": "还没有可写入云端硬盘的 Google 账号——请在 Auth Manager 中用 Google 云端硬盘权限授权一个账号",

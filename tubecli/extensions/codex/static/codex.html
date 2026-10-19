@@ -373,6 +373,14 @@
                 <em data-i18n="codex.field_video_yt_monetize_hint">For channels in the YouTube Partner Program. Only the browser profile route can do this.</em>
               </span>
             </label>
+            <!-- Kênh chưa xác minh số điện thoại (19/10/2026): video quá 15 phút không đăng, không gắn thumbnail. -->
+            <label class="cx-check" id="cx-v-yt-unverified-row">
+              <input type="checkbox" id="cx-v-yt-unverified">
+              <span>
+                <strong data-i18n="codex.field_video_yt_unverified">Channel not verified yet</strong>
+                <em data-i18n="codex.field_video_yt_unverified_hint">YouTube takes at most 15 minutes, no livestream and no custom thumbnail from a channel that is not phone-verified. A longer video is rendered and kept, but not uploaded.</em>
+              </span>
+            </label>
           </div>
 
           <!-- Ảnh đại diện: prompt LUÔN viết (nút copy trên thẻ + dòng trong Sheet). Bật ô này thì model ảnh vẽ luôn từ

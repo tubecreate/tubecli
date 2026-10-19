@@ -223,6 +223,8 @@
   "codex.cv_yt_tz_local": "bu bilgisayarın saat dilimi",
   "codex.field_video_yt_monetize": "Para kazanmayı aç",
   "codex.field_video_yt_monetize_hint": "YouTube İş Ortağı Programı'ndaki kanallar için. Bunu yalnızca tarayıcı profili yolu yapabilir.",
+  "codex.field_video_yt_unverified": "Kanal henüz doğrulanmadı",
+  "codex.field_video_yt_unverified_hint": "Telefonla doğrulanmamış bir kanaldan YouTube en fazla 15 dakikalık video kabul eder; canlı yayın ve özel küçük resim yoktur. Daha uzun video oluşturulup saklanır ama yüklenmez.",
   "codex.toast_video_yt_channel_required": "Yüklenecek YouTube kanalını seçin",
   "codex.cv_drive_loading": "Google hesapları yükleniyor…",
   "codex.cv_drive_none": "Drive'a yazabilen bir Google hesabı yok — Auth Manager'da Google Drive izniyle bir hesap yetkilendirin",

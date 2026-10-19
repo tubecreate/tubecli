@@ -66,6 +66,10 @@ PUBLISH_DEFAULTS = {
     # Vẽ + gắn ảnh đại diện cho video agent tự làm (15/10/2026). Tắt cho kênh CHƯA xác minh số điện thoại — YouTube
     # không nhận thumbnail tuỳ chỉnh, vẽ ra chỉ tốn công và lần đăng nào cũng báo «không gắn được». Prompt vẫn viết.
     "publish_thumbnail": True,
+    # Kênh CHƯA xác minh số điện thoại (19/10/2026): YouTube không nhận video quá 15 phút, không cho livestream,
+    # không nhận thumbnail tuỳ chỉnh. Bật ⇒ video dài KHÔNG đăng (cảnh báo + tạm dừng tự đăng, hết vòng «dựng →
+    # đăng hỏng → dựng lại»), không vẽ/gắn thumbnail. Đăng hỏng một video >15 phút cũng tự bật cờ này.
+    "publish_unverified": False,
 }
 RESEARCH_PROMPT_MAX = 2000
 YOUTUBE_SUBS_MAX = 5
@@ -88,7 +92,7 @@ def coerce_publish_value(key: str, value: Any) -> Any:
     một dòng hỏng không được phép làm chết cả server. Tầng API mới là chỗ
     nói "sai rồi" (422) — xem AgentCreateRequest/AgentUpdateRequest.
     """
-    if key in ("auto_publish", "publish_monetize", "auto_video", "publish_thumbnail"):
+    if key in ("auto_publish", "publish_monetize", "auto_video", "publish_thumbnail", "publish_unverified"):
         return bool(value)
     if key == "youtube_subs_per_run":
         try:
@@ -281,6 +285,7 @@ class Agent:
         publish_tz: str = "",
         publish_tz_offset: Any = "",
         publish_thumbnail: bool = True,
+        publish_unverified: bool = False,
         # Schedule Settings
         schedule_enabled: bool = False,
         schedule_repeat: str = "Daily",
@@ -375,6 +380,7 @@ class Agent:
             "publish_tz": publish_tz,
             "publish_tz_offset": publish_tz_offset,
             "publish_thumbnail": publish_thumbnail,
+            "publish_unverified": publish_unverified,
         }).items():
             setattr(self, _k, _v)
 
@@ -457,6 +463,7 @@ class Agent:
             "publish_tz": getattr(self, "publish_tz", "") or "",
             "publish_tz_offset": getattr(self, "publish_tz_offset", ""),
             "publish_thumbnail": bool(getattr(self, "publish_thumbnail", True)),
+            "publish_unverified": bool(getattr(self, "publish_unverified", False)),
             "schedule_enabled": getattr(self, "schedule_enabled", False),
             "schedule_repeat": getattr(self, "schedule_repeat", "Daily"),
             "schedule_interval": getattr(self, "schedule_interval", 60),

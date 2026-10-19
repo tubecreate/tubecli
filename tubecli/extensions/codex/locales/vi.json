@@ -223,6 +223,8 @@
   "codex.cv_yt_tz_local": "múi giờ của máy này",
   "codex.field_video_yt_monetize": "Bật kiếm tiền",
   "codex.field_video_yt_monetize_hint": "Cho kênh đã tham gia Chương trình Đối tác YouTube. Chỉ đường hồ sơ trình duyệt làm được việc này.",
+  "codex.field_video_yt_unverified": "Kênh chưa xác minh",
+  "codex.field_video_yt_unverified_hint": "YouTube chỉ nhận video tối đa 15 phút, không livestream, không thumbnail tuỳ chỉnh từ kênh chưa xác minh số điện thoại. Video dài hơn vẫn được dựng và giữ lại, nhưng không đăng.",
   "codex.toast_video_yt_channel_required": "Chọn kênh YouTube để đăng",
   "codex.cv_drive_loading": "Đang tải tài khoản Google…",
   "codex.cv_drive_none": "Chưa có tài khoản Google nào ghi được vào Drive — cấp quyền một tài khoản trong Auth Manager với quyền Google Drive",

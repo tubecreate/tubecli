@@ -2638,6 +2638,7 @@ const CODEX = (() => {
   const CV_YT_WHEN_KEY = 'codex.cvYtWhen';           // now | slots | at
   const CV_YT_SLOTS_KEY = 'codex.cvYtSlots';
   const CV_YT_MONETIZE_KEY = 'codex.cvYtMonetize';
+  const CV_YT_UNVERIFIED_KEY = 'codex.cvYtUnverified';
   const CV_YT_MIN_AHEAD_MS = 15 * 60 * 1000;         // khớp publish_schedule.MIN_AHEAD_SEC
 
   function ytTz() {
@@ -2799,6 +2800,8 @@ const CODEX = (() => {
       if (prof) o.publish_profile = prof;
       o.publish_monetize = !!$('cx-v-yt-monetize').checked;
     }
+    // Kênh chưa xác minh: pipeline không đăng video quá 15 phút, không gắn thumbnail (cả hai đường đăng).
+    if ($('cx-v-yt-unverified') && $('cx-v-yt-unverified').checked) o.publish_unverified = true;
     if (when !== 'now' && privacy !== 'public') return { error: t('codex.cv_yt_when_needs_public'), focus: 'cx-v-yt-privacy' };
     if (when === 'slots') {
       const slots = ytParseSlots($('cx-v-yt-slots').value);
@@ -2822,6 +2825,7 @@ const CODEX = (() => {
     lsSet(CV_YT_WHEN_KEY, $('cx-v-yt-when').value || 'now');
     lsSet(CV_YT_SLOTS_KEY, ($('cx-v-yt-slots').value || '').slice(0, 200));
     lsSet(CV_YT_MONETIZE_KEY, $('cx-v-yt-monetize').checked ? '1' : '0');
+    if ($('cx-v-yt-unverified')) lsSet(CV_YT_UNVERIFIED_KEY, $('cx-v-yt-unverified').checked ? '1' : '0');
   }
 
   function resetYtForm() {
@@ -2835,6 +2839,7 @@ const CODEX = (() => {
     $('cx-v-yt-slots').value = lsGet(CV_YT_SLOTS_KEY) || '';
     $('cx-v-yt-at').value = '';
     $('cx-v-yt-monetize').checked = lsGet(CV_YT_MONETIZE_KEY) === '1';
+    if ($('cx-v-yt-unverified')) $('cx-v-yt-unverified').checked = lsGet(CV_YT_UNVERIFIED_KEY) === '1';
     $('cx-v-yt-profile').innerHTML = '';
     $('cx-v-yt-channel').innerHTML = '';
     state.ytProfiles = undefined;       // nạp lại mỗi lần mở form (có thể vừa đăng nhập / cấp quyền kênh mới)

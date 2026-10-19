@@ -193,7 +193,7 @@ m = A.get_mark("a1")
 check("A thiếu file → mặc định đủ khoá",
       m == {"high_water": "", "high_water_pending": "", "published_today": 0,
             "day": A._today(), "last_task_id": "", "last_fired_at": 0.0,
-            "last_commit_key": "", "last_video_url": ""}, m)
+            "last_commit_key": "", "last_video_url": "", "paused": {}}, m)
 check("A ghi được khi thư mục chưa tồn tại",
       A.save_mark("a1", high_water="2026-09-04T01:00:00+00:00", published_today=1,
                   day=A._today(), last_task_id="t9", last_fired_at=123.5) is True)

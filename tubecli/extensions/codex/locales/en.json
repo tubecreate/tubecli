@@ -223,6 +223,8 @@
   "codex.cv_yt_tz_local": "this computer's time zone",
   "codex.field_video_yt_monetize": "Turn on monetization",
   "codex.field_video_yt_monetize_hint": "For channels in the YouTube Partner Program. Only the browser profile route can do this.",
+  "codex.field_video_yt_unverified": "Channel not verified yet",
+  "codex.field_video_yt_unverified_hint": "YouTube takes at most 15 minutes, no livestream and no custom thumbnail from a channel that is not phone-verified. A longer video is rendered and kept, but not uploaded.",
   "codex.toast_video_yt_channel_required": "Choose the YouTube channel to upload to",
   "codex.cv_drive_loading": "Loading Google accounts…",
   "codex.cv_drive_none": "No Google account can write to Drive yet — authorize one in Auth Manager with the Google Drive scope",

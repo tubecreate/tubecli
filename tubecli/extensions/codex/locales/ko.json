@@ -223,6 +223,8 @@
   "codex.cv_yt_tz_local": "이 컴퓨터의 시간대",
   "codex.field_video_yt_monetize": "수익 창출 켜기",
   "codex.field_video_yt_monetize_hint": "YouTube 파트너 프로그램 채널용. 브라우저 프로필 방법만 할 수 있습니다.",
+  "codex.field_video_yt_unverified": "채널 미인증",
+  "codex.field_video_yt_unverified_hint": "전화번호 인증을 하지 않은 채널은 YouTube에서 최대 15분 동영상만 받으며 라이브 스트리밍과 맞춤 썸네일을 쓸 수 없습니다. 더 긴 동영상은 만들어 보관하지만 업로드하지 않습니다.",
   "codex.toast_video_yt_channel_required": "업로드할 YouTube 채널을 고르세요",
   "codex.cv_drive_loading": "Google 계정을 불러오는 중…",
   "codex.cv_drive_none": "드라이브에 쓸 수 있는 Google 계정이 없습니다 — Auth Manager에서 Google 드라이브 권한으로 계정을 승인하세요",

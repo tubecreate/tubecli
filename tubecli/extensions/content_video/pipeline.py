@@ -6149,7 +6149,9 @@ def _publish_via_script(state: Dict, options: Dict, privacy: str) -> None:
         # Ảnh đại diện tuỳ chỉnh: script chỉ chạy nhánh tải thumbnail khi thumbnail_set = 1
         # (bước condition), không có thì bỏ qua sạch — không bắt buộc.
         "thumbnail_path": str(state.get("thumbnail_path") or ""),
-        "thumbnail_set": "1" if (state.get("thumbnail_path") and os.path.isfile(str(state["thumbnail_path"]))) else "0",
+        # Kênh chưa xác minh không nhận thumbnail tuỳ chỉnh — đừng để script loay hoay ở ô ảnh (19/10/2026).
+        "thumbnail_set": "1" if (state.get("thumbnail_path") and os.path.isfile(str(state["thumbnail_path"]))
+                                 and not options.get("publish_unverified")) else "0",
     }
     # Script tự nạp ảnh vào ô thumbnail của Studio (bước t2:thumbnail). Nhớ điều đó,
     # kẻo lát nữa đường API lại báo "không gắn được, tự làm tay đi" cho một cái ảnh
@@ -6887,6 +6889,11 @@ def _attach_thumbnail(state: Dict, token: str, video_id: str) -> None:
     path = str(state.get("thumbnail_path") or "")
     if not path or not os.path.isfile(path):
         return
+    if state.get("publish_unverified"):
+        state.setdefault("warnings", []).append(
+            f"Thumbnail not attached — the channel is marked “not verified” and YouTube only takes custom thumbnails "
+            f"from verified channels. It is at `{path}`.")
+        return
     if not token or not video_id:
         state.setdefault("warnings", []).append(
             f"Thumbnail is ready at `{path}` but could not be attached — no API token/video id; "
@@ -6979,12 +6986,79 @@ THUMB_LOOKUP_TRIES = 4
 THUMB_LOOKUP_DELAY = 20
 
 
+# ── Kênh CHƯA xác minh (19/10/2026) ───────────────────────────────────
+# User: «quy trình đăng video youtube bằng script đang bị lỗi đăng video >15 phút … gắn cờ chưa xác minh … nếu video
+# dài thì cảnh báo đăng và không đăng vào kênh chưa xác minh tránh tình trạng loop đăng liên tục». YouTube chỉ nhận
+# video tới 15 phút (và không livestream, không thumbnail tuỳ chỉnh) từ kênh chưa xác minh số điện thoại; script đăng
+# kẹt ở bước Hiển thị, task «xong kèm cảnh báo», mốc corpus đứng yên ⇒ lượt thu thập sau dựng lại nguyên video dài.
+UNVERIFIED_MAX_SEC = 15 * 60
+VERIFY_URL = "https://www.youtube.com/verify"
+
+
+def _video_secs(state: Dict) -> float:
+    """Thời lượng video vừa dựng (đo một lần, nhớ trong state); 0 khi không đo được."""
+    if "_video_secs" not in state:
+        try:
+            state["_video_secs"] = float(media_seconds(str(state.get("video_path") or "")) or 0)
+        except Exception:           # noqa: BLE001
+            state["_video_secs"] = 0.0
+    return state["_video_secs"]
+
+
+def _mmss(seconds: float) -> str:
+    s = int(seconds or 0)
+    return "%d:%02d" % (s // 60, s % 60)
+
+
+def _pause_autopublish(state: Dict, options: Dict, secs: float, mark_agent: bool) -> bool:
+    """Task TỰ ĐĂNG của agent: dừng cò súng (khỏi dựng lại video dài vô ích); mark_agent ⇒ bật luôn cờ «kênh chưa
+    xác minh» của agent (tự nhận ra sau một lần đăng hỏng). Task tay của Codex không có vòng lặp nào để chặn."""
+    if not options.get("autopublish"):
+        return False
+    agent = state.get("agent")
+    aid = str(getattr(agent, "id", "") or "")
+    if not aid:
+        return False
+    try:
+        from tubecli.extensions.content_video import autopublish as AP
+
+        AP.pause_for_length(aid, secs, str(options.get("preset") or getattr(agent, "content_video_preset", "") or ""))
+        if mark_agent:
+            from tubecli.core.agent import agent_manager
+
+            agent_manager.update(aid, publish_unverified=True)
+        return True
+    except Exception as e:          # noqa: BLE001 — chỉ là phanh; hỏng thì cảnh báo vẫn nói đủ
+        logger.warning(f"[ContentVideo] could not pause auto-publish for {aid}: {e}")
+        return False
+
+
+def _skip_long_unverified(state: Dict, options: Dict, secs: float) -> None:
+    """Video quá 15 phút + kênh đánh dấu chưa xác minh ⇒ KHÔNG đăng: cảnh báo, giữ mp4, dừng tự đăng."""
+    paused = _pause_autopublish(state, options, secs, mark_agent=False)
+    kept = str(state.get("video_path") or "")
+    msg = (f"Not uploaded: the video is {_mmss(secs)} long and this channel is marked “not verified” — YouTube "
+           f"takes at most 15 minutes from unverified channels (no livestream or custom thumbnail either). Verify the "
+           f"channel at {VERIFY_URL}, untick “Channel not verified”, then upload `{kept}` by hand from Video Manager "
+           f"— or shorten the template's Video length.")
+    if paused:
+        msg += " Auto-publish for this agent is paused until you do one of those, so it does not render long videos " \
+               "it cannot post."
+    state["publish_error"] = msg[:300]
+    state["publish_blocked"] = "long_unverified"
+    state.setdefault("warnings", []).append(msg)
+    state["_say"]("publish", "skipped", f"{_mmss(secs)} is too long for an unverified channel")
+
+
 def _step_publish(state: Dict, options: Dict) -> None:
     """Bước cuối của lượt dựng: đăng luôn, không qua duyệt.
 
     Hỏng thì ghi cảnh báo TRƯỚC rồi mới ném: bước này optional nên _run_steps
     biến cái ném đó thành ghi chú và chạy tiếp, mp4 vẫn được báo cáo nguyên vẹn
     (yêu cầu: một lượt upload hỏng không được làm mất video đã dựng).
+
+    Kênh chưa xác minh (options publish_unverified) + video quá 15 phút ⇒ KHÔNG đăng (không ném: bỏ qua có chủ ý).
+    Đăng hỏng một video quá 15 phút trên kênh CHƯA đánh dấu ⇒ task tự đăng tự bật cờ cho agent + dừng cò súng.
     """
     if not options.get("publish"):
         state["_say"]("publish", "skipped", "off")
@@ -6999,9 +7073,13 @@ def _step_publish(state: Dict, options: Dict) -> None:
         state["_say"]("publish", "skipped",
                       "already published: %s" % (already.get("url") or already["video_id"]))
         return
+    state["publish_unverified"] = bool(options.get("publish_unverified"))
     try:
         if not str(state.get("video_path") or "").strip():
             raise RuntimeError("Nothing to publish — the render step produced no video file.")
+        if options.get("publish_unverified") and _video_secs(state) > UNVERIFIED_MAX_SEC:
+            _skip_long_unverified(state, options, _video_secs(state))
+            return
         _publish_now(state, options)
         _remember_published(state)
         _commit_autopublish(state, options)
@@ -7015,6 +7093,21 @@ def _step_publish(state: Dict, options: Dict) -> None:
             f"Upload to YouTube failed: {msg}"
             + (f" — the video is rendered and kept at `{kept}`; publish it by hand from "
                "Video Manager." if kept else ""))
+        secs = _video_secs(state) if kept else 0.0
+        if secs > UNVERIFIED_MAX_SEC and not options.get("publish_unverified"):
+            # Nhiều khả năng nhất: kênh chưa xác minh số điện thoại. Task tự đăng ⇒ bật cờ + dừng cò súng, kẻo lượt
+            # thu thập sau dựng lại nguyên video dài rồi lại hỏng y như vậy.
+            if _pause_autopublish(state, options, secs, mark_agent=True):
+                state["warnings"].append(
+                    f"The video is {_mmss(secs)} long — YouTube rejects videos over 15 minutes from channels that are "
+                    f"not phone-verified, so this agent's channel is now marked “not verified” and auto-publish is "
+                    f"paused for long videos. Verify the channel at {VERIFY_URL} and untick “Channel not verified” "
+                    f"in the agent's Data collection tab (or shorten the template's Video length) to resume.")
+            else:
+                state["warnings"].append(
+                    f"The video is {_mmss(secs)} long — if this channel is not phone-verified, YouTube rejects videos "
+                    f"over 15 minutes. Verify it at {VERIFY_URL}, or tick “Channel not verified” so long videos are "
+                    f"not sent there.")
         raise RuntimeError(msg)
 
 

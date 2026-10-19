@@ -2343,6 +2343,7 @@ class AgentCreateRequest(PublishSettingsBase):
     publish_tz: Optional[str] = Field("", max_length=64)
     publish_tz_offset: Optional[int] = Field(None, ge=-840, le=840)
     publish_thumbnail: Optional[bool] = True
+    publish_unverified: Optional[bool] = False
     schedule_enabled: Optional[bool] = False
     schedule_repeat: Optional[str] = "Daily"
     schedule_interval: Optional[int] = 60
@@ -2428,6 +2429,7 @@ class AgentUpdateRequest(PublishSettingsBase):
     publish_tz: Optional[str] = Field(None, max_length=64)
     publish_tz_offset: Optional[int] = Field(None, ge=-840, le=840)
     publish_thumbnail: Optional[bool] = None
+    publish_unverified: Optional[bool] = None
     schedule_enabled: Optional[bool] = None
     schedule_repeat: Optional[str] = None
     schedule_interval: Optional[int] = None

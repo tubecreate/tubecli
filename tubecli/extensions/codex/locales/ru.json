@@ -223,6 +223,8 @@
   "codex.cv_yt_tz_local": "часовой пояс этого компьютера",
   "codex.field_video_yt_monetize": "Включить монетизацию",
   "codex.field_video_yt_monetize_hint": "Для каналов в Партнерской программе YouTube. Это умеет только способ через профиль браузера.",
+  "codex.field_video_yt_unverified": "Канал не подтверждён",
+  "codex.field_video_yt_unverified_hint": "С канала без подтверждения по телефону YouTube принимает видео не длиннее 15 минут, без трансляций и своих значков. Более длинное видео создаётся и сохраняется, но не загружается.",
   "codex.toast_video_yt_channel_required": "Выберите канал YouTube для загрузки",
   "codex.cv_drive_loading": "Загрузка аккаунтов Google…",
   "codex.cv_drive_none": "Нет аккаунта Google с правом записи на Диск — авторизуйте аккаунт в Auth Manager с доступом к Google Диску",

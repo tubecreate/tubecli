@@ -223,6 +223,8 @@
   "codex.cv_yt_tz_local": "la zona horaria de este equipo",
   "codex.field_video_yt_monetize": "Activar la monetización",
   "codex.field_video_yt_monetize_hint": "Para canales del Programa de socios de YouTube. Solo la vía del perfil de navegador puede hacerlo.",
+  "codex.field_video_yt_unverified": "Canal aún no verificado",
+  "codex.field_video_yt_unverified_hint": "YouTube solo acepta vídeos de hasta 15 minutos, sin directos ni miniatura personalizada, de un canal sin verificar por teléfono. Un vídeo más largo se crea y se guarda, pero no se sube.",
   "codex.toast_video_yt_channel_required": "Elige el canal de YouTube al que subir",
   "codex.cv_drive_loading": "Cargando cuentas de Google…",
   "codex.cv_drive_none": "Ninguna cuenta de Google puede escribir en Drive — autoriza una en Auth Manager con el permiso de Google Drive",

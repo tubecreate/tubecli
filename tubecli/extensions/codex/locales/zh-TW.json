@@ -223,6 +223,8 @@
   "codex.cv_yt_tz_local": "這台電腦的時區",
   "codex.field_video_yt_monetize": "開啟營利",
   "codex.field_video_yt_monetize_hint": "適用於加入 YouTube 合作夥伴計畫的頻道。只有瀏覽器設定檔方式能做到。",
+  "codex.field_video_yt_unverified": "頻道尚未驗證",
+  "codex.field_video_yt_unverified_hint": "未用電話驗證的頻道，YouTube 只接受最長 15 分鐘的影片，也不能直播或使用自訂縮圖。較長的影片會照常製作並保留，但不會上傳。",
   "codex.toast_video_yt_channel_required": "請選擇要上傳到的 YouTube 頻道",
   "codex.cv_drive_loading": "正在載入 Google 帳號…",
   "codex.cv_drive_none": "還沒有可寫入雲端硬碟的 Google 帳號——請在 Auth Manager 中以 Google 雲端硬碟權限授權一個帳號",

@@ -180,6 +180,7 @@ def get_mark(agent_id: str) -> Dict[str, Any]:
         "last_fired_at": fired,
         "last_commit_key": str(row.get("last_commit_key") or ""),
         "last_video_url": str(row.get("last_video_url") or ""),
+        "paused": dict(row.get("paused") or {}) if isinstance(row.get("paused"), dict) else {},
     }
 
 
@@ -236,6 +237,61 @@ def commit_published(agent_id: str, high_water: str = "", video_url: str = "",
     except Exception as e:
         logger.error("[AutoPublish] could not commit the mark for %s (%s)", aid, e, exc_info=True)
         return "error: %s" % e
+
+
+# ── Tạm dừng vì kênh chưa xác minh (19/10/2026) ─────────────────────
+#
+# YouTube không nhận video quá 15 phút từ kênh chưa xác minh số điện thoại. Đăng hỏng thì mốc corpus đứng yên (cố ý,
+# để «làm lại» chứ không «mất hẳn») và trần ngày chỉ đếm video ĐÃ lên — nên lượt thu thập nào đủ bài cũng dựng lại
+# nguyên một video dài rồi lại đăng hỏng: vòng lặp tốn cả giờ máy mỗi vòng. Pipeline gọi pause_for_length() khi bỏ
+# đăng (hay đăng hỏng) một video dài trên kênh chưa xác minh; cò súng đứng yên tới khi người dùng xác minh kênh (bỏ
+# cờ publish_unverified), đổi mẫu, hay sửa mẫu (mốc updated_at của mẫu đổi — vd rút ngắn Video length).
+PAUSE_LONG_UNVERIFIED = "long_unverified"
+
+
+def _preset_sig(name: str) -> str:
+    """Mốc sửa gần nhất của mẫu (kho mẫu chung của lõi) — đổi khi người dùng lưu lại mẫu. "" khi không đọc được."""
+    if not name:
+        return ""
+    try:
+        from tubecli.core import templates as _T
+
+        return str((_T.get_template(name) or {}).get("updated_at") or "")
+    except Exception as e:      # noqa: BLE001
+        logger.debug("[AutoPublish] could not read template %s (%s)", name, e)
+        return ""
+
+
+def pause_for_length(agent_id: str, seconds: float, preset: str = "") -> bool:
+    """Dừng tự đăng của agent: video vừa dựng dài hơn mức kênh chưa xác minh nhận. Không bao giờ ném."""
+    aid = str(agent_id or "")
+    if not aid:
+        return False
+    try:
+        return save_mark(aid, paused={"reason": PAUSE_LONG_UNVERIFIED, "at": time.time(),
+                                      "seconds": int(seconds or 0), "preset": str(preset or ""),
+                                      "preset_sig": _preset_sig(str(preset or ""))})
+    except Exception as e:      # noqa: BLE001
+        logger.error("[AutoPublish] could not pause %s (%s)", aid, e)
+        return False
+
+
+def _pause_holds(agent, paused: Dict[str, Any]) -> bool:
+    """Lần tạm dừng vì video dài còn hiệu lực? Hết khi kênh đã xác minh, hay mẫu đổi / được sửa."""
+    if paused.get("reason") != PAUSE_LONG_UNVERIFIED:
+        return False
+    if not bool(getattr(agent, "publish_unverified", False)):
+        return False
+    preset = str(getattr(agent, "content_video_preset", "") or "")
+    return preset == str(paused.get("preset") or "") and _preset_sig(preset) == str(paused.get("preset_sig") or "")
+
+
+def _mmss(seconds: Any) -> str:
+    try:
+        s = int(seconds or 0)
+    except (TypeError, ValueError):
+        s = 0
+    return "%d:%02d" % (s // 60, s % 60)
 
 
 # ── Counting what is new ─────────────────────────────────────────────
@@ -405,6 +461,19 @@ def _maybe_publish(agent_id: str, run_id: str, outcome: str, trigger: str = "") 
         if not video_on:
             return "skip: auto-publish armed but no YouTube %s chosen" % missing
 
+    # Kênh chưa xác minh + video lần trước quá 15 phút ⇒ đứng yên (xem pause_for_length). Bật «tự dựng video» thì
+    # vẫn dựng nhưng không đăng — đúng nghĩa công tắc ấy; không thì thôi hẳn, khỏi dựng một video không đăng được.
+    paused = get_mark(agent_id).get("paused") or {}
+    if publish and paused:
+        if _pause_holds(agent, paused):
+            if not video_on:
+                return ("skip: auto-publish paused — the last video was %s long and the channel is not verified "
+                        "(YouTube takes at most 15 min); verify the channel and untick «Channel not verified», "
+                        "or shorten the template" % _mmss(paused.get("seconds")))
+            publish = False
+        else:
+            save_mark(agent_id, paused={})
+
     # Từ đây tới lúc ghi sổ là MỘT quyết định, và nó phải nguyên khối. Trước đây
     # khoá chỉ được giữ bên trong save_mark, nên hai lượt chạy của cùng một agent
     # kết thúc sát nhau (agent nhiều hồ sơ — đúng cái tình huống cửa chống dội
@@ -451,10 +520,13 @@ def _maybe_publish(agent_id: str, run_id: str, outcome: str, trigger: str = "") 
             # Ảnh đại diện vẽ bằng model ảnh từ ảnh hook (15/10/2026 — trước đây layout Thumbnail Studio, lạc kiểu
             # video; xem pipeline.thumb_config); là bước mềm — vẽ hỏng chỉ cảnh báo. Agent tắt được (publish_thumbnail,
             # 15/10/2026): kênh chưa xác minh không nhận thumbnail tuỳ chỉnh — không vẽ, không gắn; prompt vẫn viết.
-            "thumbnail": bool(getattr(agent, "publish_thumbnail", True)),
+            "thumbnail": bool(getattr(agent, "publish_thumbnail", True))
+                         and not bool(getattr(agent, "publish_unverified", False)),
         }
         if publish:
             options.update({
+                # Kênh chưa xác minh (19/10/2026): pipeline không đăng video quá 15 phút, không gắn thumbnail.
+                "publish_unverified": bool(getattr(agent, "publish_unverified", False)),
                 "publish_token_id": token_id,
                 "publish_channel_id": channel_id,
                 "publish_channel_name": str(getattr(agent, "publish_channel_name", "") or ""),

@@ -223,6 +223,8 @@
   "codex.cv_yt_tz_local": "このコンピューターのタイムゾーン",
   "codex.field_video_yt_monetize": "収益化をオンにする",
   "codex.field_video_yt_monetize_hint": "YouTube パートナー プログラムのチャンネル向け。ブラウザプロファイルの方法だけが対応しています。",
+  "codex.field_video_yt_unverified": "チャンネル未確認",
+  "codex.field_video_yt_unverified_hint": "電話番号で確認していないチャンネルでは、YouTube は 15 分までの動画しか受け付けず、ライブ配信やカスタムサムネイルも使えません。長い動画は作成・保存しますがアップロードしません。",
   "codex.toast_video_yt_channel_required": "アップロード先の YouTube チャンネルを選んでください",
   "codex.cv_drive_loading": "Google アカウントを読み込み中…",
   "codex.cv_drive_none": "ドライブに書き込める Google アカウントがありません。Auth Manager で Google ドライブの権限を付けて認可してください",
