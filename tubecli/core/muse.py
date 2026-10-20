@@ -1345,7 +1345,11 @@ _REFUSAL_RE = re.compile(r"\b(can'?t|cannot|unable to|won'?t|not able to|sorry|p
 _TRANSIENT_RE = re.compile(r"gặp vấn đề|vui lòng thử lại|đã xảy ra lỗi|try again|temporarily unavailable|"
                            r"something went wrong|an error occurred|ran into a problem|technical (?:issue|problem)", re.I)
 # «video generation isn't available in your region» / «… không khả dụng ở khu vực của bạn» — xem _region_until (cờ tới 0 giờ hôm sau).
-_REGION_RE = re.compile(r"\b(?:available|supported|offered|unavailable)\s+in\s+your\s+(?:region|country|area|location)\b"
+# 20/10/2026: Muse đổi cách nói — «The video generator is still region-blocked, so this shot is queued as #216» / «Video
+# generation is still region-blocked» → không khớp, hồ sơ không bị cờ, pool cứ giao clip cho nó (Ascend ep 818 hỏng 4/7 cảnh).
+_REGION_RE = re.compile(r"\b(?:available|supported|offered|unavailable)\s+in\s+(?:your|this)\s+(?:region|country|area|location)\b"
+                        r"|\b(?:region|geo|country)[-\s]?(?:blocked|locked|restricted)\b"
+                        r"|\bblocked\s+(?:in|for)\s+(?:your|this)\s+(?:region|country|area|location)\b"
                         r"|(?:ở|tại|trong)\s+(?:khu vực|quốc gia|vùng)\s+của bạn", re.I)
 
 

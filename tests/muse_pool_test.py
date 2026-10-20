@@ -666,6 +666,13 @@ M._LAST_USED.update({"chayagent": 1.0, "muse2": 9.0})
 v = M.generate_video_clip("clip", str(TMP / "vd_region"), [], "16:9")
 ok(v["path"].endswith(".mp4") and calls_m == ["chayagent", "muse2"] and M._NO_VIDEO.get("chayagent", 0) > time.time(),
    "chayagent báo chặn khu vực → clip quay lại ở muse2, chayagent bị tránh cho video", (calls_m, M._NO_VIDEO))
+# 20/10/2026: Muse đổi cách nói «region-blocked» (Ascend ep 818: hồ sơ không bị cờ, pool giao mãi clip cho nó)
+ok(all(M._REGION_RE.search(t) for t in (
+    "Muse did not make a video: The video generator is still region-blocked, so this shot is queued as #216.",
+    "Video generation is still region-blocked, so this is queued as #220.",
+    "Sorry, video generation is blocked in this region.",
+    "video generation isn't available in your region")) and not M._REGION_RE.search("Muse did not finish within 600 s."),
+   "«region-blocked» / «blocked in this region» cũng là chặn khu vực; timeout thì không")
 calls_m.clear()
 M._LAST_USED.update({"chayagent": 1.0, "muse2": 9.0})
 M.generate_video_clip("clip 2", str(TMP / "vd_region"), [], "16:9")
