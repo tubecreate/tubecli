@@ -196,8 +196,14 @@ def resolve_provider(provider: Optional[str] = None, model: Optional[str] = None
                     "reason": "9Router ở máy khác cần key đang bật trong Cloud API Keys."}
         out = {"ok": True, "provider": "9router", "model": m, "base": nr.base_url(),
                "headers": nr.auth_headers(), "reason": ""}
-        # 9Router vẽ bằng quota tài khoản Antigravity — hết giữa lô là chuyện thường → đường lùi.
-        fb = _cloudflare(NR_FALLBACK_CF_MODEL)
+        # 9Router vẽ bằng quota tài khoản Antigravity / Codex — hết hay hỏng giữa lô là chuyện thường → đường lùi.
+        # 20/10/2026, user «dùng muse làm fallback thay vì cloudflare»: 9Router từ xa trả 400 «The 'gpt-5.5' model is
+        # not supported when using Codex with a ChatGPT account» cho cx/gpt-image-2 ⇒ từ 15/10 MỌI ảnh mẫu Lão Tử
+        # (style Ink Wash Film khoá gpt-image-2) lặng lẽ thành FLUX Cloudflare 1024×1024 — vuông, lạc nét thuỷ mặc,
+        # hook không clip Muse thì lộ hẳn. Giờ lùi sang MUSE (16:9, nét gần gpt-image-2); máy chưa có Muse mới lùi
+        # Cloudflare như cũ. Muse hỏng nữa thì còn đường lùi của chính Muse (Cloudflare) — cảnh không bị trống.
+        mu = _muse()
+        fb = mu if mu["ok"] else _cloudflare(NR_FALLBACK_CF_MODEL)
         if fb["ok"]:
             out["fallback"] = fb
         return out

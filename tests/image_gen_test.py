@@ -113,6 +113,9 @@ class FakeNR:
 
 _real_nr = G._ninerouter_module
 G._ninerouter_module = lambda: FakeNR()
+from tubecli.core import muse as _M  # noqa: E402
+_real_muse_settings = _M.settings
+_M.settings = lambda: {"profile": "", "remotes": []}          # máy CHƯA cài Muse ⇒ đường lùi như cũ
 r = G.resolve_provider("9router")
 fb = r.get("fallback") or {}
 # User 16/9/2026: "Bản lùi của 9Router đang là klein 9 sửa lại flux 1" — klein-9b là giấy phép phi thương mại.
@@ -122,6 +125,19 @@ ok("klein" not in G.NR_FALLBACK_CF_MODEL, "bản lùi không phải FLUX.2 klein
 km.cf = False
 ok("fallback" not in G.resolve_provider("9router"), "không có Cloudflare → không có đường lùi")
 km.cf = True
+# 20/10/2026, user «dùng muse làm fallback thay vì cloudflare» (9Router từ xa trả 400 cho cx/gpt-image-2 ⇒ ảnh Lão Tử
+# thành FLUX vuông 1024): máy CÓ Muse ⇒ 9Router lùi sang Muse; Muse hỏng nữa mới tới Cloudflare (đường lùi của Muse).
+_M.settings = lambda: {"profile": "museprof", "remotes": []}
+fb2 = G.resolve_provider("9router").get("fallback") or {}
+ok(fb2.get("provider") == "muse" and fb2.get("ok") and (fb2.get("fallback") or {}).get("provider") == "cloudflare",
+   "có Muse → 9Router lùi sang Muse, rồi mới Cloudflare", fb2)
+_M.settings = lambda: {"profile": "", "remotes": ["https://node.example/api/v1/muse"]}
+ok((G.resolve_provider("9router").get("fallback") or {}).get("provider") == "muse", "chỉ có nút Muse từ xa → vẫn lùi Muse")
+km.cf = False
+fb3 = G.resolve_provider("9router").get("fallback") or {}
+ok(fb3.get("provider") == "muse" and "fallback" not in fb3, "không Cloudflare → lùi Muse, Muse không có tầng lùi tiếp", fb3)
+km.cf = True
+_M.settings = _real_muse_settings
 G._ninerouter_module = _real_nr
 
 print("── C. routes ───────────────────────────────────────────────")
