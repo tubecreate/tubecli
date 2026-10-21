@@ -2043,6 +2043,11 @@ const CODEX = (() => {
     $('cx-v-thumb').checked = lsGet(CV_THUMB_KEY) === '1';
     $('cx-v-thumb-style').value = lsGet(CV_THUMB_STYLE_KEY) || '';
     if ($('cx-v-media')) $('cx-v-media').value = lsGet(CV_MEDIA_KEY) === 'stills' ? 'stills' : '';
+    if ($('cx-v-dub')) {
+      $('cx-v-dub').checked = lsGet(CV_DUB_KEY) === '1';
+      $('cx-v-dub-voice').value = lsGet(CV_DUB_VOICE_KEY) || CV_DUB_VOICE_DEFAULT;
+      onVideoDub();
+    }
     loadDnaOptions();
     resetYtForm();
     state.googleTokens = null;          // nạp lại mỗi lần mở: có thể vừa cấp quyền tài khoản mới
@@ -2166,6 +2171,19 @@ const CODEX = (() => {
     if (thumbStyle) lsSet(CV_THUMB_STYLE_KEY, (thumbStyle.value || '').trim().slice(0, 600));
     const media = $('cx-v-media');
     if (media) lsSet(CV_MEDIA_KEY, media.value === 'stills' ? 'stills' : '');
+    const dub = $('cx-v-dub');
+    if (dub) lsSet(CV_DUB_KEY, dub.checked ? '1' : '0');
+    const dubVoice = $('cx-v-dub-voice');
+    if (dubVoice) lsSet(CV_DUB_VOICE_KEY, (dubVoice.value || '').trim().slice(0, CV_DUB_VOICE_MAX));
+  }
+
+  /** Ô mô tả giọng chỉ hiện khi bật lồng giọng Muse. */
+  function onVideoDub() {
+    const on = !!(($('cx-v-dub') || {}).checked);
+    const wrap = $('cx-v-dub-wrap');
+    if (wrap) wrap.classList.toggle('hidden', !on);
+    const v = $('cx-v-dub-voice');
+    if (on && v && !v.value.trim()) v.value = CV_DUB_VOICE_DEFAULT;
   }
 
   /** Chọn lại giá trị đã nhớ nếu nó vẫn còn trong danh sách (agent/nhóm có thể đã bị xoá). */
@@ -2864,6 +2882,16 @@ const CODEX = (() => {
   const CV_THUMB_STYLE_KEY = 'codex.cvThumbStyle';
   // Cảnh trong video: '' = theo mẫu (clip Muse nếu mẫu bật) | 'stills' = chỉ ảnh tĩnh (12/10/2026) — nhớ lần gần nhất.
   const CV_MEDIA_KEY = 'codex.cvMedia';
+  // Lồng lại giọng bằng Muse (21/10/2026): bật/tắt + mô tả giọng gửi Muse — nhớ lần gần nhất. Mặc định = mô tả giọng chủ
+  // kênh chốt khi nghe thử bài Sato (nam, ấm, điềm tĩnh, chậm, nghỉ chuyển đoạn 1,2–1,5 s, thoại giọng nam thứ hai).
+  const CV_DUB_KEY = 'codex.cvDub';                  // '1' | '0'
+  const CV_DUB_VOICE_KEY = 'codex.cvDubVoice';
+  const CV_DUB_VOICE_MAX = 1500;
+  const CV_DUB_VOICE_DEFAULT = 'Male narrator: warm, calm, mid-range pitch, clear standard pronunciation; slow, about '
+    + '260-280 characters per minute so elderly viewers can follow; natural pauses between sentences and 1.2-1.5 seconds '
+    + 'at every paragraph change; restrained emotion - the story slightly tense, the ending soft and reassuring; quoted '
+    + 'spoken lines in a second male voice, a slightly different tone and slower; overall it should sound like telling a '
+    + 'story and talking to the listener, not reading a text.';
 
   // ADN nội dung (16/10/2026, extension content_dna): danh sách ADN đã học, nạp mỗi lần mở cửa sổ. KHÔNG nhớ lựa chọn —
   // mặc định luôn là ADN của mẫu, đè thì chọn lại cho đúng task đó.
@@ -3249,6 +3277,12 @@ const CODEX = (() => {
     if (thumbStyleText) options.thumbnail_style = thumbStyleText;
     // Chỉ ảnh tĩnh: pipeline đặt drama không quay clip cảnh nào, kể cả clip mở đầu.
     if ((($('cx-v-media') || {}).value || '') === 'stills') options.scene_media = 'stills';
+    // Lồng lại giọng bằng Muse: giọng của mẫu vẫn đọc trước; pipeline (bước "dub") cho Muse đọc lại cả bài theo mô tả này.
+    if (($('cx-v-dub') || {}).checked) {
+      options.dub = true;
+      const dubVoice = (($('cx-v-dub-voice') || {}).value || '').trim().slice(0, CV_DUB_VOICE_MAX);
+      if (dubVoice) options.dub_voice = dubVoice;
+    }
     // Watermark riêng cho task (14/10/2026); trống = watermark của mẫu.
     const wmText = (($('cx-v-watermark') || {}).value || '').trim().slice(0, 60);
     if (wmText) options.watermark = wmText;
@@ -3429,7 +3463,7 @@ const CODEX = (() => {
     onRetryDrive, onRetryDriveToken, retryReauth,
     confirmNote, confirmDelete, doDelete, copyResult, planTask,
     showThumbPrompt, rewriteThumbPrompt, copyThumbPrompt, setThumbStyle,
-    openNewTask, submitNewTask, queueVideo, setNewKind, onExtFiles, onExtField, saveExtTemplate, onVideoPreset, onVideoAgent, onVideoContent, onVideoLength, onVideoScript, onVideoKeepTheme, onVideoInstructions, planFromModal, closeModal, onBackdrop,
+    openNewTask, submitNewTask, queueVideo, setNewKind, onExtFiles, onExtField, saveExtTemplate, onVideoPreset, onVideoAgent, onVideoContent, onVideoLength, onVideoScript, onVideoKeepTheme, onVideoInstructions, onVideoDub, planFromModal, closeModal, onBackdrop,
     onVideoDrive, onVideoDriveToken, onVideoDriveShare, laneChoice, onVideoSplit, openDriveSync, startDriveSync, syncThenDelete, resumeLane,
     openClone, onCloneLang, startClone, openRetry, startRetry,
     onVideoYt, onVideoYtMethod, onVideoYtWhen,

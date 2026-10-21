@@ -481,5 +481,9 @@
   "codex.live_nothing": "Nothing is running right now.",
   "codex.live_recent": "Just finished",
   "codex.live_recent_empty": "Nothing finished in the last 12 hours.",
-  "codex.live_watch": "Watch"
+  "codex.live_watch": "Watch",
+  "codex.field_video_dub": "Re-dub the narration with Muse",
+  "codex.field_video_dub_hint": "The template's voice reads first. Then Muse reads the whole script again in one take, in the voice described below — natural pauses, a second voice for quoted lines — and replaces the template's voice scene by scene. If Muse fails, the template's voice stays.",
+  "codex.field_video_dub_voice": "Voice for Muse",
+  "codex.field_video_dub_voice_placeholder": "Describe the narrator: gender, warmth, pitch, pace, pauses, emotion, voices for quoted lines"
 }

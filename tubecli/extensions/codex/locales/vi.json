@@ -481,5 +481,9 @@
   "codex.live_nothing": "Hiện không có task nào đang chạy.",
   "codex.live_recent": "Vừa xong",
   "codex.live_recent_empty": "12 giờ qua chưa có task nào xong.",
-  "codex.live_watch": "Xem video"
+  "codex.live_watch": "Xem video",
+  "codex.field_video_dub": "Lồng lại giọng đọc bằng Muse",
+  "codex.field_video_dub_hint": "Giọng của mẫu đọc trước. Sau đó Muse đọc lại cả bài trong một lượt theo giọng mô tả bên dưới — ngắt nghỉ tự nhiên, câu thoại dùng giọng thứ hai — rồi thay giọng mẫu theo từng cảnh. Muse lỗi thì giữ giọng của mẫu.",
+  "codex.field_video_dub_voice": "Giọng cho Muse",
+  "codex.field_video_dub_voice_placeholder": "Mô tả người đọc: nam/nữ, độ ấm, âm vực, tốc độ, khoảng lặng, cảm xúc, giọng cho câu thoại"
 }

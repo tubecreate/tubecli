@@ -1096,7 +1096,8 @@ def _start_watchdog() -> None:
 def ask(prompt: str, *, want_images: bool = False, files: Optional[List[str]] = None,
         image_dir: str = "", max_images: int = 1, timeout: int = CHAT_TIMEOUT, fresh: bool = False,
         launch: bool = True, want_videos: bool = False, video_dir: str = "", max_videos: int = 1,
-        thread_id: str = "", _failover: bool = True, _attempt: int = 1, avoid: Optional[set] = None) -> dict:
+        thread_id: str = "", _failover: bool = True, _attempt: int = 1, avoid: Optional[set] = None,
+        want_audio: bool = False, audio_dir: str = "", max_audios: int = 1) -> dict:
     """Một lượt hỏi Muse → kết quả của muse_tool (text, images, videos, thread_id, profile…). Ném MuseError.
 
     avoid: chỗ ngồi tránh cho lượt này (lượt video quay lại sau khi chỗ trước kẹt / bị chặn khu vực).
@@ -1127,11 +1128,19 @@ def ask(prompt: str, *, want_images: bool = False, files: Optional[List[str]] = 
     if want_videos:
         _no_video_load()
         skip = {p for p, t in _NO_VIDEO.items() if t > time.time()} | set(avoid or ())
+    if want_audio:
+        # Giọng đọc (21/10/2026): file tiếng chỉ lấy được bằng trình duyệt ở MÁY NÀY (bấm phát rồi tải blob) — nút từ xa
+        # chưa có đường trả file tiếng, nên tránh nó.
+        skip = set(skip) | {f"{REMOTE_PREFIX}{i}" for i in range(len(remotes))}
     prof, key = _acquire(pool, st["lanes"], want, remotes=remotes, skip=skip) if remotes \
         else _acquire(pool, st["lanes"], want, skip=skip)
     failed: Optional[MuseError] = None
     if prof.startswith(REMOTE_PREFIX):
         # Chỗ ngồi TỪ XA (9/10/2026 «giống 9Router»): gọi HTTP tới nút, không có trình duyệt ở đây
+        if want_audio:
+            _release(key)
+            raise MuseError("config", "Muse voice-over needs a Muse browser profile on this machine — remote Muse "
+                                      "nodes cannot return audio files yet.")
         try:
             node = remotes[int(prof[len(REMOTE_PREFIX):])]
             res = _ask_remote(node, prof, prompt, files=files, want_images=want_images, image_dir=image_dir,
@@ -1156,7 +1165,8 @@ def ask(prompt: str, *, want_images: bool = False, files: Optional[List[str]] = 
         req = {"prompt": prompt, "thread": thread, "timeout_ms": int(timeout * 1000),
                "want_images": bool(want_images), "max_images": int(max_images or 1),
                "image_dir": image_dir or "", "files": list(files or []),
-               "want_videos": bool(want_videos), "max_videos": int(max_videos or 1), "video_dir": video_dir or ""}
+               "want_videos": bool(want_videos), "max_videos": int(max_videos or 1), "video_dir": video_dir or "",
+               "want_audio": bool(want_audio), "max_audios": int(max_audios or 1), "audio_dir": audio_dir or ""}
         res = run_tool(port, "ask", req, timeout=timeout)
         if res.get("tabs_closed"):
             logger.info("muse: closed %s leftover tab(s) of %s before this request", res.get("tabs_closed"), prof)
@@ -1193,7 +1203,7 @@ def ask(prompt: str, *, want_images: bool = False, files: Optional[List[str]] = 
             return ask(prompt, want_images=want_images, files=files, image_dir=image_dir, max_images=max_images,
                        timeout=timeout, fresh=fresh, launch=launch, want_videos=want_videos, video_dir=video_dir,
                        max_videos=max_videos, thread_id=thread_id, _failover=_failover, _attempt=_attempt,
-                       avoid=avoid)
+                       avoid=avoid, want_audio=want_audio, audio_dir=audio_dir, max_audios=max_audios)
     if failed.kind == "browser" and launch and _attempt < MUSE_ATTEMPTS:
         # Trình duyệt treo/đóng («cannot attach to the browser on CDP port…» — 8/10/2026 làm #302/#306 mất clip): ĐÓNG
         # HẲN phiên của hồ sơ (giải phóng RAM), nghỉ, rồi thử lại — ensure_browser mở lại; tài khoản vừa hỏng bị bỏ qua
@@ -1205,11 +1215,12 @@ def ask(prompt: str, *, want_images: bool = False, files: Optional[List[str]] = 
         return ask(prompt, want_images=want_images, files=files, image_dir=image_dir, max_images=max_images,
                    timeout=timeout, fresh=fresh, launch=launch, want_videos=want_videos, video_dir=video_dir,
                    max_videos=max_videos, thread_id=thread_id, _failover=_failover, _attempt=_attempt + 1,
-                   avoid=avoid)
-    if failed.kind == "timeout" and want_videos:
+                   avoid=avoid, want_audio=want_audio, audio_dir=audio_dir, max_audios=max_audios)
+    if failed.kind == "timeout" and (want_videos or want_audio):
         # user 10/10/2026: «chỉ check trong 1 lần gọi sau 3 phút ko thấy trả về video hoặc báo lỗi thì bỏ qua» — lượt
         # video quá VIDEO_TIMEOUT: đóng phiên (có thể kẹt, giải phóng RAM) rồi ném NGAY, không ngồi thử lại cùng tài khoản.
-        logger.warning("muse: %s made no video within %s s — closing its session, giving the clip up here", prof, timeout)
+        logger.warning("muse: %s made no %s within %s s — closing its session, giving it up here", prof,
+                       "video" if want_videos else "voice-over", timeout)
         if not prof.startswith(REMOTE_PREFIX):
             reset_browser(prof)
         raise failed
@@ -1224,11 +1235,63 @@ def ask(prompt: str, *, want_images: bool = False, files: Optional[List[str]] = 
         return ask(prompt, want_images=want_images, files=files, image_dir=image_dir, max_images=max_images,
                    timeout=timeout, fresh=(fresh or not own), launch=launch, want_videos=want_videos, video_dir=video_dir,
                    max_videos=max_videos, thread_id=thread_id, _failover=_failover, _attempt=_attempt + 1,
-                   avoid=avoid)
+                   avoid=avoid, want_audio=want_audio, audio_dir=audio_dir, max_audios=max_audios)
     if (failed.kind == "browser" and launch) or failed.kind == "auth":
         # hết đường thử lại — báo người vận hành (user 8/10/2026: «nếu 3 lần lỗi báo cho telegram»)
         _alert(f"{failed.kind}:{prof}", _alert_text(failed, prof, _attempt))
     raise failed
+
+
+# ── Giọng đọc (21/10/2026) ────────────────────────────────────────────────────
+# User: «muse tạo voice được…», «gọi 1 lần full luôn… làm capcut xong lồng lại bằng muse». Muse chạy mã gọi TTS rồi tự
+# ghép (file Lavf) ⇒ biết nghỉ có chủ ý, đổi giọng cho câu thoại. ⚠️ MỖI CHAT MỘT GIỌNG (đo 3 chat: 203 / 276 / 144 Hz)
+# và chat cũ không nhận lượt tiếp ⇒ cả bài PHẢI đi trong MỘT yêu cầu, chat mới. 2.772 ký tự → 1 file 11 phút, ~9 phút chờ.
+SPEECH_DIRECTION_DEFAULT = (
+    "a warm, calm narrator with a mid-range voice, clear standard pronunciation; slow and easy to follow; natural "
+    "short pauses between sentences; restrained emotion - the story parts slightly tense, the ending soft and "
+    "reassuring; it must sound like telling a story and talking to the listener, not reading a text")
+
+
+def speech_prompt(paragraphs: List[str], direction: str = "", language: str = "") -> str:
+    """Lời xin Muse đọc CẢ bài thành MỘT file mp3. `paragraphs` = lời từng cảnh theo thứ tự (dòng trống ngăn cảnh — mỗi
+    chỗ chuyển cảnh nghỉ 1,2–1,5 s để bước cắt theo cảnh tìm thấy). `direction` = mô tả giọng của người dùng."""
+    text = "\n\n".join(" ".join(str(p or "").split()) for p in paragraphs if str(p or "").strip())
+    lang = f"{language} " if language else ""
+    minutes = max(1, round(len(text) / 260))
+    return (f"Create ONE {lang}voice-over AUDIO FILE (MP3) that reads the WHOLE text below, from the first word to the "
+            f"last - about {minutes} minute{"s" if minutes != 1 else ""}. Do not shorten it and do not split it into several files.\n"
+            f"VOICE: {(direction or SPEECH_DIRECTION_DEFAULT).strip()}. The SAME narrator voice from start to end.\n"
+            "PAUSES: 1.2-1.5 seconds of silence at every paragraph change (the blank lines).\n"
+            "DIALOGUE: words a character says aloud in quotation marks may use a second, different voice that fits "
+            "the speaker, slightly slower; quoted names or terms stay in the narrator's voice.\n"
+            "Read every character exactly as written, numbers as written - do not add, skip, summarise or translate "
+            "anything. Reply with the audio file only.\n\nTEXT:\n" + text)
+
+
+def generate_speech(paragraphs: List[str], out_path: str, direction: str = "", language: str = "",
+                    timeout: int = 0) -> dict:
+    """Muse đọc cả bài thành MỘT file → `out_path`. Trả {"path", "seconds", "thread_id", "profile"}; ném MuseError.
+    Chat MỚI mỗi lần (một chat = một giọng); chỉ trình duyệt ở máy này."""
+    text_len = sum(len(str(p or "")) for p in paragraphs)
+    if not text_len:
+        raise MuseError("error", "Nothing to read: every paragraph is empty.")
+    timeout = int(timeout or min(3600, 600 + text_len * 0.4))
+    folder = os.path.dirname(os.path.abspath(out_path))
+    os.makedirs(folder, exist_ok=True)
+    tmp = os.path.join(folder, "_muse_audio")
+    res = ask(speech_prompt(paragraphs, direction, language), thread_id="new", timeout=timeout,
+              want_audio=True, audio_dir=tmp, max_audios=1)
+    got = [a for a in (res.get("audios") or []) if isinstance(a, dict) and a.get("path") and os.path.isfile(a["path"])]
+    if not got:
+        errs = "; ".join(str(a.get("error")) for a in (res.get("audios") or []) if isinstance(a, dict) and a.get("error"))
+        raise MuseError("error", "Muse answered without an audio file" + (f" ({errs})" if errs else "")
+                        + (f": {str(res.get('text') or '')[:200]}" if str(res.get("text") or "").strip(" 0:") else "."))
+    src = got[0]["path"]
+    ext = os.path.splitext(src)[1] or ".mp3"
+    dst = os.path.splitext(out_path)[0] + ext
+    os.replace(src, dst)
+    return {"path": dst, "thread_id": res.get("thread_id") or "", "profile": res.get("profile") or "",
+            "bytes": os.path.getsize(dst)}
 
 
 # ── chat kiểu OpenAI ──────────────────────────────────────────────────────────

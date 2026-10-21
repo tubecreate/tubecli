@@ -481,5 +481,9 @@
   "codex.live_nothing": "当前没有运行中的任务。",
   "codex.live_recent": "刚刚结束",
   "codex.live_recent_empty": "过去 12 小时内没有结束的任务。",
-  "codex.live_watch": "观看"
+  "codex.live_watch": "观看",
+  "codex.field_video_dub": "用 Muse 重新配音",
+  "codex.field_video_dub_hint": "先用模板的声音朗读。然后 Muse 按下方描述的声音一次读完整篇稿子（自然停顿，引号里的台词用第二个声音），并逐个场景替换模板的声音。Muse 失败时保留模板的声音。",
+  "codex.field_video_dub_voice": "Muse 的声音",
+  "codex.field_video_dub_voice_placeholder": "描述旁白：性别、温暖程度、音高、语速、停顿、情绪、台词的声音"
 }

@@ -481,5 +481,9 @@
   "codex.live_nothing": "Ahora mismo no hay nada en curso.",
   "codex.live_recent": "Recién terminadas",
   "codex.live_recent_empty": "Nada terminó en las últimas 12 horas.",
-  "codex.live_watch": "Ver"
+  "codex.live_watch": "Ver",
+  "codex.field_video_dub": "Volver a doblar la narración con Muse",
+  "codex.field_video_dub_hint": "Primero lee la voz de la plantilla. Después Muse vuelve a leer todo el guion de una sola vez con la voz descrita abajo —pausas naturales, una segunda voz para las frases citadas— y sustituye la voz de la plantilla escena por escena. Si Muse falla, se queda la voz de la plantilla.",
+  "codex.field_video_dub_voice": "Voz para Muse",
+  "codex.field_video_dub_voice_placeholder": "Describe al narrador: género, calidez, tono, ritmo, pausas, emoción, voces para las frases citadas"
 }

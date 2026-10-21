@@ -75,6 +75,8 @@ RENDER_STEPS = [
     ("studio", "Storyboard in Content Studio", "studio", False),
     ("images", "Generate shot images", "images", False),
     ("tts", "Voice the narration", "tts", True),
+    # Lồng lại giọng bằng Muse (21/10/2026): tắt mặc định, form tạo task bật + mô tả giọng (options.dub / dub_voice).
+    ("dub", "Re-dub the narration with Muse", "dub", True),
     ("render", "Assemble the video", "render", False),
     # Ảnh đại diện SAU khi có mp4 (Thumbnail Studio cắt frame từ video) và TRƯỚC
     # khi đăng (để gắn lên video). Tuỳ chọn, mặc định tắt — xem DEFAULTS["thumbnail"].
@@ -87,7 +89,7 @@ RENDER_STEPS = [
     ("drive", "Save to Google Drive", "drive", True),
 ]
 # Bước tuỳ chọn mà hỏng giữa chừng vẫn KHÔNG làm hỏng lượt — trừ khi người dùng ra lệnh (_publish_hard, _drive_hard).
-SOFT_FAIL_STEPS = {"publish", "thumbnail", "drive"}
+SOFT_FAIL_STEPS = {"publish", "thumbnail", "drive", "dub"}
 STEPS = PLAN_STEPS + RENDER_STEPS[1:]      # the full chain, for plan()/describe_plan()
 # Cùng dãy đó, nhưng để CHẠY: "capabilities" chỉ cần một lần cho cả lượt.
 AUTO_STEPS = PLAN_STEPS + RENDER_STEPS[1:]
@@ -161,6 +163,9 @@ DEFAULTS: Dict[str, Any] = {
     # Ảnh đại diện qua Thumbnail Studio: tắt mặc định; chat "có thumbnail" hay lượt
     # tự động đăng bật lên. thumbnail_template = id mẫu ("" = Studio tự chọn họ mẫu).
     "thumbnail": False, "thumbnail_template": "",
+    # Lồng lại giọng bằng Muse (ô «Re-dub with Muse» của form Codex, 21/10/2026): giọng của MẪU vẫn đọc trước; bật thì
+    # Muse đọc lại cả bài MỘT lượt theo dub_voice (mô tả giọng tự do) rồi cắt theo cảnh — xem _step_dub.
+    "dub": False, "dub_voice": "",
     # Prompt ảnh đại diện LUÔN viết (nút copy trên thẻ Codex + dòng trong Sheet); False = bỏ hẳn. thumbnail_engine
     # "image" = ảnh vẽ một lượt bằng model ảnh từ prompt đó, ảnh hook làm tham chiếu (thumbnail_image_model
     # "nhà|model", trống = Muse rồi gpt-image-2); khác = Thumbnail Studio; TRỐNG = model ảnh, trừ khi có
@@ -4485,6 +4490,64 @@ def _audio_check(state: Dict) -> None:
             f"(e.g. {example}) — each will play as a 5-second still, so the video will be shorter than the script.")
 
 
+# ── Lồng lại giọng bằng Muse (bước "dub", 21/10/2026) ─────────────────────────────────────────────────────────────────
+# User: «làm capcut xong lồng lại bằng muse», «chỗ logic lồng giọng bạn để ở phần tạo task, template vẫn dùng model theo
+# template». Giọng của MẪU vẫn đọc trước ở bước tts (thời lượng + dự phòng); task bật «dub» thì Muse đọc CẢ bài MỘT lượt
+# theo mô tả giọng của task (mỗi chat Muse một giọng ⇒ không đọc theo cảnh được), narration_dub cắt theo cảnh + mốc chữ cho
+# phụ đề, rồi thay đường giọng của từng cảnh. Bước MỀM: hỏng ở đâu cũng giữ giọng mẫu và dựng tiếp.
+def _step_dub(state: Dict, options: Dict) -> None:
+    import hashlib
+    say = state["_say"]
+    ep_id = int(state["episode_id"])
+    shots = sorted(_storyboards(ep_id), key=lambda s: int(s.get("storyboard_number") or 0))
+    voiced = [s for s in shots if str(s.get("narration_text") or "").strip()]
+    if not voiced:
+        say("dub", "running", "no narration to re-dub")
+        return
+    paragraphs = [" ".join(str(s.get("narration_text") or "").split()) for s in voiced]
+    direction = " ".join(str(options.get("dub_voice") or "").split())[:1500]
+    lang = str(state.get("language") or "")
+    key = hashlib.sha1(json.dumps([direction, lang, [[s.get("id"), p] for s, p in zip(voiced, paragraphs)]],
+                                  ensure_ascii=False).encode("utf-8")).hexdigest()
+    from tubecli.config import DATA_DIR
+    out_dir = os.path.join(str(DATA_DIR), "content_video", "audio", f"ep{ep_id}_dub")
+    ck = dict((state.get("checkpoint") or {}).get("dub") or {})
+    files = list(ck.get("files") or []) if ck.get("key") == key else []
+    if not (len(files) == len(voiced) and all(f and os.path.isfile(f) for f in files)):
+        from tubecli.core import muse
+        from tubecli.extensions.content_video import narration_dub as _nd
+        chars = sum(len(p) for p in paragraphs)
+        say("dub", "running", f"Muse is reading the whole script in one take ({chars} characters, "
+                              f"{len(voiced)} scenes) — usually 5–15 minutes")
+        if state["_cancelled"]():
+            raise _cancel_exc()
+        full = muse.generate_speech(paragraphs, os.path.join(out_dir, "full.mp3"), direction=direction,
+                                    language=language_name(lang) if lang else "")
+        if state["_cancelled"]():
+            raise _cancel_exc()
+        say("dub", "running", "cutting the Muse voice-over by scene")
+        info = _nd.split_by_paragraph(full["path"], paragraphs, out_dir, language=lang,
+                                      names=[f"shot{int(s.get('storyboard_number') or i + 1):03d}"
+                                             for i, s in enumerate(voiced)])
+        files = [str(f.get("path") or "") for f in info["files"]]
+        if len(files) != len(voiced) or not all(files):
+            raise RuntimeError("the Muse voice-over could not be split into one file per scene")
+        ck = {"key": key, "files": files, "full": full["path"], "engine": info.get("engine"),
+              "match": info.get("match"), "voice": direction}
+        _checkpoint_merge(state, {"dub": ck})
+    changed = 0
+    for s, f in zip(voiced, files):
+        cur = str(s.get("tts_audio_url") or "")
+        if os.path.normcase(os.path.normpath(cur or ".")) != os.path.normcase(os.path.normpath(f)):
+            _put(f"/api/v1/studio/storyboards/{s['id']}", {"tts_audio_url": f})
+            changed += 1
+    state["tts_voice_used"] = "Muse voice-over (one take)" + (f" · {direction[:80]}" if direction else "")
+    _task_meta(state.get("task_id"), voice={"engine": "muse", "id": "muse-voice", "name": direction[:80]})
+    _audio_check(state)
+    how = "subtitles follow the new voice" if ck.get("engine") == "whisper" else "subtitles are estimated"
+    say("dub", "running", f"{len(files)} scene(s) re-voiced by Muse ({changed} updated) — {how}")
+
+
 # Dựng video: trần tuyệt đối tối thiểu 4 giờ, và ít nhất 20 lần thời lượng
 # video (20 phút → ~7 giờ) — máy yếu chạy ffmpeg 1080p chậm hơn thời gian thực
 # nhiều lần, nhưng vẫn phải có lúc buông.
@@ -8251,6 +8314,7 @@ _HANDLERS: Dict[str, Callable[[Dict, Dict], None]] = {
     "studio": _step_studio,
     "images": _step_images,
     "tts": _step_tts,
+    "dub": _step_dub,
     "render": _step_render,
     "thumbnail": _step_thumbnail,
     "publish": _step_publish,

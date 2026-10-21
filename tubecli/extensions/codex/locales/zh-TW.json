@@ -481,5 +481,9 @@
   "codex.live_nothing": "目前沒有執行中的任務。",
   "codex.live_recent": "剛剛結束",
   "codex.live_recent_empty": "過去 12 小時內沒有結束的任務。",
-  "codex.live_watch": "觀看"
+  "codex.live_watch": "觀看",
+  "codex.field_video_dub": "用 Muse 重新配音",
+  "codex.field_video_dub_hint": "先用範本的聲音朗讀。接著 Muse 依下方描述的聲音一次讀完整篇稿子（自然停頓，引號裡的台詞用第二個聲音），並逐個場景替換範本的聲音。Muse 失敗時保留範本的聲音。",
+  "codex.field_video_dub_voice": "Muse 的聲音",
+  "codex.field_video_dub_voice_placeholder": "描述旁白：性別、溫暖程度、音高、語速、停頓、情緒、台詞的聲音"
 }

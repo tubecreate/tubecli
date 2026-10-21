@@ -399,6 +399,23 @@
                    placeholder="Empty = match the look and mood of the video">
           </div>
 
+          <!-- Lồng lại giọng bằng Muse (21/10/2026): giọng của MẪU vẫn đọc trước; bật thì Muse đọc lại CẢ bài một lượt theo mô
+               tả giọng bên dưới (nghỉ tự nhiên, giọng thứ hai cho câu thoại), cắt theo cảnh rồi thay giọng mẫu. Muse hỏng thì
+               giữ giọng mẫu. Mô tả giọng gửi thẳng cho Muse — viết tiếng Anh hay tiếng gì cũng được. -->
+          <label class="cx-check">
+            <input type="checkbox" id="cx-v-dub" onchange="CODEX.onVideoDub()">
+            <span>
+              <strong data-i18n="codex.field_video_dub">Re-dub the narration with Muse</strong>
+              <em data-i18n="codex.field_video_dub_hint">The template's voice reads first. Then Muse reads the whole script again in one take, in the voice described below — natural pauses, a second voice for quoted lines — and replaces the template's voice scene by scene. If Muse fails, the template's voice stays.</em>
+            </span>
+          </label>
+          <div class="cx-field hidden" id="cx-v-dub-wrap">
+            <label for="cx-v-dub-voice" data-i18n="codex.field_video_dub_voice">Voice for Muse</label>
+            <textarea id="cx-v-dub-voice" rows="3" maxlength="1500"
+                      data-i18n-placeholder="codex.field_video_dub_voice_placeholder"
+                      placeholder="Describe the narrator: gender, warmth, pitch, pace, pauses, emotion, voices for quoted lines"></textarea>
+          </div>
+
           <!-- Cảnh trong video (12/10/2026): theo mẫu (clip Muse nếu mẫu bật) hay CHỈ ảnh tĩnh — không clip cảnh, không clip
                mở đầu (pipeline options.scene_media = "stills" → drama clip_mode "hook" + hook_video ""). -->
           <div class="cx-field">

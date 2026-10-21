@@ -481,5 +481,9 @@
   "codex.live_nothing": "いま実行中のタスクはありません。",
   "codex.live_recent": "完了したばかり",
   "codex.live_recent_empty": "直近 12 時間に完了したタスクはありません。",
-  "codex.live_watch": "見る"
+  "codex.live_watch": "見る",
+  "codex.field_video_dub": "Museでナレーションを録り直す",
+  "codex.field_video_dub_hint": "まずテンプレートの音声で読み上げます。その後、Museが下の説明どおりの声で台本全体を一度に読み直し（自然な間、台詞は別の声）、シーンごとにテンプレートの音声と差し替えます。Museが失敗した場合はテンプレートの音声のままです。",
+  "codex.field_video_dub_voice": "Museの声",
+  "codex.field_video_dub_voice_placeholder": "ナレーターの説明：性別、温かさ、声の高さ、速さ、間、感情、台詞の声"
 }

@@ -481,5 +481,9 @@
   "codex.live_nothing": "Şu anda çalışan bir şey yok.",
   "codex.live_recent": "Az önce bitenler",
   "codex.live_recent_empty": "Son 12 saatte biten bir şey yok.",
-  "codex.live_watch": "İzle"
+  "codex.live_watch": "İzle",
+  "codex.field_video_dub": "Anlatımı Muse ile yeniden seslendir",
+  "codex.field_video_dub_hint": "Önce şablonun sesi okur. Ardından Muse tüm metni aşağıda tarif edilen sesle tek seferde yeniden okur — doğal duraklamalar, tırnak içindeki repliklere ikinci bir ses — ve şablonun sesini sahne sahne değiştirir. Muse başarısız olursa şablonun sesi kalır.",
+  "codex.field_video_dub_voice": "Muse için ses",
+  "codex.field_video_dub_voice_placeholder": "Anlatıcıyı tarif edin: cinsiyet, sıcaklık, ses perdesi, hız, duraklamalar, duygu, replik sesleri"
 }
