@@ -46,7 +46,7 @@ EXTENSIONS: Dict[str, Dict[str, str]] = {
     },
 }
 
-NEEDS_FFMPEG = {"render"}
+NEEDS_FFMPEG = {"render", "dub"}
 
 # Job id → what it needs and which endpoint does the work.
 JOBS: Dict[str, Dict] = {
@@ -69,6 +69,9 @@ JOBS: Dict[str, Dict] = {
     "tts": {"label": "Voice the narration", "requires": ["content_studio"],
             "any_of": ["tts_vibevoice", "capcut_tts"],
             "endpoint": "POST /api/v1/studio/episodes/{id}/batch-tts | POST /api/v1/capcut-tts/synthesize"},
+    # Muse đọc lại cả bài một lượt (lõi muse.generate_speech — hồ sơ Muse ở máy này) rồi cắt theo cảnh (narration_dub).
+    "dub": {"label": "Re-dub the narration with Muse", "requires": ["content_studio"],
+            "endpoint": "tubecli.core.muse.generate_speech + content_video/narration_dub.split_by_paragraph"},
     "render": {"label": "Assemble the video", "requires": ["content_studio"],
                "endpoint": "POST /api/v1/studio/episodes/{id}/export-ffmpeg"},
     # Đăng gọi THẲNG uploader của video_manager (nạp file theo đường dẫn tuyệt

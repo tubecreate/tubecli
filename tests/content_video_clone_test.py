@@ -229,7 +229,8 @@ ok("narrator or the voice" in C.title_prompt("Sau 60 tuổi (giọng Huyền Anh
 
 # ── 5: danh sách bước ────────────────────────────────────────────────────────
 ids = [s[0] for s in P.CLONE_STEPS]
-ok(ids == ["capabilities", "clone", "images", "tts", "render", "thumbnail", "drive"],
+# "dub" (lồng lại giọng bằng Muse, 21/10/2026) đi theo RENDER_STEPS: tắt mặc định, task bật thì bản clone cũng lồng được
+ok(ids == ["capabilities", "clone", "images", "tts", "dub", "render", "thumbnail", "drive"],
    "CLONE_STEPS: clone thay studio, không publish", ids)
 ok("clone" in P._HANDLERS and P.LABELS.get("clone"), "bước clone có handler + nhãn")
 

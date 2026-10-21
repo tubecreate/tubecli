@@ -13,7 +13,7 @@
 //   node muse_tool.cjs --cdp <port> --action status
 //   node muse_tool.cjs --cdp <port> --action ask --in <req.json>
 // req.json: {prompt, thread: "new"|"<uuid>", timeout_ms, want_images, image_dir, max_images, want_videos, video_dir,
-//            max_videos, files: [đường dẫn]}
+//            max_videos, want_audio, audio_dir, max_audios, files: [đường dẫn]}
 // In kết quả giữa __MUSE_RESULT__ và __MUSE_END__ để phía Python bóc (tubecli/core/muse.py).
 const fs = require('fs');
 const path = require('path');
@@ -30,6 +30,8 @@ const SEL = {
   error: '[data-testid="assistant-response-error-notice"]',
   approval: '[data-hatch-composer-approval-stack]',
   video: '[data-hatch-video-wrapper] video, video',
+  // Ô tiếng Muse trả khi xin giọng đọc (21/10/2026): nút «Phát» + thanh kéo + «0:00». KHÔNG có <audio> cho tới khi bấm phát.
+  audio: '[data-testid="hatch-chat-attachment-presentation-audio"]',
 };
 // Câu trả lời coi là XONG khi không còn nút dừng / chữ đang chạy và đứng yên chừng này.
 const QUIET_MS = 1800;
@@ -41,6 +43,8 @@ const MIN_IMAGE_EDGE = 256;
 // thường xuất hiện KHI video đã xong (~90 s), nhưng có lượt Muse bày một ô trợ lý RỖNG (nút dừng đã tắt) rồi mới gắn
 // video sau hơn 90 s nữa — 90 s ân hạn trả «empty reply» trong khi video vẫn về. Nên 4 phút.
 const VIDEO_GRACE_MS = 240000;
+// Xin giọng đọc mà ô trả lời đứng yên chừng này vẫn chưa có ô tiếng → coi như Muse không làm (đọc cả bài ~9 phút mới có ô).
+const AUDIO_GRACE_MS = 240000;
 
 function arg(name, def) {
   const i = process.argv.indexOf('--' + name);
@@ -145,6 +149,7 @@ function turnState(page, seen, minEdge) {
       lens: asst.map((e) => (e.innerText || '').length),
       imgs,
       vids,
+      auds: asst.reduce((k, e) => k + e.querySelectorAll(sel.audio).length, 0),
       pending,
       stop: !!document.querySelector(sel.stop),
       streaming: !!document.querySelector(sel.streaming),
@@ -225,6 +230,58 @@ async function saveImages(page, seen, dir, maxImages) {
     fs.writeFileSync(file, buf);
     saved.push({ path: file, mime: b.mime, bytes: buf.length, width: b.width, height: b.height });
   });
+  return saved;
+}
+
+// Giọng đọc Muse làm (21/10/2026 — Muse chạy mã gọi TTS rồi tự ghép, trả MỘT ô tiếng): ô chỉ có nút «Phát», chưa có
+// <audio>. Bấm phát → trình phát tạo <audio src=blob:…> → tải blob đó qua fetch trong trang (như video) → dừng phát.
+// Đo 21/10/2026: mp3 24 kHz/64 kbps hoặc 44,1 kHz/128 kbps, cả bài 2.772 ký tự = 1 file 11–12 phút.
+async function saveAudios(page, seen, dir, maxAudios) {
+  const count = await page.evaluate(({ seen, sel }) => {
+    const items = [...document.querySelectorAll(sel.message)];
+    const mine = items.filter((e) => e.getAttribute('data-message-role') === 'user'
+      && !seen.includes(e.getAttribute('data-message-id'))).pop();
+    const asst = items.filter((e) => mine && (mine.compareDocumentPosition(e) & Node.DOCUMENT_POSITION_FOLLOWING)
+      && e.getAttribute('data-message-role') === 'assistant');
+    let k = 0;
+    for (const e of asst) for (const w of e.querySelectorAll(sel.audio)) w.setAttribute('data-tubecli-audio', String(k++));
+    return k;
+  }, { seen, sel: SEL });
+  const saved = [];
+  if (!count) return saved;
+  fs.mkdirSync(dir, { recursive: true });
+  const stamp = Date.now().toString(36);
+  const srcs = () => page.evaluate(() => [...document.querySelectorAll('audio')]
+    .map((a) => a.currentSrc || a.src || '').filter((s) => /^(blob:|https?:)/.test(s)));
+  for (let i = 0; i < Math.min(count, maxAudios); i++) {
+    const before = await srcs();
+    await page.locator(`[data-tubecli-audio="${i}"] button`).first().click({ timeout: 10000 }).catch(() => {});
+    let src = '';
+    for (let t = 0; t < 60 && !src; t++) {
+      await sleep(500);
+      const now = await srcs();
+      const fresh = now.filter((s) => !before.includes(s));
+      // trình phát dùng lại <audio> có sẵn (src không đổi) thì sau ~5 s nhận cái đang có
+      src = fresh.length ? fresh[fresh.length - 1] : (t >= 10 && now.length ? now[now.length - 1] : '');
+    }
+    await page.evaluate(() => document.querySelectorAll('audio').forEach((a) => { try { a.pause(); } catch { /* */ } }));
+    if (!src) { saved.push({ error: 'the audio player did not load a file' }); continue; }
+    const got = await page.evaluate(async (s) => {
+      try {
+        const res = await fetch(s, { credentials: 'include' });
+        const b = new Uint8Array(await res.arrayBuffer());
+        let x = '';
+        for (let k = 0; k < b.length; k += 0x8000) x += String.fromCharCode.apply(null, b.subarray(k, k + 0x8000));
+        return { ok: res.ok, mime: res.headers.get('content-type') || '', b64: btoa(x) };
+      } catch (e) { return { ok: false, error: String(e) }; }
+    }, src);
+    if (!got.ok || !got.b64) { saved.push({ error: got.error || 'download failed' }); continue; }
+    const buf = Buffer.from(got.b64, 'base64');
+    const ext = /wav/.test(got.mime) ? '.wav' : /ogg/.test(got.mime) ? '.ogg' : /mp4|m4a|aac/.test(got.mime) ? '.m4a' : '.mp3';
+    const file = path.join(dir, `muse_${stamp}_${i}${ext}`);
+    fs.writeFileSync(file, buf);
+    saved.push({ path: file, mime: got.mime, bytes: buf.length });
+  }
   return saved;
 }
 
@@ -414,7 +471,7 @@ async function ask(ctx, req) {
     let firstMs = 0;
     while (Date.now() < deadline) {
       st = await turnState(page, seen, MIN_IMAGE_EDGE);
-      const s = JSON.stringify([st.n, st.lens, st.imgs, st.vids, st.pending, st.stop, st.streaming, st.busy]);
+      const s = JSON.stringify([st.n, st.lens, st.imgs, st.vids, st.auds, st.pending, st.stop, st.streaming, st.busy]);
       if (s !== sig) {
         sig = s; changedAt = Date.now();
         if (process.env.MUSE_DEBUG) console.error(`[muse] +${((Date.now() - t0) / 1000).toFixed(1)}s ${s} mine=${myId}`);
@@ -426,7 +483,8 @@ async function ask(ctx, req) {
       const settled = st.n > 0 && !st.stop && !st.streaming && !st.busy && !st.pending && idle >= QUIET_MS;
       const gotImages = !req.want_images || st.imgs.length > 0 || idle >= IMAGE_GRACE_MS;
       const gotVideos = !req.want_videos || st.vids.length > 0 || idle >= VIDEO_GRACE_MS;
-      if (settled && gotImages && gotVideos) break;
+      const gotAudio = !req.want_audio || st.auds > 0 || idle >= AUDIO_GRACE_MS;
+      if (settled && gotImages && gotVideos && gotAudio) break;
       await sleep(400);
     }
     const timedOut = Date.now() >= deadline;
@@ -438,14 +496,17 @@ async function ask(ctx, req) {
     const videos = req.want_videos
       ? await saveVideos(page, seen, req.video_dir || req.image_dir || path.join(process.cwd(), 'muse_videos'), Math.max(1, Number(req.max_videos) || 1))
       : [];
+    const audios = req.want_audio
+      ? await saveAudios(page, seen, req.audio_dir || path.join(process.cwd(), 'muse_audio'), Math.max(1, Number(req.max_audios) || 1))
+      : [];
     const out = {
-      ok: true, text: texts.join('\n\n'), messages: texts, images, videos, thread_id: threadId, url: page.url(),
+      ok: true, text: texts.join('\n\n'), messages: texts, images, videos, audios, thread_id: threadId, url: page.url(),
       elapsed_ms: Date.now() - t0, sent_ms: sentMs, first_ms: firstMs, tabs_closed: pruned,
     };
     if (st && st.error) Object.assign(out, { ok: false, kind: 'error', error: st.error });
     else if (st && st.approval) Object.assign(out, { ok: false, kind: 'approval', error: 'Muse is waiting for an approval in its own app.' });
-    else if (timedOut) Object.assign(out, { ok: !!(texts.length || images.length || videos.length) && !req.want_images && !req.want_videos, kind: 'timeout', error: `Muse did not finish within ${Math.round(timeout / 1000)} s.` });
-    else if (!texts.length && !images.length && !videos.length) Object.assign(out, { ok: false, kind: 'error', error: 'Muse returned an empty reply.' });
+    else if (timedOut) Object.assign(out, { ok: !!(texts.length || images.length || videos.length || audios.length) && !req.want_images && !req.want_videos && !req.want_audio, kind: 'timeout', error: `Muse did not finish within ${Math.round(timeout / 1000)} s.` });
+    else if (!texts.length && !images.length && !videos.length && !audios.length) Object.assign(out, { ok: false, kind: 'error', error: 'Muse returned an empty reply.' });
     return out;
   } finally {
     if (!req.keep_tab) await page.close().catch(() => {});
