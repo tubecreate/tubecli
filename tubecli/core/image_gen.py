@@ -21,6 +21,7 @@ import io
 import json
 import logging
 import os
+import re
 import time
 from typing import Optional
 
@@ -150,12 +151,15 @@ def _ninerouter_module():
         return None
 
 
-def resolve_provider(provider: Optional[str] = None, model: Optional[str] = None) -> dict:
+def resolve_provider(provider: Optional[str] = None, model: Optional[str] = None, _chain: bool = True) -> dict:
     """Nhà cung cấp sẽ dùng và có DÙNG ĐƯỢC không: {"ok", "provider", "model", "reason", ...}.
 
     provider/model để trống → lấy cài đặt chung; cài đặt chung trống → "auto": Cloudflare trước
     (gói miễn phí), rồi Gemini. Gõ sai tên nhà → báo lỗi, KHÔNG lặng lẽ đổi sang nhà khác (tiền
     tiêu ở chỗ người dùng không chọn mà trông như chạy được).
+
+    Kết quả dùng được kèm `fallback` (chuỗi lùi khi VẼ hỏng — xem _fallback_chain); _chain=False = không kèm (dùng
+    khi dựng chính chuỗi lùi, kẻo đệ quy).
     """
     cfg = image_settings()
     provider = (provider or "").strip().lower() or cfg["provider"]
@@ -194,19 +198,10 @@ def resolve_provider(provider: Optional[str] = None, model: Optional[str] = None
         if not nr.api_key() and not nr.is_local():
             return {"ok": False, "provider": "9router", "model": m,
                     "reason": "9Router ở máy khác cần key đang bật trong Cloud API Keys."}
-        out = {"ok": True, "provider": "9router", "model": m, "base": nr.base_url(),
-               "headers": nr.auth_headers(), "reason": ""}
-        # 9Router vẽ bằng quota tài khoản Antigravity / Codex — hết hay hỏng giữa lô là chuyện thường → đường lùi.
-        # 20/10/2026, user «dùng muse làm fallback thay vì cloudflare»: 9Router từ xa trả 400 «The 'gpt-5.5' model is
-        # not supported when using Codex with a ChatGPT account» cho cx/gpt-image-2 ⇒ từ 15/10 MỌI ảnh mẫu Lão Tử
-        # (style Ink Wash Film khoá gpt-image-2) lặng lẽ thành FLUX Cloudflare 1024×1024 — vuông, lạc nét thuỷ mặc,
-        # hook không clip Muse thì lộ hẳn. Giờ lùi sang MUSE (16:9, nét gần gpt-image-2); máy chưa có Muse mới lùi
-        # Cloudflare như cũ. Muse hỏng nữa thì còn đường lùi của chính Muse (Cloudflare) — cảnh không bị trống.
-        mu = _muse()
-        fb = mu if mu["ok"] else _cloudflare(NR_FALLBACK_CF_MODEL)
-        if fb["ok"]:
-            out["fallback"] = fb
-        return out
+        # 9Router vẽ bằng quota tài khoản Antigravity / Codex — hết hay hỏng giữa lô là chuyện thường → đường lùi
+        # (_fallback_chain, gắn ở cuối hàm).
+        return {"ok": True, "provider": "9router", "model": m, "base": nr.base_url(),
+                "headers": nr.auth_headers(), "reason": ""}
 
     def _muse(m=None):
         m = m or MUSE_DEFAULT_MODEL
@@ -223,23 +218,58 @@ def resolve_provider(provider: Optional[str] = None, model: Optional[str] = None
                     "reason": "Muse is not set up: pick the browser profile signed in to muse.ai in Cloud API Keys → Muse, "
                               "or add a remote Muse node there."}
         label = prof or f"{len(remotes)} remote node(s)"
-        out = {"ok": True, "provider": "muse", "model": m, "label": label, "reason": ""}
         # Muse chậm và đi qua MỘT phiên trình duyệt — hỏng giữa lô (trình duyệt bị đóng, Muse trả lời bằng chữ)
-        # thì vẽ tiếp bằng Cloudflare như đường lùi của 9Router, ghi rõ fallback_from.
-        fb = _cloudflare(NR_FALLBACK_CF_MODEL)
-        if fb["ok"]:
-            out["fallback"] = fb
-        return out
+        # thì vẽ tiếp bằng đường lùi (_fallback_chain), ghi rõ fallback_from.
+        return {"ok": True, "provider": "muse", "model": m, "label": label, "reason": ""}
+
+    def _fallback_chain(primary: dict) -> Optional[dict]:
+        """Chuỗi lùi khi nhà/model đang chọn VẼ hỏng (21/10/2026). User (VPS contabo 6G, mẫu cài từ Chợ với style khoá
+        9router|cx/gpt-image-2, 9Router máy đó không có tài khoản Codex → 400 «No credentials for provider: codex» ở
+        ảnh đầu, cả task dừng): «model image của template không dùng được thì tự động chuyển sang model image mặc
+        định của hệ thống chứ nó báo lỗi luôn ko làm». Thứ tự: model ảnh MẶC ĐỊNH của máy (Cài đặt → AI tạo ảnh) →
+        Muse (20/10: «dùng muse làm fallback thay vì cloudflare») → Cloudflare flux-1-schnell. Chỉ những mắt dùng được,
+        không lặp nhà+model, mỗi mắt trỏ `fallback` sang mắt sau."""
+        links: list = []
+        seen = {(primary.get("provider"), primary.get("model"))}
+        prim = primary.get("provider")
+
+        def _add(cand: Optional[dict]) -> None:
+            # Cùng nhà với nhà chính = cùng tài khoản / hạn mức ⇒ lùi vào đó vô ích. Trừ 9Router: mỗi tiền tố model
+            # (cx/ = Codex, ag/ = Antigravity) là một tài khoản khác nhau.
+            if cand and prim != "9router" and cand.get("provider") == prim:
+                return
+            if cand and cand.get("ok") and (cand.get("provider"), cand.get("model")) not in seen:
+                seen.add((cand.get("provider"), cand.get("model")))
+                cand.pop("fallback", None)
+                links.append(cand)
+
+        dp, dm = cfg.get("provider") or "", cfg.get("model") or ""
+        if dp:
+            _add(resolve_provider(dp, dm or None, _chain=False))
+        _add(_muse())
+        _add(_cloudflare(NR_FALLBACK_CF_MODEL))
+        for a, b in zip(links, links[1:]):
+            a["fallback"] = b
+        return links[0] if links else None
 
     p = provider
+    out: Optional[dict] = None
     if p == "cloudflare":
-        return _cloudflare(model)
-    if p == "gemini":
-        return _gemini(model)
-    if p == "9router":
-        return _ninerouter(model)
-    if p == "muse":
-        return _muse(model)
+        out = _cloudflare(model)
+    elif p == "gemini":
+        out = _gemini(model)
+    elif p == "9router":
+        out = _ninerouter(model)
+    elif p == "muse":
+        out = _muse(model)
+    if out is not None:
+        # Cloudflare KHÔNG kèm chuỗi lùi: nó tự xoay qua mọi account và chờ account hết đỗ (_cf_generate_rotating) —
+        # đúng hành vi hàng đợi video đang dựa vào; lùi sang nhà khác là việc của nhà chính khác, không phải của nó.
+        if _chain and out.get("ok") and out.get("provider") != "cloudflare":
+            fb = _fallback_chain(out)
+            if fb:
+                out["fallback"] = fb
+        return out
     if p not in ("", "auto"):
         return {"ok": False, "provider": p, "model": model or "",
                 "reason": f"Không biết nhà cung cấp ảnh '{p}'. Chỉ hỗ trợ: {', '.join(PROVIDERS)} "
@@ -289,6 +319,16 @@ def _next_utc_midnight() -> float:
 def _local_clock(ts: float) -> str:
     import datetime as _dt
     return _dt.datetime.fromtimestamp(ts).strftime("%H:%M %d/%m")
+
+
+# Lỗi CẤU HÌNH — lần sau gọi lại cũng hỏng y vậy (thiếu tài khoản cho nhánh, model không có / không được hỗ trợ):
+# cả lô đi thẳng đường lùi (_generate_bytes, r["_dead"]). 429 / 502 / hết giờ thì KHÔNG — chúng tự khỏi.
+_PERMANENT_RE = re.compile(r"no credentials|not supported|model[_ ]not[_ ]found|unknown model|does not exist|"
+                           r"invalid model|not available for|unsupported model", re.I)
+
+
+def _permanent(e: "ProviderError") -> bool:
+    return e.kind == "auth" or (e.kind == "error" and bool(_PERMANENT_RE.search(str(e))))
 
 
 def _classify(status_code: int, body: str) -> str:
@@ -708,6 +748,15 @@ async def _generate_bytes(r: dict, prompt: str, aspect_ratio: str = "16:9",
     r.pop("fallback_from", None)
     r.pop("drew_provider", None)
     r.pop("drew_model", None)
+    if r.get("_dead") and r.get("fallback"):
+        # Nhà chính đã hỏng vì CẤU HÌNH ở một shot trước của lô (thiếu tài khoản, model không hỗ trợ — _permanent):
+        # đi thẳng đường lùi, khỏi gõ cửa hỏng thêm một lượt mỗi shot.
+        fb = r["fallback"]
+        data = await _generate_bytes(fb, prompt, aspect_ratio, reference_images, timeout)
+        r["fallback_from"] = r["_dead"]
+        r["drew_provider"] = fb.get("drew_provider") or fb["provider"]
+        r["drew_model"] = fb.get("drew_model") or fb["model"]
+        return data
     try:
         if r["provider"] == "cloudflare":
             return await _cf_generate_rotating(r, prompt, aspect_ratio, timeout)
@@ -739,6 +788,8 @@ async def _generate_bytes(r: dict, prompt: str, aspect_ratio: str = "16:9",
         # Nhà chính hỏng (quota, 502, khoá sai) mà có đường lùi → vẽ tiếp; lời TỪ CHỐI nội dung thì không.
         if fb and e.kind != "refused":
             logger.warning("%s/%s hỏng (%s) → vẽ bằng %s/%s", r["provider"], r["model"], str(e)[:120], fb["provider"], fb["model"])
+            if _permanent(e):
+                r["_dead"] = f"{r['provider']}/{r['model']}: {str(e)[:160]}"
             data = await _generate_bytes(fb, prompt, aspect_ratio, reference_images, timeout)
             r["fallback_from"] = f"{r['provider']}/{r['model']}: {str(e)[:160]}"
             # Bên VẼ THẬT là đường lùi (có thể lùi tiếp một tầng nữa) — báo cáo phải ghi tên nó, không

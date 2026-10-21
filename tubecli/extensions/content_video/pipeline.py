@@ -3590,6 +3590,27 @@ def _step_images(state: Dict, options: Dict) -> None:
             f"{len(errors)}/{total} shot(s) could not be drawn" + (f": {last[:200]}" if last else "")
             + " — they will be missing from the video.")
     state.setdefault("warnings", []).extend(_clip_warnings(data))
+    state["warnings"].extend(_fallback_image_warnings(data))
+
+
+def _fallback_image_warnings(data: Dict) -> List[str]:
+    """Ảnh vẽ bằng ĐƯỜNG LÙI (21/10/2026, user «khi làm ảnh với đường lùi thì hiện thêm thông tin ở phần duyệt để người
+    dùng biết là video sử dụng model fallback để hoàn thành»). Studio ghi `fallback_images` {count, total, drew, from}
+    vào lượt vẽ; Studio cũ không ghi → []."""
+    fb = data.get("fallback_images") if isinstance(data, dict) and isinstance(data.get("fallback_images"), dict) else {}
+    try:
+        n = int(fb.get("count") or 0)
+    except (TypeError, ValueError):
+        n = 0
+    if n <= 0:
+        return []
+    drew = fb.get("drew") if isinstance(fb.get("drew"), dict) else {}
+    used = ", ".join(f"{k} ×{v}" for k, v in sorted(drew.items(), key=lambda kv: -int(kv[1] or 0))) or "a fallback model"
+    why = " ".join(str(fb.get("from") or "").split())[:240]
+    total = int(fb.get("total") or 0)
+    return [f"{n}{f'/{total}' if total else ''} shot image(s) were drawn with the FALLBACK model ({used}) because the "
+            f"template's image model failed" + (f": {why}" if why else "") + " — fix that model in Settings → AI image "
+            "(or choose another one) to get the template's own look back."]
 
 
 def _clip_warnings(data: Dict) -> List[str]:

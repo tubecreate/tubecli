@@ -137,6 +137,85 @@ km.cf = False
 fb3 = G.resolve_provider("9router").get("fallback") or {}
 ok(fb3.get("provider") == "muse" and "fallback" not in fb3, "không Cloudflare → lùi Muse, Muse không có tầng lùi tiếp", fb3)
 km.cf = True
+
+print("── B2. chuỗi lùi về model ảnh MẶC ĐỊNH của máy (21/10/2026) ──")
+# User (VPS, mẫu cài từ Chợ — style khoá 9router|cx/gpt-image-2, 9Router máy đó không có tài khoản Codex → 400 ở ảnh
+# đầu, task dừng): «model image của template không dùng được thì tự động chuyển sang model image mặc định của hệ thống».
+_real_image_settings = G.image_settings
+
+
+def _defaults(p, m=""):
+    G.image_settings = lambda: {"provider": p, "model": m, "steps": 0, "ink": "auto", "ink_radius": 0}
+
+
+def _chain(r):
+    out, f = [], r.get("fallback")
+    while f:
+        out.append((f["provider"], f["model"]))
+        f = f.get("fallback")
+    return out
+
+
+km.gemini = km.cf = True
+_M.settings = lambda: {"profile": "", "remotes": []}
+_defaults("gemini")
+ok(_chain(G.resolve_provider("9router", "cx/gpt-image-2")) == [("gemini", G.GEMINI_DEFAULT_MODEL), ("cloudflare", G.NR_FALLBACK_CF_MODEL)],
+   "9Router hỏng → model MẶC ĐỊNH của máy → Cloudflare", _chain(G.resolve_provider("9router", "cx/gpt-image-2")))
+_M.settings = lambda: {"profile": "museprof", "remotes": []}
+ok(_chain(G.resolve_provider("9router", "cx/gpt-image-2")) == [("gemini", G.GEMINI_DEFAULT_MODEL), ("muse", G.MUSE_DEFAULT_MODEL),
+                                                               ("cloudflare", G.NR_FALLBACK_CF_MODEL)],
+   "có Muse → mặc định máy → Muse → Cloudflare")
+_defaults("9router", "ag/imagen-x")
+ok(_chain(G.resolve_provider("9router", "cx/gpt-image-2"))[0] == ("9router", "ag/imagen-x"),
+   "mặc định là 9Router model KHÁC (tài khoản khác) → vẫn là mắt đầu")
+_defaults("9router", "cx/gpt-image-2")
+ok(_chain(G.resolve_provider("9router", "cx/gpt-image-2"))[0] == ("muse", G.MUSE_DEFAULT_MODEL),
+   "mặc định trùng đúng model đang hỏng → bỏ qua, sang Muse")
+_defaults("muse")
+ok(_chain(G.resolve_provider("muse")) == [("cloudflare", G.NR_FALLBACK_CF_MODEL)], "Muse chính: không lùi vào chính Muse")
+_defaults("gemini")
+ok("fallback" not in G.resolve_provider("cloudflare"), "Cloudflare chính: không chuỗi lùi (tự xoay + chờ account)")
+ok(_chain(G.resolve_provider("gemini")) == [("muse", G.MUSE_DEFAULT_MODEL), ("cloudflare", G.NR_FALLBACK_CF_MODEL)],
+   "Gemini chính: không lùi vào Gemini khác (cùng khoá)")
+ok(all(k not in G.public_resolution(G.resolve_provider("9router", "cx/gpt-image-2")) for k in ("fallback", "_dead")),
+   "public_resolution không lộ chuỗi lùi")
+
+print("── B3. hỏng vì CẤU HÌNH → cả lô đi thẳng đường lùi ──")
+_M.settings = lambda: {"profile": "", "remotes": []}
+_defaults("gemini")
+CALLS = []
+
+
+async def _nr_boom(r, prompt, aspect, timeout):
+    CALLS.append("nr")
+    raise G.ProviderError(MSG[0][0], MSG[0][1])
+
+
+async def _gm_ok(r, prompt, aspect, refs, timeout):
+    CALLS.append("gemini")
+    return b"IMG"
+
+
+_real_nrg, _real_gmg = G._nr_generate, G._gemini_generate
+G._nr_generate, G._gemini_generate = _nr_boom, _gm_ok
+MSG = [("error", 'HTTP 400: {"error":{"message":"No credentials for provider: codex"}}')]
+r = G.resolve_provider("9router", "cx/gpt-image-2")
+d1 = asyncio.run(G._generate_bytes(r, "p", "16:9", None, 30))
+d2 = asyncio.run(G._generate_bytes(r, "p", "16:9", None, 30))
+ok(d1 == d2 == b"IMG" and CALLS == ["nr", "gemini", "gemini"] and "codex" in str(r.get("_dead")),
+   "400 «No credentials» → shot sau KHÔNG gõ 9Router nữa, vẽ thẳng mặc định máy", CALLS)
+ok(r.get("drew_provider") == "gemini" and "No credentials" in str(r.get("fallback_from")), "báo đúng bên vẽ thật + lý do")
+CALLS.clear()
+MSG[0] = ("error", "HTTP 502: bad gateway")
+r = G.resolve_provider("9router", "cx/gpt-image-2")
+asyncio.run(G._generate_bytes(r, "p", "16:9", None, 30))
+asyncio.run(G._generate_bytes(r, "p", "16:9", None, 30))
+ok(CALLS == ["nr", "gemini", "nr", "gemini"] and not r.get("_dead"), "502 thoáng qua → shot sau vẫn thử 9Router", CALLS)
+ok(G._permanent(G.ProviderError("error", "The 'gpt-5.5' model is not supported when using Codex"))
+   and G._permanent(G.ProviderError("auth", "401")) and not G._permanent(G.ProviderError("rate_limit", "429 quota"))
+   and not G._permanent(G.ProviderError("refused", "safety")), "_permanent: cấu hình / khoá sai, không phải 429 hay từ chối")
+G._nr_generate, G._gemini_generate = _real_nrg, _real_gmg
+G.image_settings = _real_image_settings
 _M.settings = _real_muse_settings
 G._ninerouter_module = _real_nr
 
