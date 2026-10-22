@@ -87,6 +87,10 @@ WATCH_EVERY = 60
 _BUSY_SINCE: Dict[str, float] = {}  # khoá chỗ ngồi → lúc nhận lượt
 _LAST_OK: Dict[str, float] = {}     # hồ sơ → lần tạo thành công gần nhất
 _HUNG_RESET: Dict[str, float] = {}  # khoá chỗ ngồi → lúc người gác đã đóng phiên (một lần mỗi lượt)
+# Hạn treo RIÊNG của lượt đang ngồi (22/10/2026): lượt đọc cả bài (generate_speech) hợp lệ chạy 10–25 phút — với hạn chung
+# 15 phút, người gác đóng phiên giữa lúc Muse đang đọc (task #444: «Target page, context or browser has been closed» đúng
+# phút 15). Mỗi lượt khai max(HANG_SECONDS, timeout + 120 s); ảnh / video / chữ (timeout ≤ 10 phút) giữ 15 phút như cũ.
+_HANG_LIMIT: Dict[str, float] = {}  # khoá chỗ ngồi → số giây được bận mà chưa bị coi là treo
 _WATCHDOG: Dict[str, Any] = {"thread": None}
 _DOWN: Dict[str, float] = {}        # hồ sơ → hết hạn bỏ qua
 # CHƯA ĐĂNG NHẬP (user 15/10/2026: «chỗ tạo ảnh với muse nếu browser lỗi login thì gắn cờ và chuyển ảnh cho seats khác
@@ -1042,6 +1046,7 @@ def _release(key: str) -> None:
         _BUSY.pop(key, None)
         _BUSY_SINCE.pop(key, None)
         _HUNG_RESET.pop(key, None)
+        _HANG_LIMIT.pop(key, None)
         _POOL.notify_all()
 
 
@@ -1055,7 +1060,7 @@ def _watch_once(now: Optional[float] = None) -> List[str]:
         if p.startswith(REMOTE_PREFIX) or k in _HUNG_RESET:
             continue
         ref = max(since, _LAST_OK.get(p, 0.0))
-        if now - ref <= HANG_SECONDS:
+        if now - ref <= max(HANG_SECONDS, _HANG_LIMIT.get(k, 0.0)):
             continue
         with _POOL:
             if _BUSY.get(k) != p or k in _HUNG_RESET:      # lượt vừa xong / người gác khác đã xử lý
@@ -1153,6 +1158,8 @@ def ask(prompt: str, *, want_images: bool = False, files: Optional[List[str]] = 
     prof, key = _acquire(pool, st["lanes"], want, remotes=remotes, skip=skip) if remotes \
         else _acquire(pool, st["lanes"], want, skip=skip)
     _live_seat(prof, key, remotes, want_images, want_videos, want_audio)
+    with _POOL:
+        _HANG_LIMIT[key] = max(float(HANG_SECONDS), float(timeout or 0) + 120.0)
     failed: Optional[MuseError] = None
     if prof.startswith(REMOTE_PREFIX):
         # Chỗ ngồi TỪ XA (9/10/2026 «giống 9Router»): gọi HTTP tới nút, không có trình duyệt ở đây

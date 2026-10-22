@@ -2480,7 +2480,7 @@ def _step_studio(state: Dict, options: Dict) -> None:
         state["storyboard_labels"] = len(labelled)
         state["_say"]("studio", "running",
                       f"removed speaker labels (VO:, Narrator:) from {len(labelled)} shot(s)")
-    judged = len(script.split()) >= STORYBOARD_COVERAGE_MIN_WORDS
+    judged = coverage_judged(script)
     cov = None
     if judged:
         scenes = [sc for sc in scenes_of(script) if sc[1]]
@@ -2580,6 +2580,13 @@ STORYBOARD_COVERAGE_MIN = 0.6
 # Chỉ xét kịch bản từ chừng này chữ (~80 giây): clip ngắn dựng lại tay rẻ hơn,
 # và tỷ lệ ở cỡ đó nhiễu (một câu mở đầu cũng đủ lệch hàng chục phần trăm).
 STORYBOARD_COVERAGE_MIN_WORDS = 200
+
+
+def coverage_judged(script: str) -> bool:
+    """Kịch bản đủ dài để kiểm độ phủ storyboard. Đếm bằng content_words (Hán/kana ~2 ký tự một chữ): trước 22/10/2026 đếm
+    `len(script.split())` ⇒ kịch bản Nhật/Trung (không dấu cách) KHÔNG BAO GIỜ được kiểm — task #444 Retry sau khi máy
+    chủ khởi động lại giữa lúc cắt storyboard (4/8 đợt) nhận 30 cảnh = NỬA bài (đoạn 25–48 mất) như «xong»."""
+    return max(len(str(script or "").split()), content_words(script)) >= STORYBOARD_COVERAGE_MIN_WORDS
 
 
 # Đo độ phủ theo NỘI DUNG, không theo số chữ: lời thoại DỊCH sang tiếng Anh cũng có
