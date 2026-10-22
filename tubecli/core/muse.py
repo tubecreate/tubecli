@@ -1141,10 +1141,11 @@ def ask(prompt: str, *, want_images: bool = False, files: Optional[List[str]] = 
     want = (_THREAD_OWNER.get(thread_id) or profile) if pinned else ""
     if want and want not in pool and not (want.startswith(REMOTE_PREFIX) and want in {f"{REMOTE_PREFIX}{i}" for i in range(len(remotes))}):
         want = ""
-    skip = set()
+    # avoid có tác dụng với MỌI loại lượt (trước đây chỉ video): lượt ảnh/chữ vừa treo ở một chỗ thì thử lại ở chỗ khác.
+    skip = set(avoid or ())
     if want_videos:
         _no_video_load()
-        skip = {p for p, t in _NO_VIDEO.items() if t > time.time()} | set(avoid or ())
+        skip |= {p for p, t in _NO_VIDEO.items() if t > time.time()}
     prof, key = _acquire(pool, st["lanes"], want, remotes=remotes, skip=skip) if remotes \
         else _acquire(pool, st["lanes"], want, skip=skip)
     _live_seat(prof, key, remotes, want_images, want_videos, False)
@@ -1235,7 +1236,9 @@ def ask(prompt: str, *, want_images: bool = False, files: Optional[List[str]] = 
     if failed.kind == "timeout" and launch and _attempt < MUSE_ATTEMPTS:
         # Lượt treo quá hạn (video 15 phút, chữ/ảnh 5 phút) mà không ra gì: phiên có thể kẹt → ĐÓNG HẲN phiên (dọn RAM),
         # mở lại, thử lại trong chat MỚI (chat riêng ghim tài khoản thì giữ chat) — user 9/10/2026: «sau 15 phút thử không
-        # thành công thì reset phiên chứ» (thay cho giết phiên theo đồng hồ 30 phút). Tài khoản vừa treo không bị bỏ qua.
+        # thành công thì reset phiên chứ» (thay cho giết phiên theo đồng hồ 30 phút). Lượt thử lại TRÁNH chỗ vừa treo
+        # (VPS 49 22/10/2026: muse-vinh-21/22 treo 300 s rồi lượt sau lại vào đúng chỗ ấy — 596 lần trong 72 giờ);
+        # _acquire chỉ quay lại chỗ ấy khi không còn chỗ nào khác. Chat riêng ghim tài khoản thì vẫn chỗ đó.
         logger.warning("muse: %s did not finish within %s s — resetting its session and retrying (%d/%d)",
                        prof, timeout, _attempt, MUSE_ATTEMPTS)
         reset_browser(prof)
@@ -1243,7 +1246,7 @@ def ask(prompt: str, *, want_images: bool = False, files: Optional[List[str]] = 
         return ask(prompt, want_images=want_images, files=files, image_dir=image_dir, max_images=max_images,
                    timeout=timeout, fresh=(fresh or not own), launch=launch, want_videos=want_videos, video_dir=video_dir,
                    max_videos=max_videos, thread_id=thread_id, _failover=_failover, _attempt=_attempt + 1,
-                   avoid=avoid)
+                   avoid=(avoid if pinned else (set(avoid or ()) | {prof})))
     if (failed.kind == "browser" and launch) or failed.kind == "auth":
         # hết đường thử lại — báo người vận hành (user 8/10/2026: «nếu 3 lần lỗi báo cho telegram»)
         _alert(f"{failed.kind}:{prof}", _alert_text(failed, prof, _attempt))

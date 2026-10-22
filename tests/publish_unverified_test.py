@@ -128,7 +128,15 @@ ok(CALLS[-1]["options"].get("publish_unverified") is False and CALLS[-1]["option
 
 STORE.unlink(missing_ok=True)
 agent(publish_unverified=True)
-ok(A.pause_for_length("ag1", 1031, "Bible"), "pause_for_length ghi sổ")
+# .213: kịch bản tự đăng cho kênh chưa xác minh được viết vừa 15 phút ⇒ dừng chỉ GIỮ khi chính kịch bản đã giới hạn
+# (capped) vẫn ra video dài; dừng vì một video dài KHÔNG giới hạn (sổ cũ, Retry kịch bản cũ) không chặn lượt sau.
+ok(A.pause_for_length("ag1", 1031, "Bible"), "pause_for_length ghi sổ (không giới hạn)")
+n = len(CALLS)
+r = fire()
+ok(len(CALLS) == n + 1 and r.startswith("queued"), "dừng của video KHÔNG giới hạn ⇒ không chặn, lượt sau tự ngắn", r)
+STORE.unlink(missing_ok=True)
+agent(publish_unverified=True)
+ok(A.pause_for_length("ag1", 1031, "Bible", capped=True), "pause_for_length ghi sổ (kịch bản đã giới hạn)")
 n = len(CALLS)
 r = fire()
 ok(len(CALLS) == n and r.startswith("skip: auto-publish paused") and "17:11" in r, "đang dừng ⇒ không xếp task", r)
@@ -141,11 +149,11 @@ r = fire()
 ok(r.startswith("queued") and CALLS[-1]["options"].get("publish") is True and not A.get_mark("ag1")["paused"],
    "bỏ cờ (đã xác minh) ⇒ hết dừng, đăng lại", r)
 agent(publish_unverified=True)
-A.pause_for_length("ag1", 1031, "Bible")
+A.pause_for_length("ag1", 1031, "Bible", capped=True)
 TEMPLATES["Bible"] = {"updated_at": "2026-10-19T10:00:00+07:00"}
 r = fire()
 ok(r.startswith("queued") and not A.get_mark("ag1")["paused"], "sửa mẫu (updated_at đổi) ⇒ hết dừng", r)
-A.pause_for_length("ag1", 1031, "Bible")
+A.pause_for_length("ag1", 1031, "Bible", capped=True)
 agent(publish_unverified=True, content_video_preset="Short ES")
 r = fire()
 ok(r.startswith("queued"), "đổi mẫu ⇒ hết dừng", r)
@@ -171,8 +179,15 @@ s = st()
 P._step_publish(s, {"publish": True, "publish_unverified": True, "autopublish": True, "preset": "Bible"})
 ok(not PUB and s.get("publish_blocked") == "long_unverified", "17:11 + chưa xác minh ⇒ không gọi đăng, không ném")
 w = " ".join(s["warnings"])
-ok("17:11" in w and "15 minutes" in w and P.VERIFY_URL in w and "paused" in w, "cảnh báo: độ dài, mức 15 phút, link xác minh, đã dừng", w)
-ok(A.get_mark("ag1")["paused"].get("seconds") == 1031, "cò súng bị dừng", A.get_mark("ag1")["paused"])
+ok("17:11" in w and "15 minutes" in w and P.VERIFY_URL in w and "2000 words" in w and "paused" not in w,
+   "kịch bản cũ (không giới hạn): cảnh báo độ dài, link xác minh, lượt sau viết ~2000 chữ — KHÔNG nói dừng", w)
+ok(A.get_mark("ag1")["paused"].get("seconds") == 1031 and A.get_mark("ag1")["paused"].get("capped") is False,
+   "sổ ghi lần dừng nhưng không giới hạn ⇒ không giữ", A.get_mark("ag1")["paused"])
+STORE.unlink(missing_ok=True)
+s = st(words_capped=True)
+P._step_publish(s, {"publish": True, "publish_unverified": True, "autopublish": True, "preset": "Bible"})
+ok("paused" in " ".join(s["warnings"]) and A.get_mark("ag1")["paused"].get("capped") is True,
+   "kịch bản ĐÃ giới hạn mà vẫn 17:11 ⇒ dừng thật (vòng lặp)", s["warnings"])
 SECS[0] = 899.0
 s = st()
 P._step_publish(s, {"publish": True, "publish_unverified": True, "autopublish": True})
