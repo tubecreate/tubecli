@@ -244,6 +244,72 @@ said.clear()
 P._step_dub(state, {"dub": True})
 ok(calls["speech"] == 2 and any("no narration" in str(a) for a in said), "không cảnh nào có lời → bỏ qua, không gọi Muse")
 
+print("── D. task #444 (22/10/2026) ──")
+# D1. người gác treo: lượt đọc cả bài có hạn riêng (timeout + 120 s) — không bị đóng ở phút 15
+resets = []
+_rb, _al = M.reset_browser, M._alert
+M.reset_browser = lambda p: resets.append(p) or True
+M._alert = lambda *a, **k: None
+now = 10_000.0
+with M._POOL:
+    M._BUSY["pX"] = "pX"
+    M._BUSY_SINCE["pX"] = now - 1000
+    M._HANG_LIMIT["pX"] = 1800.0
+    M._BUSY["pY"] = "pY"
+    M._BUSY_SINCE["pY"] = now - 1000
+M._LAST_OK.pop("pX", None)
+M._LAST_OK.pop("pY", None)
+hung = M._watch_once(now)
+ok(hung == ["pY"] and resets == ["pY"], "người gác: lượt thường bận 16 phút bị đóng, lượt đọc cả bài (hạn 30 phút) thì không", hung)
+hung2 = M._watch_once(now + 1000)
+ok("pX" in hung2, "người gác: quá hạn riêng (33 phút) thì vẫn đóng", hung2)
+M._release("pX")
+M._release("pY")
+ok("pX" not in M._HANG_LIMIT, "trả chỗ ngồi → xoá hạn riêng")
+M.reset_browser, M._alert = _rb, _al
+# D2. ask khai hạn riêng theo timeout
+seen_limit = {}
+_saved = (M.settings, M.ensure_browser, M.run_tool)
+M.settings = lambda: {"profile": "p1", "pool": ["p1"], "lanes": 1, "turns_per_chat": 10, "remotes": []}
+M.ensure_browser = lambda profile, launch=True: 9222
+
+
+def tool2(port, action, req=None, timeout=60):
+    seen_limit.update(dict(M._HANG_LIMIT))
+    return {"ok": True, "text": "0:00", "audios": [{"path": "x.mp3"}], "thread_id": "t"}
+
+
+M.run_tool = tool2
+M.ask("read", thread_id="new", want_audio=True, audio_dir="D:/a", timeout=1680)
+ok(1800.0 in seen_limit.values() and not M._HANG_LIMIT, "ask: lượt 1680 s khai hạn 1800 s khi đang chạy, trả lại khi xong",
+   (seen_limit, dict(M._HANG_LIMIT)))
+M.settings, M.ensure_browser, M.run_tool = _saved
+# D3. độ phủ storyboard được KIỂM cho kịch bản tiếng Nhật
+JA_PARAS = [
+    "旅の最初の場所は、口です。消化は、胃ではなく、口から始まっています。よく噛むと、食べ物が細かくなるだけでなく、唾液がたくさん出ます。唾液には、ごはんなどのでんぷんを分解する働きや、口の中をきれいに保つ働きがあります。",
+    "厚生労働省は、ひと口30回噛むことを目標にした、「カミングサンマル」という取り組みを呼びかけています。最初から30回は大変でも、いつもより10回多く噛むだけで、胃や腸の負担はぐっと軽くなります。早食いを防いで、食べ過ぎを抑えることにもつながります。",
+    "年を重ねると、噛む力や、飲み込む力も、少しずつ弱くなっていきます。飲み込むときに、食べ物や飲み物が、気管のほうに入ってしまうことを「誤嚥」といいます。食事中にむせることが増えた、という方は、注意が必要です。",
+    "食事のときは、背すじを伸ばして、少しあごを引いて食べましょう。上を向いたまま飲み込むと、気管に入りやすくなります。食後の歯みがきや、入れ歯のお手入れも大切です。口の中を清潔に保つことは、肺炎の予防にもつながります。",
+    "次の場所は、食道と胃です。飲み込んだ食べ物は、食道を通って胃に届きます。胃では、強い酸を含んだ胃液が、食べ物を溶かしながら、少しずつ腸へと送り出していきます。",
+    "食道と胃のさかい目には、胃の中身が逆流しないようにする、筋肉の門があります。年を重ねると、この門がゆるみやすくなり、胃酸が食道に上がってくることがあります。胸やけや、酸っぱいものがこみ上げてくる感じは、そのサインかもしれません。",
+    "予防のためには、食べ過ぎないこと。そして、食後すぐに横にならないことです。食べてから2時間から3時間は、体を起こしておくと安心です。お腹をきつく締めつけるベルトや、前かがみの姿勢が長く続くことも、逆流の原因になります。",
+    "胃の調子が気になる方は、ピロリ菌の検査を受けたことがあるかどうかも、一度思い出してみてください。胃の病気と関係の深い菌で、検査や治療については、かかりつけのお医者さんに相談することができます。",
+    "胃を出た食べ物は、小腸に入ります。小腸は、消化管の中でいちばん長い場所です。ここで食べ物はさらに細かく分解され、栄養のほとんどが体の中に吸収されます。小腸の内側には、細かいひだがびっしりと並んでいて、栄養を逃さず取り込んでいるのです。",
+    "そして、旅の最後の大きな場所が、大腸です。大腸は、残ったものから水分を吸収して、便の形を作っていきます。大腸の中には、何十兆個もの細菌が住んでいて、私たちの健康を支えています。いわゆる「腸内細菌」です。",
+    "腸内細菌の中には、体にとって良い働きをするものも、悪い働きをするものもいます。良い働きをする細菌は、食物繊維をえさにして増え、腸の動きを助けたり、腸の壁を守ったりしてくれます。毎日の食事が、そのまま腸内細菌の食事にもなっているのです。",
+    "食物繊維には、大きく分けて二つの種類があります。水に溶けるタイプは、海藻、大麦、果物などに多く、便をやわらかくして、腸内細菌のえさにもなります。水に溶けないタイプは、ごぼう、きのこ、豆などに多く、便のかさを増やして、腸を内側から刺激してくれます。どちらか一方ではなく、いろいろな食材から、バランスよくとるのがこつです。"
+]
+ja_script = "\n\n".join(f"[SHOW: scene {i}]\n{t}" for i, t in enumerate(JA_PARAS, 1))
+ok(P.coverage_judged(ja_script) and len(ja_script.split()) < P.STORYBOARD_COVERAGE_MIN_WORDS,
+   "kịch bản Nhật dài: được kiểm độ phủ (trước đây split() đếm ra vài chục «từ» → không bao giờ kiểm)")
+ok(not P.coverage_judged("短い文です。" * 10) and P.coverage_judged(" ".join(["word"] * 250))
+   and not P.coverage_judged(" ".join(["word"] * 150)), "bài ngắn vẫn bỏ qua; tiếng Anh như cũ")
+half = [{"id": i, "storyboard_number": i, "narration_text": n} for i, (_, n) in enumerate(P.scenes_of(ja_script)[:6], 1)]
+miss = P.missing_scenes(half, ja_script)
+scenes = [sc for sc in P.scenes_of(ja_script) if sc[1]]
+ok((len(miss) >= 5 and min(miss) >= 5) or P.storyboard_stopped_early(half, scenes),
+   "nửa bài (6/12 cảnh): phát hiện thiếu phần đuôi → bước studio sẽ chèn / cắt tiếp", (miss[:5], len(miss)))
+
 shutil.rmtree(tmp, ignore_errors=True)
 print(f"\n{PASS} passed, {FAIL} failed")
 sys.exit(0 if FAIL == 0 else 1)
