@@ -913,6 +913,7 @@ async def install_from_market(public_id: str, req: MarketInstallRequest,
 
         item_data = _unwrap_item_data(item_data)
 
+        dl_error = ""
         # ── Step 2: If no files, download from server ──
         if not (isinstance(item_data, dict) and "files" in item_data):
             print(f"[Market] item_data has no 'files' key, trying download-data.php...")
@@ -926,7 +927,8 @@ async def install_from_market(public_id: str, req: MarketInstallRequest,
                     else:
                         print(f"[Market] Server returned item_data but no 'files' key: {type(server_data)}")
                 else:
-                    print(f"[Market] download-data.php returned: {dl.get('status')}")
+                    dl_error = str(dl.get("message") or dl.get("status") or "")
+                    print(f"[Market] download-data.php returned: {dl.get('status')} {dl.get('message') or ''}")
             except Exception as e:
                 print(f"[Market] Download item_data failed: {e}")
 
@@ -999,6 +1001,16 @@ async def install_from_market(public_id: str, req: MarketInstallRequest,
                 if ext_obj and ext_obj.extension_dir and os.path.isdir(ext_obj.extension_dir):
                     source_dir = ext_obj.extension_dir
 
+            if was_installed and (not source_dir or os.path.realpath(source_dir) == os.path.realpath(ext_dir)):
+                # CẬP NHẬT mà tải từ Chợ hỏng: «nguồn cục bộ» là chính bản đang cài (chép đè lên chính nó → SameFileError
+                # 500), hoặc không có nguồn nào — khi đó nhánh dưới từng rmtree XOÁ LUÔN bản đang cài. Nói thật: tải
+                # hỏng, bản đang có giữ nguyên, thử lại.
+                raise HTTPException(
+                    502,
+                    detail={"message": (f"Could not download '{req.item_name}' from the Market"
+                                        + (f" ({dl_error})" if dl_error else "") +
+                                        " — the version already installed is kept. Try again in a moment."),
+                            "download_failed": True})
             if source_dir:
                 print(f"[Market] Copying from local source: {source_dir}")
                 # Copy all files from source extension
