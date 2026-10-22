@@ -310,6 +310,27 @@ scenes = [sc for sc in P.scenes_of(ja_script) if sc[1]]
 ok((len(miss) >= 5 and min(miss) >= 5) or P.storyboard_stopped_early(half, scenes),
    "nửa bài (6/12 cảnh): phát hiện thiếu phần đuôi → bước studio sẽ chèn / cắt tiếp", (miss[:5], len(miss)))
 
+# D4. storyboard dừng giữa chừng: shot cuối của nửa đầu gán đúng cảnh của nó (không bị vị trí kéo sang cảnh cuối) + nhịp chèn
+#     theo mật độ của tập; lời bị DỊCH vẫn gióng theo vị trí như cũ
+ja_sc = [sc for sc in P.scenes_of(ja_script) if sc[1]]
+long_half = [{"id": i, "storyboard_number": i, "narration_text": n, "description": "視聴者は、温かい居間で穏やかな絵を見ます。"}
+             for i, (_, n) in enumerate(ja_sc[:6], 1)]
+own = P.align_shots_to_scenes(long_half, ja_sc)
+ok(own[-1] == 5 and own == sorted(own), "dừng giữa chừng: shot cuối của nửa đầu ở đúng cảnh 6 (không bị kéo sang cảnh 12)", own)
+ok(P.storyboard_stopped_early(long_half, ja_sc), "dừng giữa chừng được nhận ra")
+got_ins = []
+_real_ins = P._insert_shots
+P._insert_shots = lambda ep_id, after, beats: got_ins.append((after, beats)) or len(beats)
+n_added = P._insert_missing_scene_shots(835, {}, long_half, ja_sc, P.missing_scenes(long_half, ja_script))
+P._insert_shots = _real_ins
+per = P.insert_beat_words(long_half)
+ok(got_ins and got_ins[0][0] == 6 and per > P._INSERT_BEAT_WORDS and n_added <= 2 * 6,
+   "chèn SAU shot cuối, nhịp theo mật độ của tập (không cắt vụn từng câu)", (got_ins[0][0] if got_ins else None, per, n_added))
+en = [{"id": i, "storyboard_number": i, "narration_text": f"Translated sentence number {i} about the gut and daily habits."}
+      for i in range(1, 13)]
+own_en = P.align_shots_to_scenes(en, ja_sc)
+ok(own_en[0] == 0 and own_en[-1] == 11, "lời bị dịch (không trùng chữ): vẫn gióng theo vị trí, phủ cả kịch bản", own_en)
+
 shutil.rmtree(tmp, ignore_errors=True)
 print(f"\n{PASS} passed, {FAIL} failed")
 sys.exit(0 if FAIL == 0 else 1)

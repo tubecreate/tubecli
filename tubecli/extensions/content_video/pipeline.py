@@ -2631,6 +2631,39 @@ def _spans(lengths: List[int]) -> List[Tuple[float, float]]:
 # Trọng số của VỊ TRÍ so với chữ trùng khi gióng shot vào cảnh. Chữ trùng của một shot
 # chép đúng ~0,6–0,9; vị trí chỉ đủ phân xử khi chữ không nói được gì (lời bị dịch).
 _ALIGN_POS_WEIGHT = 0.35
+# Đuôi kịch bản (theo số chữ) mà chữ ĐẶC TRƯNG không có trong shot nào, từ chừng này trở lên ⇒ storyboard dừng giữa chừng
+# (xem align_shots_to_scenes). Chữ đặc trưng = chữ chỉ có ở ≤ _ALIGN_RARE_DF cảnh; một cảnh «có mặt» khi ≥ _ALIGN_SCENE_SEEN chữ
+# đặc trưng của nó nằm trong lời các shot; phần trước đuôi phải phủ trung bình ≥ _ALIGN_HEAD_SEEN (lời chép đúng kịch bản).
+_ALIGN_TAIL_MIN = 0.15
+_ALIGN_RARE_DF = 2
+_ALIGN_SCENE_SEEN = 0.5
+_ALIGN_HEAD_SEEN = 0.75
+
+
+def _uncovered_tail_share(shots: List[Dict], scenes: List[tuple]) -> float:
+    """Phần (0..1, theo số chữ) ĐUÔI kịch bản không có mặt trong lời shot nào — chỉ khi phần trước đuôi được phủ tốt (lời CHÉP
+    kịch bản, ≥ 2 cảnh). Storyboard rút gọn cả bài không phủ tốt phần nào; lời bị DỊCH cũng vậy ⇒ 0 (gióng theo vị trí như cũ).
+    Ngưỡng tần suất cố định chứ không theo số cảnh: cặp chữ Nhật phổ biến (có ở 1/3 số cảnh) làm đuôi ep835 vẫn «thấy» 0,4–0,7."""
+    if len(scenes) < 4 or not shots:
+        return 0.0
+    counts = [_token_counts(narr) for _, narr in scenes]
+    df: Dict[str, int] = {}
+    for ct in counts:
+        for tok in ct:
+            df[tok] = df.get(tok, 0) + 1
+    content = [{t for t in ct if df[t] <= _ALIGN_RARE_DF} for ct in counts]
+    have: set = set()
+    for sh in shots:
+        have |= _tokens(_shot_narration(sh))
+    seen = [(len(c & have) / float(len(c))) if c else None for c in content]
+    w = [max(1, content_words(narr)) for _, narr in scenes]
+    j = len(scenes)
+    while j > 0 and (seen[j - 1] is None or seen[j - 1] < _ALIGN_SCENE_SEEN):
+        j -= 1
+    head = [x for x in seen[:j] if x is not None]
+    if len(head) < 2 or sum(head) / len(head) < _ALIGN_HEAD_SEEN:
+        return 0.0
+    return sum(w[j:]) / float(sum(w))
 
 
 def align_shots_to_scenes(shots: List[Dict], scenes: List[tuple]) -> List[int]:
@@ -2644,8 +2677,17 @@ def align_shots_to_scenes(shots: List[Dict], scenes: List[tuple]) -> List[int]:
     if not shots or not scenes:
         return [0] * len(shots)
     sc_tok = [_tokens(f"{show} {narr}") for show, narr in scenes]
-    sh_sp = _spans([max(1, content_words(_shot_narration(sh))) for sh in shots])
-    sc_sp = _spans([max(1, content_words(narr)) for _, narr in scenes])
+    sh_w = [max(1, content_words(_shot_narration(sh))) for sh in shots]
+    sc_w = [max(1, content_words(narr)) for _, narr in scenes]
+    sh_sp = _spans(sh_w)
+    sc_sp = _spans(sc_w)
+    tail = _uncovered_tail_share(shots, scenes)
+    if tail >= _ALIGN_TAIL_MIN:
+        # Storyboard DỪNG GIỮA CHỪNG: đuôi kịch bản không có chữ đặc trưng nào trong shot ⇒ các shot là PHẦN ĐẦU. Kéo giãn chúng
+        # ra trục 0..1 của cả kịch bản thì vị trí đẩy shot cuối sang cảnh cuối (task #444, 22/10/2026: 30 shot của đoạn 1–24 /
+        # 46 — shot «清さん…» bị gán cảnh 46, cảnh chèn đặt TRƯỚC nó, tranh bị đẩy ra cuối video). Co vị trí về phần đầu.
+        k = 1.0 - tail
+        sh_sp = [(a * k, b * k) for a, b in sh_sp]
     m, n = len(shots), len(scenes)
     score = [[0.0] * n for _ in range(m)]
     for i, sh in enumerate(shots):
@@ -3047,6 +3089,11 @@ def realign_to_captions(shots: List[Dict]) -> List[Tuple[Any, str]]:
 # Nhịp chèn cho cảnh bị rơi dài tối đa chừng này chữ: nhịp Studio tự cắt cho tập #119 có trung vị 20 chữ, p90 30
 # (bộ cảnh chữ/phấn cũng cắt nhịp ≤ 26 chữ — scene_plan.split_beats).
 _INSERT_BEAT_WORDS = 26
+# …nhưng không nhỏ hơn mật độ của CHÍNH tập: 1,3 × trung bình chữ các cảnh còn lời (trần _INSERT_BEAT_MAX). Task #444 (22/10/2026,
+# Storybook Health ~45 chữ / cảnh) mất nửa sau storyboard ⇒ 26 chữ / nhịp chèn 71 cảnh cho 22 đoạn: nửa sau đổi tranh mỗi ~6 s
+# (nửa đầu ~22 s) và Muse vẽ gấp 2–3 lần. Mẫu bảng phấn (~20 chữ / nhịp) vẫn 26 như cũ.
+_INSERT_BEAT_SCALE = 1.3
+_INSERT_BEAT_MAX = 90
 
 
 def _insert_beats(narr: str, per: int = _INSERT_BEAT_WORDS) -> List[str]:
@@ -3085,6 +3132,7 @@ def _insert_missing_scene_shots(ep_id: int, state: Dict, shots: List[Dict], scen
         if j not in missing:
             groups.setdefault(j, []).append(i)
     num = [int(sh.get("storyboard_number") or (i + 1)) for i, sh in enumerate(order)]
+    per = insert_beat_words([order[i] for idxs in groups.values() for i in idxs])
     runs: List[List[int]] = []
     for j in sorted(set(missing)):
         if runs and j == runs[-1][-1] + 1:
@@ -3102,7 +3150,7 @@ def _insert_missing_scene_shots(ep_id: int, state: Dict, shots: List[Dict], scen
             after = num[groups[nxt[0]][0]] - 1
         else:
             after = 0
-        beats = [b for j in run for b in _beat_items(str(scenes[j][1]))]
+        beats = [b for j in run for b in _beat_items(str(scenes[j][1]), per)]
         if not beats:
             continue
         n_ins = _insert_shots(ep_id, after, beats)
@@ -3125,8 +3173,19 @@ def _insert_shots(ep_id: int, after: int, beats: List[Dict]) -> Optional[int]:
     return int((res or {}).get("count") or 0)
 
 
-def _beat_items(narr: str) -> List[Dict]:
-    return [{"narration_text": b, "title": "", "image_prompt": "", "description": b[:200]} for b in _insert_beats(narr)]
+def insert_beat_words(kept_shots: List[Dict]) -> int:
+    """Số chữ tối đa của một nhịp chèn: theo mật độ các cảnh CÒN lời của tập (≥ 4 cảnh), không dưới _INSERT_BEAT_WORDS."""
+    words = [content_words(_shot_narration(sh)) for sh in kept_shots or []]
+    words = [w for w in words if w > 0]
+    if len(words) < 4:
+        return _INSERT_BEAT_WORDS
+    avg = sum(words) / float(len(words))
+    return max(_INSERT_BEAT_WORDS, min(_INSERT_BEAT_MAX, int(round(avg * _INSERT_BEAT_SCALE))))
+
+
+def _beat_items(narr: str, per: int = _INSERT_BEAT_WORDS) -> List[Dict]:
+    return [{"narration_text": b, "title": "", "image_prompt": "", "description": b[:200]}
+            for b in _insert_beats(narr, per)]
 
 
 # Nhịp ngắn hơn chừng này chữ thì không xét "ôm nhiều cảnh" (nhịp thường 20–30 chữ; hai cảnh dồn vào đã > 100).
