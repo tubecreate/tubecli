@@ -3484,6 +3484,9 @@ def _step_images(state: Dict, options: Dict) -> None:
         # Same value the drama was created with (_resolve_aspect), so shots
         # match the frame the template asked for.
         "aspect_ratio": state.get("aspect_ratio") or options.get("aspect_ratio") or DEFAULTS["aspect_ratio"],
+        # Kho ảnh template (22/10/2026): agent bật «góp ảnh» ⇒ Studio góp ảnh vẽ xong vào kho chung của template trên
+        # cloud. Lấy ảnh lùi từ kho (model từ chối / vẽ quá hạn / hết ghế Muse) không cần cờ. Studio cũ bỏ qua khoá.
+        "library_contribute": bool(getattr(state.get("agent"), "library_contribute", False)),
     }
     # Hộp Retry: model vẽ chọn cho lượt này ĐÈ cả model riêng từng nhịp (hook/sơ đồ theo mẫu) — trường hợp hay gặp
     # là gpt-image-2 hỏng 401 mà nhịp hook/sơ đồ vẫn đòi nó. «Vẽ lại tất cả» chỉ một lần (mã ghi vào checkpoint).
@@ -3591,6 +3594,28 @@ def _step_images(state: Dict, options: Dict) -> None:
             + " — they will be missing from the video.")
     state.setdefault("warnings", []).extend(_clip_warnings(data))
     state["warnings"].extend(_fallback_image_warnings(data))
+    state["warnings"].extend(_library_image_warnings(data))
+
+
+def _library_image_warnings(data: Dict) -> List[str]:
+    """Cảnh lấy ảnh từ KHO ẢNH TEMPLATE (22/10/2026) vì model từ chối / vẽ quá hạn / hết ghế Muse — ảnh khớp thẻ chứ
+    không vẽ riêng cho cảnh, người duyệt cần biết để xem lại. Studio ghi `library_images` {count, total, why, shots};
+    Studio cũ không ghi → []."""
+    lb = data.get("library_images") if isinstance(data, dict) and isinstance(data.get("library_images"), dict) else {}
+    try:
+        n = int(lb.get("count") or 0)
+    except (TypeError, ValueError):
+        n = 0
+    if n <= 0:
+        return []
+    labels = {"refused": "refused by the model", "slow": "too slow", "no_seat": "no Muse seat", "failed": "failed"}
+    why = lb.get("why") if isinstance(lb.get("why"), dict) else {}
+    reasons = ", ".join(f"{labels.get(k, k)} ×{v}" for k, v in sorted(why.items(), key=lambda kv: -int(kv[1] or 0)))
+    total = int(lb.get("total") or 0)
+    shots = [str(x) for x in (lb.get("shots") or [])][:12]
+    return [f"{n}{f'/{total}' if total else ''} shot image(s) came from the template's image LIBRARY instead of being "
+            f"drawn" + (f" ({reasons})" if reasons else "") + (f" — shot {', '.join(shots)}" if shots else "")
+            + ". They match the scene's tags, not its exact prompt — check those scenes before publishing."]
 
 
 def _fallback_image_warnings(data: Dict) -> List[str]:

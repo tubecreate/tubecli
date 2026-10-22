@@ -70,6 +70,10 @@ PUBLISH_DEFAULTS = {
     # không nhận thumbnail tuỳ chỉnh. Bật ⇒ video dài KHÔNG đăng (cảnh báo + tạm dừng tự đăng, hết vòng «dựng →
     # đăng hỏng → dựng lại»), không vẽ/gắn thumbnail. Đăng hỏng một video >15 phút cũng tự bật cờ này.
     "publish_unverified": False,
+    # Kho ảnh template (22/10/2026): ảnh agent vẽ xong được GÓP vào kho ảnh chung của template trên cloud (Content
+    # Studio engines/template_library.py) — mặc định TẮT vì ảnh sẽ được người khác dùng. Lấy ảnh lùi từ kho thì
+    # không cần cờ này (luôn bật khi template có kho).
+    "library_contribute": False,
 }
 RESEARCH_PROMPT_MAX = 2000
 YOUTUBE_SUBS_MAX = 5
@@ -92,7 +96,8 @@ def coerce_publish_value(key: str, value: Any) -> Any:
     một dòng hỏng không được phép làm chết cả server. Tầng API mới là chỗ
     nói "sai rồi" (422) — xem AgentCreateRequest/AgentUpdateRequest.
     """
-    if key in ("auto_publish", "publish_monetize", "auto_video", "publish_thumbnail", "publish_unverified"):
+    if key in ("auto_publish", "publish_monetize", "auto_video", "publish_thumbnail", "publish_unverified",
+               "library_contribute"):
         return bool(value)
     if key == "youtube_subs_per_run":
         try:
@@ -286,6 +291,7 @@ class Agent:
         publish_tz_offset: Any = "",
         publish_thumbnail: bool = True,
         publish_unverified: bool = False,
+        library_contribute: bool = False,
         # Schedule Settings
         schedule_enabled: bool = False,
         schedule_repeat: str = "Daily",
@@ -381,6 +387,7 @@ class Agent:
             "publish_tz_offset": publish_tz_offset,
             "publish_thumbnail": publish_thumbnail,
             "publish_unverified": publish_unverified,
+            "library_contribute": library_contribute,
         }).items():
             setattr(self, _k, _v)
 
@@ -464,6 +471,7 @@ class Agent:
             "publish_tz_offset": getattr(self, "publish_tz_offset", ""),
             "publish_thumbnail": bool(getattr(self, "publish_thumbnail", True)),
             "publish_unverified": bool(getattr(self, "publish_unverified", False)),
+            "library_contribute": bool(getattr(self, "library_contribute", False)),
             "schedule_enabled": getattr(self, "schedule_enabled", False),
             "schedule_repeat": getattr(self, "schedule_repeat", "Daily"),
             "schedule_interval": getattr(self, "schedule_interval", 60),
