@@ -2592,7 +2592,6 @@ def coverage_judged(script: str) -> bool:
 # Đo độ phủ theo NỘI DUNG, không theo số chữ: lời thoại DỊCH sang tiếng Anh cũng có
 # ngần ấy chữ, mà bản cũ vẫn báo "covers 100%" (tập 337, 13/9/2026).
 _WORD_RE = re.compile(r"[\w']+", re.U)
-_SENT_RE = re.compile(r"(?<=[.!?…。！？])\s+")
 _RUN_RE = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\u0e00-\u0e7f]+")
 
 
@@ -2814,17 +2813,20 @@ def storyboard_stopped_early(shots: List[Dict], scenes: List[tuple]) -> bool:
 
 
 def _split_even(text: str, parts: int) -> List[str]:
-    """Chia câu của một cảnh thành `parts` khúc liền nhau, cân theo số chữ."""
-    sents = [x.strip() for x in _SENT_RE.split((text or "").strip()) if x.strip()]
+    """Chia câu của một cảnh thành `parts` khúc liền nhau, cân theo số chữ.
+
+    Câu theo split_sentences (。！？ không cần dấu cách), chữ theo content_words: trước 22/10/2026 cắt bằng regex (cần
+    dấu cách sau 。) và đếm split() ⇒ đoạn tiếng Nhật là MỘT câu ⇒ [cả đoạn, "", …] — task #444: 16/63 shot lời rỗng."""
+    sents = split_sentences(" ".join(str(text or "").split()))
     if parts <= 1 or len(sents) <= 1:
-        return [" ".join(sents)] + [""] * (parts - 1)
+        return [_join_units(sents)] + [""] * (parts - 1)
     if len(sents) <= parts:                 # mỗi câu một khúc, khúc thừa ở cuối mới rỗng
         return sents + [""] * (parts - len(sents))
-    total = sum(len(x.split()) for x in sents)
+    total = sum(content_words(x) for x in sents)
     out, cur, used = [], [], 0
     for i, sent in enumerate(sents):
         cur.append(sent)
-        used += len(sent.split())
+        used += content_words(sent)
         left = len(sents) - i - 1           # câu còn lại sau câu này
         need = parts - len(out) - 1         # khúc còn phải lấp nếu cắt ở đây
         # Cắt khi đủ phần chữ của khúc — nhưng chỉ khi câu còn lại đủ cho mọi khúc sau; và BẮT BUỘC cắt khi câu
@@ -2832,9 +2834,9 @@ def _split_even(text: str, parts: int) -> List[str]:
         # 25/9/2026 máy 28 video Bảng phấn «đường ruột», 4 câu dài 10/12/15/15 chữ → [c1+c2, c3, c4, ""] — chữ
         # trên hình đi theo câu còn giọng dồn lên trước, rồi cảnh cuối nhóm im 5 giây (8 lần trong video).
         if need > 0 and left >= need and (used >= total * (len(out) + 1) / parts or left == need):
-            out.append(" ".join(cur))
+            out.append(_join_units(cur))
             cur = []
-    out.append(" ".join(cur))
+    out.append(_join_units(cur))
     return out + [""] * (parts - len(out))
 
 
@@ -2852,7 +2854,8 @@ def narration_is_faithful(shots: List[Dict], script: str) -> bool:
         shots, key=lambda sh: (sh.get("storyboard_number") is None,
                                sh.get("storyboard_number") or 0, sh.get("id") or 0)))
     want = " ".join(n for _, n in scenes_of(script) if n)
-    return bool(joined.split()) and joined.split() == want.split()
+    # So chữ bỏ khoảng trắng: tiếng Nhật/Trung nối câu không dấu cách nên so theo split() thì chỗ cắt nhịp khác là «khác».
+    return bool(_bare(joined)) and _bare(joined) == _bare(want)
 
 
 def _narration_differs(shots: List[Dict], fixed: List[Tuple[Any, str]]) -> List[Tuple[Any, str]]:
@@ -2908,10 +2911,22 @@ def restore_narration(shots: List[Dict], script: str) -> List[Tuple[Any, str]]:
     blocks = _balance_blocks(blocks, [narr for _, narr in scenes])
     text = [""] * len(shots)
     for js, idxs in blocks:
-        narr = " ".join(str(scenes[j][1]).strip() for j in js if str(scenes[j][1]).strip())
+        narr = _join_units([str(scenes[j][1]).strip() for j in js if str(scenes[j][1]).strip()])
+        have = [_shot_narration(shots[i]).strip() for i in idxs]
+        if all(have) and _bare(_join_units(have)) == _bare(narr):
+            # Lời các shot của khối ghép lại đúng bằng lời khối, không shot nào rỗng ⇒ giữ nguyên ranh giới (nhịp chèn cho
+            # cảnh bỏ sót đã mang đúng câu của nó; chia lại chỉ dời chỗ cắt và xoá giọng đã thu).
+            for i, h in zip(idxs, have):
+                text[i] = h
+            continue
         for i, piece in zip(idxs, _split_even(narr, len(idxs))):
-            text[i] = (text[i] + " " + piece).strip()
+            text[i] = _join_units([x for x in (text[i], piece) if x])
     return [(sh.get("id"), text[i]) for i, sh in enumerate(shots)]
+
+
+def _bare(text: str) -> str:
+    """Chữ bỏ hết khoảng trắng — so lời ghép lại với lời kịch bản bất kể chỗ nối có dấu cách hay không."""
+    return "".join(str(text or "").split())
 
 
 _BLOCK_HEAVY = 2.5          # khối có chữ/shot gấp hơn chừng này lần trung bình thì gộp với khối bên cạnh
@@ -2921,14 +2936,14 @@ def _balance_blocks(blocks: List[Tuple[List[int], List[int]]], narrs: List[str])
     """Gộp khối quá nặng (một shot phải đọc nhiều cảnh) với khối kề có ít chữ/shot hơn, cho tới khi không khối nào
     nặng gấp _BLOCK_HEAVY lần trung bình — thứ tự shot/cảnh giữ nguyên, tổng chữ giữ nguyên."""
     blocks = [(list(js), list(idxs)) for js, idxs in blocks if idxs]
-    total_w = sum(len(narrs[j].split()) for js, _ in blocks for j in js)
+    total_w = sum(content_words(narrs[j]) for js, _ in blocks for j in js)
     total_s = sum(len(idxs) for _, idxs in blocks)
     if not blocks or not total_s:
         return blocks
     avg = total_w / total_s
 
     def ratio(b):
-        return sum(len(narrs[j].split()) for j in b[0]) / max(1, len(b[1]))
+        return sum(content_words(narrs[j]) for j in b[0]) / max(1, len(b[1]))
 
     for _ in range(len(blocks) * 2):
         if len(blocks) < 2:

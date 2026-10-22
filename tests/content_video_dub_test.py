@@ -331,6 +331,27 @@ en = [{"id": i, "storyboard_number": i, "narration_text": f"Translated sentence 
 own_en = P.align_shots_to_scenes(en, ja_sc)
 ok(own_en[0] == 0 and own_en[-1] == 11, "lời bị dịch (không trùng chữ): vẫn gióng theo vị trí, phủ cả kịch bản", own_en)
 
+# D5. restore_narration tiếng Nhật: hai shot một cảnh → mỗi shot một phần câu (trước đây _split_even cần dấu cách sau 。 ⇒
+#     [cả đoạn, ""] — task #444, 16/63 shot lời rỗng); khối đã đủ chữ giữ nguyên chỗ cắt; narration_is_faithful không vướng dấu cách
+bare = lambda t: "".join(str(t or "").split())      # noqa: E731
+two = []
+for j, (_, n) in enumerate(ja_sc):
+    two.append({"id": 2 * j + 1, "storyboard_number": 2 * j + 1, "narration_text": n})
+    two.append({"id": 2 * j + 2, "storyboard_number": 2 * j + 2, "narration_text": ""})
+fixed = dict(P.restore_narration(two, ja_script))
+ok(all(fixed[sh["id"]] for sh in two), "hai shot / cảnh tiếng Nhật: không shot nào rỗng",
+   [k for k, v in fixed.items() if not v][:8])
+ok("".join(bare(fixed[sh["id"]]) for sh in two) == "".join(bare(n) for _, n in ja_sc)
+   and not any(" " in fixed[sh["id"]] for sh in two), "…ghép lại đúng kịch bản, không chèn dấu cách giữa câu")
+cut = []
+for j, (_, n) in enumerate(ja_sc):
+    k = n.index("、") + 1                    # cắt giữa câu ở dấu phẩy — Studio/nhịp chèn có thể cắt ở bất cứ đâu
+    cut.append({"id": 2 * j + 1, "storyboard_number": 2 * j + 1, "narration_text": n[:k]})
+    cut.append({"id": 2 * j + 2, "storyboard_number": 2 * j + 2, "narration_text": n[k:]})
+ok(P.narration_is_faithful(cut, ja_script) and not P._narration_differs(cut, P.restore_narration(cut, ja_script)),
+   "khối đã đủ chữ (cắt giữa câu): faithful + restore giữ nguyên ranh giới",
+   len(P._narration_differs(cut, P.restore_narration(cut, ja_script))))
+
 shutil.rmtree(tmp, ignore_errors=True)
 print(f"\n{PASS} passed, {FAIL} failed")
 sys.exit(0 if FAIL == 0 else 1)

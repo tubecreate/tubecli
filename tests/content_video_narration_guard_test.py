@@ -306,8 +306,10 @@ for n in range(1, N + 1):
     NHIP.append(shot(len(NHIP) + 1, tail))
 ok(len(NHIP) == 2 * N and P.narration_is_faithful(NHIP, SCRIPT),
    "nhịp ngắn ghép lại ĐÚNG BẰNG kịch bản (chỉ khác chỗ cắt)", len(NHIP))
-ok(len(P._narration_differs(NHIP, P.restore_narration(NHIP, SCRIPT))) > N,
-   "…mà phép so từng shot vẫn báo «khác» ở phần lớn các nhịp — đây là cái bẫy",
+# Trước 22/10/2026 restore_narration chia lại cả khối đã đủ chữ ⇒ báo «khác» ở phần lớn các nhịp (cái bẫy). Nay khối mà
+# lời các shot ghép lại đúng bằng lời khối (không shot nào rỗng) được giữ nguyên ranh giới.
+ok(not P._narration_differs(NHIP, P.restore_narration(NHIP, SCRIPT)),
+   "…và restore_narration giữ nguyên ranh giới của khối đã đủ chữ (không còn cái bẫy chia lại)",
    len(P._narration_differs(NHIP, P.restore_narration(NHIP, SCRIPT))))
 
 _real_foreign = P.foreign_shots
