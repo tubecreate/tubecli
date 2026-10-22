@@ -286,24 +286,55 @@ const LIVE = (() => {
       </header>`;
   }
 
-  function badgeHtml(st) {
+  function badgeHtml(st, since) {
     const b = BADGE[st] || BADGE.waiting;
-    return `<span class="cx-cell-badge">${b[0] ? icon(b[0]) : ''}<span>${esc(t(b[1]))}</span></span>`;
+    return `<span class="cx-cell-badge">${b[0] ? icon(b[0]) : ''}<span>${esc(t(b[1]))}</span>`
+      + (since ? `<span class="cx-cell-since">· <span data-since="${esc(since)}"></span></span>` : '') + '</span>';
+  }
+
+  /** «cx/gpt-image-2» → «gpt-image-2», «@cf/black-forest-labs/flux-1-schnell» → «flux-1-schnell». */
+  function shortModel(m) {
+    const s = String(m || '');
+    return s.slice(s.lastIndexOf('/') + 1) || s;
+  }
+
+  /** Máy chủ: «local» = máy này; tên miền thì lấy phần đầu (tungho2-23.tubecreate.com → tungho2-23), IP giữ nguyên. */
+  function serverName(s) {
+    if (!s) return '';
+    if (s === 'local') return t('codex.live_who_local');
+    return /^[\d.:]+$/.test(s) ? s : s.split('.')[0];
+  }
+
+  /** Ô đang vẽ / quay (user 22/10/2026): model nào · ghế nào · máy nào — Studio ghi `who` vào dòng cảnh. */
+  function whoHtml(w) {
+    const model = w.model ? shortModel(w.model) : (w.provider === 'muse' ? 'Muse' : (w.provider || ''));
+    const waitSeat = w.provider === 'muse' && !w.seat;
+    const where = waitSeat ? t('codex.live_who_wait_seat') : [w.seat, serverName(w.server)].filter(Boolean).join(' · ');
+    const tip = [
+      model && `${t('codex.live_who_model')}: ${w.model || model}`,
+      w.seat && `${t('codex.live_who_seat')}: ${w.seat}`,
+      w.server && `${t('codex.live_who_server')}: ${w.server === 'local' ? t('codex.live_who_local') : w.server}`,
+    ].filter(Boolean).join('\n');
+    return `<span class="cx-cell-who" title="${esc(tip)}">
+        <span class="cx-who-model"><span class="cx-cell-spin" aria-hidden="true"></span><b>${esc(model)}</b></span>
+        ${where ? `<span class="cx-who-where">${esc(where)}</span>` : ''}
+      </span>`;
   }
 
   function cellItem(c, voice) {
     const st = cellState(c, voice);
     const title = `${c.n}${c.title ? ' · ' + c.title : ''}`;
+    const who = BUSY.has(st) && c.who && (c.who.model || c.who.provider || c.who.seat) ? c.who : null;
     return {
       k: 'c' + c.id,
       h: `<div class="lv-cellwrap" role="listitem">
-          <div class="cx-cell st-${esc(st)}${c.thumb ? '' : ' no-img'}${c.sketch ? ' is-sketch' : ''}" title="${esc(title)}">
+          <div class="cx-cell st-${esc(st)}${c.thumb ? '' : ' no-img'}${c.sketch ? ' is-sketch' : ''}${who ? ' has-who' : ''}" title="${esc(title)}">
             ${c.thumb ? `<img loading="lazy" decoding="async" src="${esc(c.thumb)}" alt="">`
               : (BUSY.has(st) ? '' : `<span class="cx-cell-wait">${esc(String(c.n))}</span>`)}
             ${c.sketch ? `<span class="cx-cell-sketch">${esc(t('codex.live_sketch'))}</span>` : ''}
             <span class="cx-cell-n">${esc(String(c.n))}</span>
-            ${BUSY.has(st) ? '<span class="cx-cell-spin" aria-hidden="true"></span>' : ''}
-            ${badgeHtml(st)}
+            ${who ? whoHtml(who) : (BUSY.has(st) ? '<span class="cx-cell-spin" aria-hidden="true"></span>' : '')}
+            ${badgeHtml(st, who && who.since)}
           </div>
           ${c.title ? `<div class="lv-cap" title="${esc(c.title)}">${esc(c.title)}</div>` : ''}
         </div>`,

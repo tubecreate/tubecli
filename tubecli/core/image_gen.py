@@ -321,6 +321,26 @@ def _local_clock(ts: float) -> str:
     return _dt.datetime.fromtimestamp(ts).strftime("%H:%M %d/%m")
 
 
+def _live_note(r: dict) -> None:
+    """Live view (22/10/2026, user «biết ảnh đó đang chạy model nào ở ghế nào, ở máy chủ nào»): ghi nhà / model / tài khoản
+    / máy chủ của LẦN THỬ này vào dòng của cảnh (core/live_jobs — chỉ khi bên gọi đã gắn nhãn cảnh). Muse: ghế và máy do
+    muse.ask ghi khi giữ được chỗ — ở đây xoá ghế / máy của nhà thử trước (lùi từ 9Router sang Muse)."""
+    try:
+        from tubecli.core import live_jobs as _lj
+
+        p = str(r.get("provider") or "")
+        if p == "muse":
+            # Chưa giữ được ghế: xoá mốc giờ — ô hiện «chờ ghế» tới khi muse.ask ghi ghế.
+            _lj.note(provider=p, model=r.get("model"), job="image", seat="", server="", since=False)
+        else:
+            # Máy chủ: 9Router = máy chạy 9Router (có thể ở máy khác); Cloudflare / Gemini = tên nhà (máy của họ).
+            server = (_lj.server_of(r.get("base") or "") if p == "9router" else "") or p
+            _lj.note(provider=p, model=r.get("model"), job="image", seat=str(r.get("label") or ""),
+                     server=server, since=True)
+    except Exception:      # noqa: BLE001 — chỉ là báo cáo
+        pass
+
+
 # Lỗi CẤU HÌNH — lần sau gọi lại cũng hỏng y vậy (thiếu tài khoản cho nhánh, model không có / không được hỗ trợ):
 # cả lô đi thẳng đường lùi (_generate_bytes, r["_dead"]). 429 / 502 / hết giờ thì KHÔNG — chúng tự khỏi.
 _PERMANENT_RE = re.compile(r"no credentials|not supported|model[_ ]not[_ ]found|unknown model|does not exist|"
@@ -757,6 +777,7 @@ async def _generate_bytes(r: dict, prompt: str, aspect_ratio: str = "16:9",
         r["drew_provider"] = fb.get("drew_provider") or fb["provider"]
         r["drew_model"] = fb.get("drew_model") or fb["model"]
         return data
+    _live_note(r)
     try:
         if r["provider"] == "cloudflare":
             return await _cf_generate_rotating(r, prompt, aspect_ratio, timeout)

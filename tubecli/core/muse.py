@@ -1093,6 +1093,24 @@ def _start_watchdog() -> None:
     t.start()
 
 
+def _live_seat(prof: str, key: str, remotes: List[dict], images: bool, videos: bool, audio: bool) -> None:
+    """Live view (22/10/2026): ghi ghế + máy vừa giữ được vào dòng của cảnh đang chạy (core/live_jobs — chỉ khi bên gọi
+    đã gắn nhãn cảnh). Ghế ở máy này = khoá chỗ ngồi (`chayagent`, `chayagent#2`); nút từ xa = «remote seat N» + tên máy."""
+    try:
+        from tubecli.core import live_jobs as _lj
+
+        job = "video" if videos else ("audio" if audio else ("image" if images else None))
+        if prof.startswith(REMOTE_PREFIX):
+            node = remotes[int(prof[len(REMOTE_PREFIX):])]
+            n = key.split("#", 1)[1] if "#" in key else "1"
+            _lj.note(provider="muse", seat=f"remote seat {n}", server=_lj.server_of(node.get("base_url") or "") or "remote",
+                     job=job, since=True)
+        else:
+            _lj.note(provider="muse", seat=key, server="local", job=job, since=True)
+    except Exception:      # noqa: BLE001 — chỉ là báo cáo
+        pass
+
+
 def ask(prompt: str, *, want_images: bool = False, files: Optional[List[str]] = None,
         image_dir: str = "", max_images: int = 1, timeout: int = CHAT_TIMEOUT, fresh: bool = False,
         launch: bool = True, want_videos: bool = False, video_dir: str = "", max_videos: int = 1,
@@ -1134,6 +1152,7 @@ def ask(prompt: str, *, want_images: bool = False, files: Optional[List[str]] = 
         skip = set(skip) | {f"{REMOTE_PREFIX}{i}" for i in range(len(remotes))}
     prof, key = _acquire(pool, st["lanes"], want, remotes=remotes, skip=skip) if remotes \
         else _acquire(pool, st["lanes"], want, skip=skip)
+    _live_seat(prof, key, remotes, want_images, want_videos, want_audio)
     failed: Optional[MuseError] = None
     if prof.startswith(REMOTE_PREFIX):
         # Chỗ ngồi TỪ XA (9/10/2026 «giống 9Router»): gọi HTTP tới nút, không có trình duyệt ở đây

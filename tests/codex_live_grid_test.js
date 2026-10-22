@@ -151,5 +151,46 @@ for (const f of langs) {
   ok(!miss.length, `${f}: đủ ${used.size} khoá`, miss);
 }
 
+console.log('7. Ô đang chạy: model · ghế · máy (22/10/2026)');
+// User: «chỗ placeholder hiển thị loading biết ảnh đó đang chạy model nào ở ghế nào, ở máy chủ nào».
+const WORDS = { 'codex.live_who_local': 'this machine', 'codex.live_who_wait_seat': 'waiting for a Muse seat',
+  'codex.live_who_model': 'Model', 'codex.live_who_seat': 'Seat', 'codex.live_who_server': 'Server' };
+const BADGE7 = { drawing: ['progress_activity', 'codex.live_drawing'], filming: ['videocam', 'codex.live_filming'],
+  board: ['draw', 'codex.live_board'], image: ['image', 'codex.live_image'], waiting: ['', 'codex.live_waiting'] };
+const cells = new Function('t', 'BADGE', 'BUSY',
+  cut(live, 'esc') + cut(live, 'icon') + cut(live, 'cellState') + cut(live, 'badgeHtml') + cut(live, 'shortModel')
+  + cut(live, 'serverName') + cut(live, 'whoHtml') + cut(live, 'cellItem')
+  + '\nreturn { shortModel, serverName, cellItem };')(
+  (k) => WORDS[k] || k, BADGE7, new Set(['drawing', 'board', 'filming']));
+ok(cells.shortModel('cx/gpt-image-2') === 'gpt-image-2' && cells.shortModel('@cf/black-forest-labs/flux-1-schnell') === 'flux-1-schnell'
+   && cells.shortModel('muse-image') === 'muse-image', 'tên model gọn: bỏ tiền tố nhà');
+ok(cells.serverName('local') === 'this machine' && cells.serverName('tungho2-23.tubecreate.com') === 'tungho2-23'
+   && cells.serverName('10.0.0.5') === '10.0.0.5' && cells.serverName('cloudflare') === 'cloudflare' && cells.serverName('') === '',
+   'máy: «local» = máy này, tên miền lấy phần đầu, IP giữ nguyên');
+const since = '2026-10-22T03:00:00+00:00';
+const nr = cells.cellItem({ id: 5, n: 5, state: 'drawing', who: { provider: '9router', model: 'cx/gpt-image-2', seat: 'key 2',
+  server: 'tungho2-23.tubecreate.com', job: 'image', since } }).h;
+ok(/class="cx-cell st-drawing no-img has-who"/.test(nr) && /<b>gpt-image-2<\/b>/.test(nr)
+   && /cx-who-where">key 2 · tungho2-23</.test(nr), 'ô đang vẽ 9Router: model + tài khoản · máy', nr);
+ok(nr.includes(`<span class="cx-cell-since">· <span data-since="${since}"></span></span>`), 'giờ chạy ở nhãn đáy (data-since → tickClock)', nr);
+ok(nr.includes('title="Model: cx/gpt-image-2\nSeat: key 2\nServer: tungho2-23.tubecreate.com"'),
+   'chú thích khi rê chuột: model đầy đủ, ghế, tên máy đầy đủ', nr);
+ok((nr.match(/cx-cell-spin/g) || []).length === 1, 'chỉ MỘT vòng quay (nhỏ, cạnh tên model)');
+const museLocal = cells.cellItem({ id: 6, n: 6, state: 'filming', thumb: '/x.png', who: { provider: 'muse', seat: 'chayagent',
+  server: 'local', job: 'video', since } }).h;
+ok(/<b>Muse<\/b>/.test(museLocal) && /cx-who-where">chayagent · this machine</.test(museLocal) && !/no-img/.test(museLocal),
+   'clip Muse ghế máy này: «Muse» + «chayagent · this machine»', museLocal);
+const museWait = cells.cellItem({ id: 7, n: 7, state: 'drawing', who: { provider: 'muse', model: 'muse-image', job: 'image' } }).h;
+ok(/cx-who-where">waiting for a Muse seat</.test(museWait) && !/data-since/.test(museWait), 'Muse chưa có ghế: «chờ ghế», chưa đếm giờ', museWait);
+const old = cells.cellItem({ id: 8, n: 8, state: 'drawing' }).h;
+ok(!/has-who|cx-cell-who/.test(old) && /<span class="cx-cell-spin" aria-hidden="true"><\/span>/.test(old), 'Studio cũ (không who): vòng quay to như cũ');
+const doneCell = cells.cellItem({ id: 9, n: 9, state: 'image', thumb: '/y.png', who: { provider: '9router', model: 'm' } }).h;
+ok(!/cx-cell-who|data-since/.test(doneCell), 'ô đã xong: không hiện model / giờ dù dòng còn who');
+const xss = cells.cellItem({ id: 10, n: 10, state: 'drawing', who: { provider: 'x', model: '<img src=x onerror=1>', seat: '"><b>' } }).h;
+ok(!/<img src=x/.test(xss) && !/"><b>/.test(xss), 'model / ghế được thoát HTML', xss);
+ok(/\.cx-cell-who \{/.test(lcss) && /\.cx-cell-who \.cx-cell-spin \{ position: static/.test(lcss)
+   && /\.cx-cell\.has-who:not\(\.no-img\) \.cx-cell-who \{ background:/.test(lcss) && /text-overflow: ellipsis/.test(lcss),
+   'live.css: khối who giữa ô, vòng quay nhỏ, nền tối khi có ảnh, cắt chữ dài');
+
 console.log(failed ? `\n${failed} FAILED` : '\nall passed');
 process.exit(failed ? 1 : 0);
