@@ -103,6 +103,33 @@ ok(not err and any("missing from the video" in w for w in st["warnings"]),
 st, said, err = run_images({"task_id": "t", "total": 0})
 ok(not err and not st["warnings"], "Content Studio cũ (không có with_prompt/no_prompt) → hành vi cũ, không chặn")
 
+print("── đủ ảnh nhưng Studio còn pha SAU khi vẽ (task #444, 22/10/2026) ──")
+polled = []
+P._post = lambda path, body, **k: {"task_id": "t9", "total": 0, "shots": 63, "with_prompt": 63, "no_prompt": 0,
+                                   "after": ["knowledge layer"]}
+P._poll_studio = lambda path, *a, **k: polled.append(path) or {"status": "completed"}
+st, said = state()
+P._step_images(st, {})
+ok(polled == ["/api/v1/studio/gen-images/status/t9"] and any("waiting for the Studio to finish: knowledge layer" in m for m in said),
+   "total=0 mà còn lớp kiến thức → chờ việc vẽ «completed» rồi mới dựng", (polled, said[-2:]))
+
+
+def _stall(*a, **k):
+    raise RuntimeError("No progress for 1800s waiting for /api/v1/studio/gen-images/status/t9")
+
+
+P._poll_studio = _stall
+st, said = state()
+P._step_images(st, {})
+ok(any("did not finish before the render" in w for w in st["warnings"]), "pha sau vẽ quá hạn → chỉ cảnh báo, vẫn dựng",
+   st["warnings"])
+polled.clear()
+P._post = lambda path, body, **k: {"task_id": "t9", "total": 0, "shots": 63, "with_prompt": 63, "no_prompt": 0, "after": []}
+P._poll_studio = lambda path, *a, **k: polled.append(path) or {"status": "completed"}
+st, said = state()
+P._step_images(st, {})
+ok(not polled, "không có pha sau vẽ (Studio cũ / style thường) → không chờ")
+
 print()
 print("=" * 62)
 print(f"{PASS}/{PASS + FAIL} PASS" if not FAIL else f"{PASS}/{PASS + FAIL} PASS — {FAIL} HỎNG")

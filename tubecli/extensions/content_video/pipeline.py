@@ -3679,6 +3679,18 @@ def _step_images(state: Dict, options: Dict) -> None:
                 "an `image_prompt` field — re-run the storyboard, or fill the prompts in "
                 "Content Studio before rendering.")
         state["_say"]("images", "running", "every shot already has an image")
+        after = [str(x) for x in (res.get("after") or []) if x]
+        if after:
+            # …nhưng Studio còn chạy pha SAU khi vẽ (clip từng cảnh, lớp kiến thức) — chờ xong rồi mới dựng. Task #444
+            # (22/10/2026): Retry sau khi chèn cảnh đủ ảnh ⇒ dựng bắt đầu lúc 10 thẻ kiến thức mới còn đang vẽ. Pha ấy hỏng
+            # / quá hạn thì chỉ cảnh báo: video vẫn dựng được, thiếu thẻ / clip thôi.
+            state["_say"]("images", "running", f"waiting for the Studio to finish: {', '.join(after)}")
+            try:
+                _poll_studio(f"/api/v1/studio/gen-images/status/{res['task_id']}", TIMEOUTS["images"], state, "images",
+                             done_statuses=("completed",))
+            except RuntimeError as e:
+                state.setdefault("warnings", []).append(
+                    f"the Studio's work after drawing ({', '.join(after)}) did not finish before the render: {str(e)[:160]}")
         return
     try:
         data = _poll_studio(f"/api/v1/studio/gen-images/status/{res['task_id']}",
