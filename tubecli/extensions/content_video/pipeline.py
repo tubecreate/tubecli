@@ -1280,6 +1280,15 @@ def _step_gather(state: Dict, options: Dict) -> None:
         state["high_water"] = ""
         state["_say"]("gather", "running", f"pasted content · {len(pasted.split())} words")
         return
+    ck = state.get("checkpoint") or {}
+    if ck.get("script") and not (state.get("feedback") or []):
+        # Retry của lượt ĐÃ viết kịch bản: _step_script dùng lại kịch bản trong checkpoint, kho không cần đọc lại. Đọc lại
+        # còn làm hỏng oan — lượt tự đăng đầu tiên chỉ xem bài «hôm nay», Retry sang ngày khác thì cửa sổ rỗng (VPS 49,
+        # 22/10/2026: #57 tạo 21/10 «nothing collected today» dù kịch bản 38 cảnh đã có). Mốc kho giữ của lượt trước.
+        state["corpus"], state["videos"] = [], []
+        state["high_water"] = str(ck.get("high_water") or options.get("high_water") or "")
+        state["_say"]("gather", "running", "the script is already written — reusing it, the corpus is not read again")
+        return
     agent = state["agent"]
     hw_prev = str(options.get("high_water_prev") or "")
     # Chặn trên: cái mốc mà cò súng ĐÃ ĐẾM lúc châm ngòi. Không có nó thì mọi
@@ -2071,7 +2080,9 @@ def _step_script(state: Dict, options: Dict) -> None:
 
     agent = state["agent"]
     corpus = [c for c in state["corpus"] if c.get("content")]
-    if not corpus:
+    # Retry đã có kịch bản: _step_gather không đọc lại kho (corpus rỗng là CỐ Ý) — đoạn dùng lại kịch bản bên dưới lo.
+    reuse_script = bool((state.get("checkpoint") or {}).get("script")) and not (state.get("feedback") or [])
+    if not corpus and not reuse_script:
         raise RuntimeError(
             "Nothing with text to write from — the corpus holds titles only. Turn on data "
             "collection for this agent, install Web Crawler for transcripts, or add sources."
@@ -2088,7 +2099,7 @@ def _step_script(state: Dict, options: Dict) -> None:
         # không thẻ nào báo. Trần đã chặn ở _step_gather (SOURCE_TEXT_MAX).
         blocks = [c["content"] for c in corpus]
     else:
-        per_item = max(800, min(4000, max_chars // len(corpus)))
+        per_item = max(800, min(4000, max_chars // max(1, len(corpus))))
         for i, c in enumerate(corpus, 1):
             block = f"[{i}] {c['title']}\n{c['url']}\n{c['content'][:per_item]}\n"
             if used + len(block) > max_chars:

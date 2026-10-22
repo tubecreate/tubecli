@@ -12,7 +12,6 @@ Kiểm (mọi model / trình duyệt / sổ task đều GIẢ):
 Run:  python tests/vps49_hardening_test.py
 """
 import asyncio
-import os
 import sys
 import tempfile
 import threading
@@ -200,6 +199,32 @@ o = prep({"autopublish": True, "publish": True, "publish_unverified": False, "th
 check("ngược lại (vừa gắn cờ) ⇒ theo cờ mới", o.get("publish_unverified") is True and o.get("thumbnail") is False, o)
 o = prep({"publish": True, "publish_unverified": False})
 check("task tay (không autopublish) ⇒ giữ đúng options người dùng chọn", o.get("publish_unverified") is False, o)
+
+# ── G ────────────────────────────────────────────────────────────────────────
+print("G. Retry đã có kịch bản không đọc lại kho (khỏi «nothing collected today» sang ngày khác)")
+SCANS = []
+P.scan_window = lambda **kw: SCANS.append(kw) or []
+said = []
+SCRIPT_CK = "TITLE: Old\n\n" + "\n\n".join(f"[SHOW: s{i}]\n" + " ".join(["w"] * 60) for i in range(38))
+st = {"agent": FAKE["agF"], "profiles": [], "checkpoint": {"script": SCRIPT_CK, "title": "Old", "high_water": "2026-10-21T03:20:00"},
+      "_say": lambda *a: said.append(a[2]), "warnings": [], "task_id": "", "corpus": []}
+P._step_gather(st, {"high_water": "2026-10-21T03:23:00"})
+check("gather: không quét kho, giữ mốc của lượt trước, nói rõ", not SCANS and st["high_water"] == "2026-10-21T03:20:00"
+      and st["corpus"] == [] and any("already written" in s for s in said), (SCANS, st.get("high_water"), said))
+P._publish_plan = lambda task_id, agent_name, title, script: len(P.scenes_of(script))
+P._task_title = lambda *a, **k: None
+P._task_meta = lambda *a, **k: None
+P._step_script(st, {"target_words": 2280})
+check("script: kho rỗng mà dùng lại kịch bản cũ, không ném", st.get("script") == SCRIPT_CK
+      and st.get("scene_count") == len(P.scenes_of(SCRIPT_CK)),
+      (st.get("scene_count"), str(st.get("script"))[:40]))
+st2 = {"agent": FAKE["agF"], "profiles": [], "checkpoint": {}, "_say": lambda *a: None, "warnings": [], "task_id": "",
+       "corpus": []}
+try:
+    P._step_gather(st2, {})
+    check("không có kịch bản ⇒ vẫn đọc kho và báo rỗng như cũ", False, st2)
+except RuntimeError as e:
+    check("không có kịch bản ⇒ vẫn đọc kho và báo rỗng như cũ", "nothing" in str(e) and SCANS, str(e)[:120])
 
 print(f"\n{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)
