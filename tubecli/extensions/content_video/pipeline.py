@@ -8612,6 +8612,14 @@ def _prepare(payload: Dict[str, Any], report, is_cancelled, needs: tuple) -> Dic
     if not agent:
         raise RuntimeError(f"Agent {agent_id!r} not found — the pipeline needs an owning agent "
                            "to scope the corpus.")
+    if options.get("autopublish"):
+        # «Kênh chưa xác minh» là tình trạng của KÊNH, đổi được giữa lúc tạo task và lúc chạy (user 22/10/2026 xác minh số
+        # điện thoại khi 8 task đang xếp hàng — payload vẫn chép cờ cũ): lượt tự đăng đọc cờ HIỆN TẠI của agent, kéo theo
+        # thumbnail như autopublish.fire dựng.
+        _unverified_now = bool(getattr(agent, "publish_unverified", False))
+        if bool(options.get("publish_unverified")) != _unverified_now:
+            options["publish_unverified"] = _unverified_now
+            options["thumbnail"] = bool(getattr(agent, "publish_thumbnail", True)) and not _unverified_now
 
     def say(step: str, status: str, message: str = "", progress: Optional[float] = None) -> None:
         if not report:

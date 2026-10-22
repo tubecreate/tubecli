@@ -175,5 +175,31 @@ except M.MuseError as e:
     check("chỉ một chỗ ⇒ vẫn thử lại chính nó (không đứng chờ chỗ không tồn tại)", used == [9001] * M.MUSE_ATTEMPTS
           and e.kind == "timeout", (used, e.kind))
 
+# ── F ────────────────────────────────────────────────────────────────────────
+print("F. task tự đăng đọc cờ «chưa xác minh» HIỆN TẠI của agent")
+from types import SimpleNamespace  # noqa: E402
+from tubecli.core import agent as AG  # noqa: E402
+
+FAKE = {"agF": SimpleNamespace(id="agF", name="F", publish_unverified=False, publish_thumbnail=True,
+                               content_video_preset="", allowed_profiles=[], model="", provider="",
+                               to_dict=lambda: {})}
+AG.agent_manager.get = lambda aid: FAKE.get(aid)
+P._read_checkpoint = lambda task_id: {}
+P._agent_scope = lambda agent: []
+
+
+def prep(opts):
+    return P._prepare({"kind": "content_video.auto", "agent_id": "agF", "task_id": "", "options": dict(opts)},
+                      None, None, ())["options"]
+
+o = prep({"autopublish": True, "publish": True, "publish_unverified": True, "thumbnail": False})
+check("tạo lúc chưa xác minh, nay đã xác minh ⇒ publish_unverified False + thumbnail bật lại",
+      o.get("publish_unverified") is False and o.get("thumbnail") is True, o)
+FAKE["agF"].publish_unverified = True
+o = prep({"autopublish": True, "publish": True, "publish_unverified": False, "thumbnail": True})
+check("ngược lại (vừa gắn cờ) ⇒ theo cờ mới", o.get("publish_unverified") is True and o.get("thumbnail") is False, o)
+o = prep({"publish": True, "publish_unverified": False})
+check("task tay (không autopublish) ⇒ giữ đúng options người dùng chọn", o.get("publish_unverified") is False, o)
+
 print(f"\n{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)
