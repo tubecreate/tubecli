@@ -437,7 +437,10 @@ async def delete_task(task_id: str, purge: bool = False, actor: str = "user"):
     """Xoá hẳn task. purge=1 → xoá cả file của lượt chạy (tập Content Studio, ảnh, giọng,
     video, link chia sẻ) qua hook của extension đã tạo task."""
     task = _require(task_id)
-    out = _guard(codex_manager.delete, task["id"], purge=purge, actor=actor)
+    # LUỒNG PHỤ: hook purge của content_video gọi HTTP ngược vào CHÍNH máy chủ (storyboard, link chia sẻ). Chạy trên
+    # vòng sự kiện thì nó tự chờ chính nó tới hết thời gian chờ — mỗi lượt xoá kèm purge treo CẢ máy chủ 1–2 phút
+    # (VPS 49, 22/10/2026) và các file tìm qua storyboard không bị xoá.
+    out = await asyncio.to_thread(_guard, codex_manager.delete, task["id"], purge=purge, actor=actor)
     return {"status": "deleted", "task": out["task"], "purge": out["purge"]}
 
 

@@ -262,14 +262,18 @@ def _preset_sig(name: str) -> str:
         return ""
 
 
-def pause_for_length(agent_id: str, seconds: float, preset: str = "") -> bool:
-    """Dừng tự đăng của agent: video vừa dựng dài hơn mức kênh chưa xác minh nhận. Không bao giờ ném."""
+def pause_for_length(agent_id: str, seconds: float, preset: str = "", capped: bool = False) -> bool:
+    """Dừng tự đăng của agent: video vừa dựng dài hơn mức kênh chưa xác minh nhận. Không bao giờ ném.
+
+    capped: kịch bản của lượt ấy ĐÃ bị giới hạn vừa 15 phút (pipeline UNVERIFIED_SAFE_WORDS) mà video vẫn dài — vòng lặp
+    thật, dừng giữ hiệu lực. Không giới hạn (lượt cũ, Retry kịch bản cũ) ⇒ ghi sổ nhưng KHÔNG giữ: lượt sau viết vừa khung."""
     aid = str(agent_id or "")
     if not aid:
         return False
     try:
         return save_mark(aid, paused={"reason": PAUSE_LONG_UNVERIFIED, "at": time.time(),
                                       "seconds": int(seconds or 0), "preset": str(preset or ""),
+                                      "capped": bool(capped),
                                       "preset_sig": _preset_sig(str(preset or ""))})
     except Exception as e:      # noqa: BLE001
         logger.error("[AutoPublish] could not pause %s (%s)", aid, e)
@@ -281,6 +285,10 @@ def _pause_holds(agent, paused: Dict[str, Any]) -> bool:
     if paused.get("reason") != PAUSE_LONG_UNVERIFIED:
         return False
     if not bool(getattr(agent, "publish_unverified", False)):
+        return False
+    # Từ .213 kịch bản tự đăng của kênh chưa xác minh được viết vừa 15 phút: dừng vì một video dài KHÔNG giới hạn (sổ cũ,
+    # Retry kịch bản cũ) không còn lý do giữ — lượt sau tự ngắn. Chỉ giữ khi chính kịch bản đã giới hạn vẫn ra video dài.
+    if not paused.get("capped"):
         return False
     preset = str(getattr(agent, "content_video_preset", "") or "")
     return preset == str(paused.get("preset") or "") and _preset_sig(preset) == str(paused.get("preset_sig") or "")

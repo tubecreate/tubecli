@@ -1405,6 +1405,11 @@ SCENES_PER_BATCH = 6
 _LENGTH_TOLERANCE = 0.10
 _LONG_SCRIPT_RATIO = 1.2
 _OUTLINE_SLACK = 1.1
+# Dàn ý về ÍT hơn chừng này phần số cảnh đã định = kịch bản thiếu thời lượng (VPS 49, 22/10/2026: dàn 47 cảnh mà model
+# trả 6 → kịch bản 342 chữ, video 2:15 vẫn tự đăng public) → hỏi lại, rồi xin viết TIẾP phần còn thiếu.
+_OUTLINE_SHORT = 0.6
+# Chữ ngân sách cho MỘT dòng dàn ý ([SHOW: …] — một câu). 40 từng sát nút với 47 cảnh tiếng Tây Ban Nha.
+_OUTLINE_WORDS = 55
 INSTRUCTIONS_MAX = 2000
 YT_LINKS_MAX = 3
 
@@ -1611,6 +1616,31 @@ def _ask_model(agent, system_prompt: str, user_prompt: str, budget_words: int) -
     return text
 
 
+def _complete_outline(agent, system_prompt: str, outline_prompt: str, title: str,
+                      outline: List[Tuple[str, str]], scenes_n: int, say) -> Tuple[str, List[Tuple[str, str]]]:
+    """Dàn ý về THIẾU cảnh (model gói 47 ý thành 6): hỏi lại MỘT lần đòi đúng số cảnh; vẫn thiếu thì xin viết TIẾP
+    các cảnh còn lại từ chỗ dàn ý dừng. Không bịa thêm gì ngoài model — chỉ đòi đủ số cảnh đã định."""
+    say("script", "running", f"outline came back with {len(outline)} scenes, {scenes_n} planned — asking again")
+    retry = (outline_prompt + f"\nIMPORTANT: your previous outline had only {len(outline)} scenes. Return EXACTLY "
+             f"{scenes_n} scene lines — one idea per scene; split big ideas instead of leaving scenes out.")
+    t2, o2 = parse_outline(_ask_model(agent, system_prompt, retry, scenes_n * _OUTLINE_WORDS))
+    if len(o2) > len(outline):
+        title, outline = (t2 or title), o2
+    if len(outline) < scenes_n * _OUTLINE_SHORT:
+        missing = scenes_n - len(outline)
+        say("script", "running", f"outline has {len(outline)} of {scenes_n} scenes — asking for the other {missing}")
+        so_far = "\n".join(f"{i}. [SHOW: {sh}] — {gist}" for i, (sh, gist) in enumerate(outline, 1))
+        more = (outline_prompt + "\n\nYour outline so far (too short):\n" + so_far +
+                f"\n\nContinue it with scenes {len(outline) + 1}-{scenes_n} ({missing} more lines, same format, no "
+                "title) so the video reaches its planned length; develop the topic further instead of repeating "
+                "scenes, and let the last line close the video. Output only the new scene lines.")
+        _, o3 = parse_outline(_ask_model(agent, system_prompt, more, missing * _OUTLINE_WORDS))
+        outline = outline + o3[:missing]
+    if len(outline) > scenes_n * _OUTLINE_SLACK:
+        outline = merge_outline(outline, scenes_n)
+    return title, outline
+
+
 def parse_outline(text: str) -> Tuple[str, List[Tuple[str, str]]]:
     """(title, [(show, gist)]) từ dàn ý "TITLE: …" + một dòng [SHOW: …] — gist mỗi cảnh."""
     title, scenes = "", []
@@ -1696,18 +1726,20 @@ def write_script_chunked(state: Dict, agent, system_prompt: str, blocks: List[st
         "then one line per scene:\n[SHOW: <what is on screen — concrete, filmable, no on-screen text>] — "
         "<one sentence: what the narration of this scene says>\n"
         "Open with a hook, one idea per scene, close on a final thought. No other text.")
-    title, outline = parse_outline(_ask_model(agent, system_prompt, outline_prompt, scenes_n * 40))
+    title, outline = parse_outline(_ask_model(agent, system_prompt, outline_prompt, scenes_n * _OUTLINE_WORDS))
     if len(outline) > scenes_n * _OUTLINE_SLACK:
         # Dàn ý vượt số cảnh = kịch bản vượt thời lượng (thử 15/9/2026: 92 cảnh cho 60 → ~38 phút thay ~27).
         say("script", "running", f"outline came back with {len(outline)} scenes, {scenes_n} planned — asking again")
         retry = (outline_prompt + f"\nIMPORTANT: your previous outline had {len(outline)} scenes. Return EXACTLY "
                  f"{scenes_n} scene lines — merge ideas instead of adding scenes.")
-        t2, o2 = parse_outline(_ask_model(agent, system_prompt, retry, scenes_n * 40))
+        t2, o2 = parse_outline(_ask_model(agent, system_prompt, retry, scenes_n * _OUTLINE_WORDS))
         if len(o2) >= 2 and abs(len(o2) - scenes_n) < abs(len(outline) - scenes_n):
             title, outline = (t2 or title), o2
         if len(outline) > scenes_n * _OUTLINE_SLACK:
             say("script", "running", f"merging {len(outline)} outline scenes into {scenes_n}")
             outline = merge_outline(outline, scenes_n)
+    if 2 <= len(outline) < scenes_n * _OUTLINE_SHORT:
+        title, outline = _complete_outline(agent, system_prompt, outline_prompt, title, outline, scenes_n, say)
     if len(outline) < 2:
         # Dàn ý không ra dạng mong đợi: rơi về viết một lượt như trước.
         say("script", "running", "outline unusable — writing in one go")
@@ -2092,6 +2124,16 @@ def _step_script(state: Dict, options: Dict) -> None:
         words, words_from = max(1, content_words(spoken_text(opts_len.get("source_text")))), "verbatim"
     else:
         words, words_from = resolve_words(opts_len, state.get("preset"))
+        # Kênh chưa xác minh số điện thoại nhận tối đa 15 phút: lượt TỰ ĐĂNG viết vừa khung ngay từ đầu, thay vì dựng
+        # một video 17 phút rồi mới thấy không đăng được (VPS 49, 22/10/2026: #35/#41/#42/#43 kẹt nháp trên YouTube).
+        if options.get("publish") and options.get("publish_unverified") and words > UNVERIFIED_SAFE_WORDS:
+            state.setdefault("warnings", []).append(
+                f"This channel is marked “not verified”, and YouTube takes at most 15 minutes from it — so the script "
+                f"is written at ~{UNVERIFIED_SAFE_WORDS} words (~{minutes_of(UNVERIFIED_SAFE_WORDS)} min) instead of "
+                f"~{words} (~{minutes_of(words)} min, from the {words_from}). Verify the channel at {VERIFY_URL} and "
+                "untick “Channel not verified” to get full-length videos.")
+            words, words_from = UNVERIFIED_SAFE_WORDS, "15-minute limit of an unverified channel"
+            state["words_capped"] = True
     scenes_n, sent_lo, sent_hi = scene_budget(words)
     state["target_words"], state["words_from"] = words, words_from
     keep_all = ""
@@ -7442,6 +7484,10 @@ THUMB_LOOKUP_DELAY = 20
 # video tới 15 phút (và không livestream, không thumbnail tuỳ chỉnh) từ kênh chưa xác minh số điện thoại; script đăng
 # kẹt ở bước Hiển thị, task «xong kèm cảnh báo», mốc corpus đứng yên ⇒ lượt thu thập sau dựng lại nguyên video dài.
 UNVERIFIED_MAX_SEC = 15 * 60
+# Kịch bản tự đăng cho kênh chưa xác minh: ~2000 chữ ≈ 13 phút đọc (video đo thật ~155–165 chữ/phút ⇒ 12–13 phút).
+UNVERIFIED_SAFE_WORDS = 2000
+# Lượt TỰ ĐĂNG mà kịch bản dưới chừng này phần độ dài đã định thì dựng nhưng KHÔNG đăng (chờ duyệt).
+AUTOPUBLISH_MIN_RATIO = 0.5
 VERIFY_URL = "https://www.youtube.com/verify"
 
 
@@ -7472,7 +7518,8 @@ def _pause_autopublish(state: Dict, options: Dict, secs: float, mark_agent: bool
     try:
         from tubecli.extensions.content_video import autopublish as AP
 
-        AP.pause_for_length(aid, secs, str(options.get("preset") or getattr(agent, "content_video_preset", "") or ""))
+        AP.pause_for_length(aid, secs, str(options.get("preset") or getattr(agent, "content_video_preset", "") or ""),
+                            capped=bool(state.get("words_capped")))
         if mark_agent:
             from tubecli.core.agent import agent_manager
 
@@ -7483,6 +7530,25 @@ def _pause_autopublish(state: Dict, options: Dict, secs: float, mark_agent: bool
         return False
 
 
+def _too_short_to_autopublish(state: Dict, options: Dict) -> str:
+    """Lượt TỰ ĐĂNG (không phải lệnh tay «đăng luôn») mà kịch bản < AUTOPUBLISH_MIN_RATIO độ dài đã định ⇒ câu cảnh báo,
+    không đăng. VPS 49 22/10/2026: dàn 47 cảnh chỉ viết 6, video 2:15 tự lên kênh public. "" = đăng bình thường."""
+    if options.get("_publish_hard") or str(state.get("words_from") or "") == "verbatim":
+        return ""
+    try:
+        want = int(state.get("target_words") or 0)
+    except (TypeError, ValueError):
+        want = 0
+    got = narration_words(str(state.get("script") or ""))
+    if want <= 0 or got <= 0 or got >= want * AUTOPUBLISH_MIN_RATIO:
+        return ""
+    kept = str(state.get("video_path") or "")
+    return (f"Not auto-published: the script came out at ~{got} words (~{minutes_of(got)} min) against ~{want} planned "
+            f"(~{minutes_of(want)} min) — usually too little collected material for the template's length. The video is "
+            f"kept" + (f" at `{kept}`" if kept else "") + " — review it and publish it by hand if it is good, or retry "
+            "once the agent has collected more.")
+
+
 def _skip_long_unverified(state: Dict, options: Dict, secs: float) -> None:
     """Video quá 15 phút + kênh đánh dấu chưa xác minh ⇒ KHÔNG đăng: cảnh báo, giữ mp4, dừng tự đăng."""
     paused = _pause_autopublish(state, options, secs, mark_agent=False)
@@ -7491,9 +7557,12 @@ def _skip_long_unverified(state: Dict, options: Dict, secs: float) -> None:
            f"takes at most 15 minutes from unverified channels (no livestream or custom thumbnail either). Verify the "
            f"channel at {VERIFY_URL}, untick “Channel not verified”, then upload `{kept}` by hand from Video Manager "
            f"— or shorten the template's Video length.")
-    if paused:
+    if paused and state.get("words_capped"):
         msg += " Auto-publish for this agent is paused until you do one of those, so it does not render long videos " \
                "it cannot post."
+    elif paused:
+        msg += (f" Its next auto videos are written at ~{UNVERIFIED_SAFE_WORDS} words (~{minutes_of(UNVERIFIED_SAFE_WORDS)}"
+                " min) so they fit.")
     state["publish_error"] = msg[:300]
     state["publish_blocked"] = "long_unverified"
     state.setdefault("warnings", []).append(msg)
@@ -7530,6 +7599,12 @@ def _step_publish(state: Dict, options: Dict) -> None:
         if options.get("publish_unverified") and _video_secs(state) > UNVERIFIED_MAX_SEC:
             _skip_long_unverified(state, options, _video_secs(state))
             return
+        short = _too_short_to_autopublish(state, options)
+        if short:
+            state["publish_blocked"] = "short_script"
+            state.setdefault("warnings", []).append(short)
+            state["_say"]("publish", "skipped", "script far shorter than planned — kept for review")
+            return
         _publish_now(state, options)
         _remember_published(state)
         _commit_autopublish(state, options)
@@ -7550,9 +7625,10 @@ def _step_publish(state: Dict, options: Dict) -> None:
             if _pause_autopublish(state, options, secs, mark_agent=True):
                 state["warnings"].append(
                     f"The video is {_mmss(secs)} long — YouTube rejects videos over 15 minutes from channels that are "
-                    f"not phone-verified, so this agent's channel is now marked “not verified” and auto-publish is "
-                    f"paused for long videos. Verify the channel at {VERIFY_URL} and untick “Channel not verified” "
-                    f"in the agent's Data collection tab (or shorten the template's Video length) to resume.")
+                    f"not phone-verified, so this agent's channel is now marked “not verified” and its next auto videos "
+                    f"are written at ~{UNVERIFIED_SAFE_WORDS} words (~{minutes_of(UNVERIFIED_SAFE_WORDS)} min) to fit. "
+                    f"Verify the channel at {VERIFY_URL} and untick “Channel not verified” in the agent's Data "
+                    f"collection tab to get full-length videos again.")
             else:
                 state["warnings"].append(
                     f"The video is {_mmss(secs)} long — if this channel is not phone-verified, YouTube rejects videos "
