@@ -53,18 +53,18 @@ class MarketService:
         import time
         self._cache[key] = (data, time.time() + ttl_seconds)
 
-    async def _get(self, url: str, params: dict = None, headers: dict = None) -> dict:
-        """Non-blocking GET using persistent httpx client or asyncio.to_thread."""
+    async def _get(self, url: str, params: dict = None, headers: dict = None, timeout: float = None) -> dict:
+        """Non-blocking GET using persistent httpx client or asyncio.to_thread. timeout: ghi đè TIMEOUT cho lượt tải lớn."""
         if _HTTPX_AVAILABLE:
             client = self._get_client()
-            r = await client.get(url, params=params, headers=headers or {})
+            r = await client.get(url, params=params, headers=headers or {}, timeout=timeout or TIMEOUT)
             r.raise_for_status()
             return r.json()
         else:
             import asyncio
             import requests as _req
             def _sync():
-                r = _req.get(url, params=params, headers=headers, timeout=TIMEOUT)
+                r = _req.get(url, params=params, headers=headers, timeout=timeout or TIMEOUT)
                 r.raise_for_status()
                 return r.json()
             return await asyncio.to_thread(_sync)
@@ -166,11 +166,13 @@ class MarketService:
 
     async def download_item_data(self, public_id: str) -> Dict:
         """Download item_data (packaged files) for a marketplace item."""
+        # Gói extension lớn (Content Studio ~4,5 MB gzip+b64) qua tunnel/VPS xa có khi > 15 s: VPS 49, 22/10/2026 tải hỏng
+        # đúng mốc 15 s → cài rơi xuống «chép từ nguồn cục bộ» = chính thư mục đang cài → SameFileError 500.
         try:
-            return await self._get(f"{self.api_base}/download-data.php", params={"id": public_id})
+            return await self._get(f"{self.api_base}/download-data.php", params={"id": public_id}, timeout=TIMEOUT_LONG)
         except Exception as e:
-            print(f"[MarketCLI] Download data error: {e}")
-        return {"status": "error"}
+            print(f"[MarketCLI] Download data error: {type(e).__name__}: {e}")
+            return {"status": "error", "message": f"{type(e).__name__}: {e}"[:200]}
 
     async def upload_item(self, token: str, title: str, description: str, category: str,
                           price: float, item_data: str, visibility: str = "PUBLIC",
