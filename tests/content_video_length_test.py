@@ -331,28 +331,29 @@ def chunk_llm(agent, messages, temperature=0.7):
     prompt = messages[-1]["content"]
     calls.append((prompt, B._output_budget(4096)))
     if "Plan a news video" in prompt:
-        return "TITLE: Twenty Minutes\n" + "\n".join(f"{i}. [SHOW: frame {i}] — gist {i}" for i in range(1, 27))
+        # đủ số cảnh đã định (3000 chữ → 50): dàn ý THIẾU cảnh giờ được viết bù (vps49_hardening_test) — ở đây chỉ kiểm chia đợt
+        return "TITLE: Twenty Minutes\n" + "\n".join(f"{i}. [SHOW: frame {i}] — gist {i}" for i in range(1, 51))
     import re as _re
     m = _re.search(r"scenes (\d+)-(\d+) ONLY", prompt)
     a, b = int(m.group(1)), int(m.group(2))
-    return "\n\n".join(f"[SHOW: frame {i}]\n" + " ".join([f"s{i}w"] * 110) + "." for i in range(a, b + 1))
+    return "\n\n".join(f"[SHOW: frame {i}]\n" + " ".join([f"s{i}w"] * 60) + "." for i in range(a, b + 1))
 
 
 B.AgentBrain._call_llm = staticmethod(chunk_llm)
 st = {"task_id": "t", "agent": A(), "corpus": [{"title": "x", "url": "u", "content": "c" * 50}],
       "_say": lambda *a: None, "_cancelled": lambda: False}
 P._step_script(st, {"target_words": 3000})
-assert len(calls) == 1 + 5, [c[0][:40] for c in calls]                      # 26 scenes → 5 batches of ≤6
+assert len(calls) == 1 + 9, [c[0][:40] for c in calls]                      # 50 scenes → 9 batches of ≤6
 # Dàn ý co giãn theo số cảnh (3000 chữ → 50 cảnh, ~40 chữ mỗi dòng); các ĐỢT thì
 # luôn nhỏ — đó mới là chỗ model suy luận từng nghẹn ở một lượt 3000 chữ.
-assert calls[0][1] == P.script_token_budget(P.scene_budget(3000)[0] * 40), calls[0][1]
+assert calls[0][1] == P.script_token_budget(P.scene_budget(3000)[0] * P._OUTLINE_WORDS), calls[0][1]
 assert all(c[1] == 4096 for c in calls[1:]), "each batch small enough for a 4096 budget"
-assert st["title"] == "Twenty Minutes" and st["scene_count"] == 26, (st["title"], st["scene_count"])
+assert st["title"] == "Twenty Minutes" and st["scene_count"] == 50, (st["title"], st["scene_count"])
 assert "scenes 1-6 ONLY" in calls[1][0] and "start with a hook" in calls[1][0]
-assert "scenes 25-26 ONLY" in calls[5][0] and "Close the video" in calls[5][0] and "previous scene ended with" in calls[5][0]
-assert "planned as these 26 scenes" in calls[3][0], "every batch sees the whole outline"
+assert "scenes 49-50 ONLY" in calls[9][0] and "Close the video" in calls[9][0] and "previous scene ended with" in calls[9][0]
+assert "planned as these 50 scenes" in calls[3][0], "every batch sees the whole outline"
 assert not st.get("warnings"), st.get("warnings")
-assert 26 * 110 <= len(st["script"].split()) <= 26 * 115, len(st["script"].split())
+assert 50 * 60 <= len(st["script"].split()) <= 50 * 65, len(st["script"].split())
 
 # revision of a long script also goes batch by batch, keeping the title
 calls.clear()
@@ -362,8 +363,8 @@ st2 = {"task_id": "t", "agent": A(), "corpus": [{"title": "x", "url": "u", "cont
        "feedback": ["make scene 3 funnier"], "checkpoint": {"script": st["script"], "title": "Twenty Minutes"},
        "_say": lambda *a: None, "_cancelled": lambda: False}
 P._step_script(st2, {"target_words": 3000})
-assert len(calls) == 5 and all("make scene 3 funnier" in c for c in calls) and "scenes 7-12 of 26" in calls[1]
-assert st2["title"] == "Twenty Minutes" and st2["scene_count"] == 30
+assert len(calls) == 9 and all("make scene 3 funnier" in c for c in calls) and "scenes 7-12 of 50" in calls[1]
+assert st2["title"] == "Twenty Minutes" and st2["scene_count"] == 54
 
 # outline that does not parse → single call, as before
 calls.clear()
