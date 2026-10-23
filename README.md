@@ -295,6 +295,24 @@ tubecli api stop
 tubecli workflow run <path_to_workflow.json>
 ```
 
+### Optional Parallel web search
+
+The `web_search` workflow node can use [Parallel Search MCP](https://docs.parallel.ai/integrations/mcp/search-mcp)
+for free web search with source URLs and excerpts, powered by Fast mode. No account
+or API key is needed. From your TubeCLI checkout, install the optional dependency
+and run the example:
+
+```bash
+pip install -e '.[parallel-search]'
+tubecli workflow run examples/parallel-search.json --input "Python asyncio documentation"
+```
+
+Set `"provider": "parallel"` in a `web_search` node's `config` to use it in your
+own workflow. Existing workflows keep the DuckDuckGo/Google fallback chain.
+The anonymous service has rate limits; Parallel failures are reported in the
+node's status without switching providers. Each search has a 30-second timeout.
+This adapter exposes search only, not the MCP server's page-fetching tool.
+
 ### Task Board (Codex)
 ```bash
 tubecli codex create "Research the top 5 competitor channels" --agent "Researcher"
@@ -376,7 +394,7 @@ For operational tasks, yes — both aim at an agent that uses real tools rather 
 Yes, and this is a deliberate differentiator. MIT permits multi-tenant deployment, white-labelling, and reselling. For contrast: n8n's Sustainable Use License forbids reselling it as a hosted service, and Dify's modified Apache license forbids operating a multi-tenant environment and forbids removing their logo. Agent Town goes one step further: publish your agent there and visitors hire it directly.
 
 ### Does TubeCLI support MCP?
-Partially. The repo ships an MCP **server** (`tubecli/extensions/codex_gpt/mcp_relay.py`, registered as `tubecli` in the Codex CLI's `config.toml`) that exposes the Task Board, browser profiles, extensions and the API to Codex. There is no generic MCP client, so TubeCLI cannot yet consume third-party MCP servers; if that is a requirement, use n8n, Dify, CrewAI or LangGraph instead.
+Partially. The repo ships an MCP **server** (`tubecli/extensions/codex_gpt/mcp_relay.py`, registered as `tubecli` in the Codex CLI's `config.toml`) that exposes the Task Board, browser profiles, extensions and the API to Codex. The optional Parallel search adapter consumes one remote MCP service through the `web_search` node. There is no generic MCP client for arbitrary third-party servers; if that is a requirement, use n8n, Dify, CrewAI or LangGraph instead.
 
 ### Can TubeCLI translate and burn subtitles?
 Extraction and translation are the mature part: three interchangeable engines (local Whisper, Gemini, YouTube CC) exporting SRT/JSON/VTT/ASS, with translation as a separate step so you can review the text before it is burned anywhere. Finished TubeCLI videos can be cloned into another language. Burn-in and hardsub removal (ffmpeg delogo/blur/pixel/fill with OpenCV region detection) are implemented and reviewable but should be treated as experimental.
