@@ -98,7 +98,10 @@ _AUTH_EXEMPT_EXACT = {"/login", "/api/v1/auth/login", "/api/v1/auth/status",
                       # danh mục giọng của skill — cùng khoá chữ ký, miền «catalog», chỉ đọc
                       "/api/v1/public/catalog",
                       # việc thuê từ Chợ mẫu — cùng khoá chữ ký, miền «hire» (core/public_hire)
-                      "/api/v1/public/hire"}
+                      "/api/v1/public/hire",
+                      # trình kết nối claude.ai — cùng khoá chữ ký, miền «mcp»; route còn đòi công tắc
+                      # «claude_connector» của chủ (core/claude_connector.py)
+                      "/api/v1/public/mcp"}
 # /s/ = link chia sẻ công khai của File Manager (token ngẫu nhiên là chìa khoá;
 # route tự kiểm hạn dùng + file còn tồn tại). Người nhận không có tài khoản.
 # /api/v1/public/hire/file/ = cloud lấy file đã giao của việc thuê — chữ ký HMAC miền

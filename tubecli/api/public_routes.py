@@ -4,6 +4,8 @@
   PUT  /api/v1/public-agents/{agent_id}    chủ bật/tắt, đặt tên công khai, chọn skill, trần/ngày
   POST /api/v1/public/invoke               CHỈ cloud gọi (chữ ký HMAC) — miễn phiên đăng nhập
                                            trong _AUTH_EXEMPT_EXACT của api/server.py
+  POST /api/v1/public/mcp                  trình kết nối claude.ai — CHỈ cloud gọi, chữ ký miền «mcp»
+                                           (core/claude_connector.py)
 """
 from __future__ import annotations
 
@@ -184,6 +186,35 @@ async def public_catalog(request: Request):
     except public_agents.PublicSkillError as e:
         return JSONResponse(status_code=e.status, content={"ok": False, "code": e.code})
     return {"ok": True, **data}
+
+
+@router.post("/api/v1/public/mcp")
+async def public_mcp(request: Request):
+    """Trình kết nối claude.ai: cloud chuyển tools/list, tools/call của Claude xuống đây (chữ ký miền «mcp» — chữ ký
+    của invoke/catalog/hire không dùng được ở đây và ngược lại). Chủ phải bật công tắc «claude_connector» trên máy."""
+    from tubecli.core import claude_connector
+
+    body = await request.body()
+    if len(body) > claude_connector.MAX_BODY:
+        return JSONResponse(status_code=413, content={"ok": False, "code": "too_large"})
+    why = public_agents.verify_invoke(
+        request.headers.get("x-town-ts"),
+        request.headers.get("x-town-nonce"),
+        request.headers.get("x-town-sig"),
+        body,
+        domain="mcp",
+    )
+    if why:
+        status = 503 if why == "not_configured" else 401
+        return JSONResponse(status_code=status, content={"ok": False, "code": why})
+    try:
+        import json
+
+        payload = json.loads(body.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        return JSONResponse(status_code=400, content={"ok": False, "code": "bad_request"})
+    status, out = await claude_connector.handle(payload, request.app)
+    return JSONResponse(status_code=status, content=out)
 
 
 @router.post("/api/v1/public/invoke")
