@@ -35,8 +35,13 @@ API_TIMEOUT_S = 120
 AGENT_HEADER = "codex_gpt"
 
 # Không bao giờ — kể cả GET, kể cả «Không cần hỏi».
+# /api/v1/files = TÊN CŨ của File Manager (cùng CRUD với /api/v1/file-manager, extensions/file_manager/routes.py) và
+# chạy FileService(enforce_roots=False) — bỏ cả danh sách file AI không được đọc (cloud_api_keys.json,
+# cloud_identity.json…). Thiếu nó thì GET /api/v1/files/read?path=<DATA_DIR>/cloud_api_keys.json lọt qua, không cần
+# duyệt (dò cho trình kết nối claude.ai 23/10/2026).
 BLOCK_ALL = ("/api/v1/codex-gpt", "/api/v1/auth", "/api/v1/auth-manager", "/api/v1/keychain", "/api/v1/groups",
-             "/api/v1/terminal", "/api/v1/file-manager", "/api/v1/drive", "/api/v1/cloud", "/api/v1/cloud-api",
+             "/api/v1/terminal", "/api/v1/file-manager", "/api/v1/files", "/api/v1/drive", "/api/v1/cloud",
+             "/api/v1/cloud-api",
              "/api/v1/instance", "/api/v1/docs", "/api/v1/redoc", "/api/v1/i18n")
 # Chỉ đọc: cài đặt chung (công tắc «kỹ thuật viên», tự duyệt…), vòng đời máy, mua bán trên Chợ, agent công khai.
 # Cài gói từ Chợ đi qua công cụ market_install (máy chủ tự tải gói), KHÔNG qua route cài thô của Chợ.
@@ -129,13 +134,13 @@ def api_blocked(method: str, path: str) -> bool:
 
 
 async def asgi_call(app, method: str, path: str, query: Optional[Dict[str, Any]] = None, body: Any = None,
-                    timeout: float = API_TIMEOUT_S) -> Tuple[int, str, bytes]:
+                    timeout: float = API_TIMEOUT_S, agent: str = AGENT_HEADER) -> Tuple[int, str, bytes]:
     """Gọi route TubeCLI ngay trong tiến trình (ASGI) — từ 127.0.0.1, không phiên, kèm X-TubeCLI-Agent."""
     import httpx
 
     transport = httpx.ASGITransport(app=app, client=("127.0.0.1", 0))
     async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1",
-                                 headers={"X-TubeCLI-Agent": AGENT_HEADER}) as c:
+                                 headers={"X-TubeCLI-Agent": agent or AGENT_HEADER}) as c:
         kw: Dict[str, Any] = {}
         if query:
             kw["params"] = {str(k): (v if isinstance(v, (str, int, float, bool)) else json.dumps(v))
@@ -397,7 +402,8 @@ def _api_prepare(args):
 async def t_api(args, ctx):
     a = _api_prepare(args)
     try:
-        status, ctype, data = await asgi_call(ctx["app"], a["method"], a["path"], a["query"], a["body"])
+        status, ctype, data = await asgi_call(ctx["app"], a["method"], a["path"], a["query"], a["body"],
+                                              agent=ctx.get("agent") or AGENT_HEADER)
     except asyncio.TimeoutError:
         raise ToolError(f"{a['method']} {a['path']} did not answer in {API_TIMEOUT_S} s")
     return text_result(render_response(status, ctype, data), error=status >= 400)
@@ -468,7 +474,8 @@ async def t_board_create(args, ctx):
     goal, atype = _create_args(args)
     try:
         t = await asyncio.to_thread(m.create_task, goal=goal, title=_str(args, "title", cap=200),
-                                    created_by="codex_gpt", origin={"source": "codex_gpt", "thread": ctx.get("thread") or ""},
+                                    created_by=ctx.get("agent") or AGENT_HEADER,
+                                    origin={"source": ctx.get("agent") or AGENT_HEADER, "thread": ctx.get("thread") or ""},
                                     assignee_type=atype, assignee_name=_str(args, "assignee", cap=120),
                                     skill_name=_str(args, "skill", cap=120), priority=_int(args, "priority", 0, -100, 100))
     except ValueError as e:
@@ -1140,14 +1147,16 @@ TOOLS: Dict[str, Tool] = {t.name: t for t in [
 ]}
 
 
-async def call_tool(name: str, args: Any, app, approve: Callable) -> Dict[str, Any]:
+async def call_tool(name: str, args: Any, app, approve: Callable, agent: str = AGENT_HEADER) -> Dict[str, Any]:
     """Chạy một công cụ. `approve(tool, summary, args)` → (được, lý do) — chỉ gọi cho lệnh thay đổi, SAU khi đã
-    kiểm hợp lệ/khoá cứng (không bắt chủ duyệt một lời gọi đằng nào cũng hỏng)."""
+    kiểm hợp lệ/khoá cứng (không bắt chủ duyệt một lời gọi đằng nào cũng hỏng).
+    `agent` = ai gọi: đi vào X-TubeCLI-Agent và created_by của việc tạo ra — «codex_gpt», hay «claude_connector»
+    của trình kết nối claude.ai (core/claude_connector.py), để Bảng việc ghi đúng ai tạo."""
     tool = TOOLS.get(str(name or ""))
     if tool is None:
         return text_result(f"Unknown TubeCLI tool '{name}'", error=True)
     args = args if isinstance(args, dict) else {}
-    ctx: Dict[str, Any] = {"app": app}
+    ctx: Dict[str, Any] = {"app": app, "agent": agent or AGENT_HEADER}
     try:
         if tool.prepare:
             tool.prepare(args)
