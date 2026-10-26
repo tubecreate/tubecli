@@ -1546,6 +1546,26 @@ async function renderAgentsExt(el) {
 }
 
 // ── Browser Ext ──
+// Chuỗi proxy để HIỆN (thẻ hồ sơ): che phần đăng nhập, giữ scheme + host:port để còn biết là proxy nào.
+// User 26/10/2026 (ảnh thẻ bas-001): thẻ in nguyên «socks5://user:pass@host:port» — tràn khỏi thẻ và lộ
+// mật khẩu proxy cho ai nhìn màn hình. Ba dạng hay gặp: scheme://user:pass@host:port, user:pass@host:port,
+// và dạng nhà cung cấp host:port:user:pass. Dạng khác (không có đăng nhập) giữ nguyên.
+function maskProxy(raw) {
+    const s = String(raw || '').trim();
+    if (!s) return '';
+    const at = s.lastIndexOf('@');
+    if (at > 0) {
+        const m = s.slice(0, at).match(/^([a-z0-9+.-]+:\/\/)?/i);
+        return (m && m[1] ? m[1] : '') + '•••@' + s.slice(at + 1);
+    }
+    const parts = s.replace(/^[a-z0-9+.-]+:\/\//i, '').split(':');
+    if (parts.length >= 4 && /^\d+$/.test(parts[1])) {
+        const scheme = (s.match(/^[a-z0-9+.-]+:\/\//i) || [''])[0];
+        return scheme + parts[0] + ':' + parts[1] + ':•••';
+    }
+    return s;
+}
+
 function getBrowserBody() { return document.getElementById('browser-ext-body') || document.getElementById('ext-detail-body'); }
 function getAgentsBody() { return document.getElementById('agents-ext-body') || document.getElementById('ext-detail-body'); }
 let _browserStatusPoller = null;
@@ -1605,7 +1625,7 @@ async function renderBrowserExt(el) {
     else h += '<div class="cards-grid">' + profiles.map(p => {
         const isR = runningProfiles.includes(p.name);
         const hasGA = p.google_account && p.google_account.email;
-        return `<div class="card" style="position:relative"><button class="btn-settings" onclick="showProfileSettings('${esc(p.name)}')" title="${T('browser.settings', 'Settings')}">⚙️</button><div class="card-icon">🌐</div><h3>${esc(p.name)} ${isR ? '<span class="pulse-dot" style="display:inline-block"></span>' : ''}</h3><p class="card-meta">${esc(p.proxy||T('browser.no_proxy'))}</p><p class="card-desc">${p.has_fingerprint ? T('browser.fp_ok', '🧬 FP OK') : `<span style="color:var(--orange)">${T('browser.no_fp', '⚠️ No FP')}</span>`} ${p.has_cookies ? '🍪' : ''} ${hasGA ? '<span style="color:var(--green)">🔐 ' + esc(p.google_account.email) + '</span>' : ''}</p><div class="card-footer" style="flex-wrap:wrap;gap:8px"><span class="tag green">${esc((p.created_at||'').slice(0,10))}</span><div class="card-actions">${isR ? `<button class="btn-sm btn-danger" onclick="stopProfile('${esc(p.name)}',this)">⏹</button>` : (canOpenWindow ? `<button class="btn-sm" onclick="launchProfile('${esc(p.name)}',this)">▶</button>` : '')}<button class="btn-sm" onclick="openWSProfile('${esc(p.name)}')" title="Mở Browser Remote (Tab mới)" style="background:linear-gradient(135deg,#06b6d4,#3b82f6);color:#fff">🌐 Remote</button><button class="btn-danger" onclick="deleteProfile('${esc(p.name)}');setTimeout(()=>renderBrowserExt(getBrowserBody()),500)">✕</button></div></div></div>`;
+        return `<div class="card" style="position:relative"><button class="btn-settings" onclick="showProfileSettings('${esc(p.name)}')" title="${T('browser.settings', 'Settings')}">⚙️</button><div class="card-icon">🌐</div><h3>${esc(p.name)} ${isR ? '<span class="pulse-dot" style="display:inline-block"></span>' : ''}</h3><p class="card-meta" data-card-proxy="1" title="${esc(p.proxy ? (p.proxy_kho ? p.proxy_kho + ' · ' : '') + maskProxy(p.proxy) : '')}" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%">${p.proxy_kho ? `<span style="color:var(--primary)">📦 ${esc(p.proxy_kho)}</span> · ` : ''}${esc(p.proxy ? maskProxy(p.proxy) : T('browser.no_proxy'))}</p><p class="card-desc">${p.has_fingerprint ? T('browser.fp_ok', '🧬 FP OK') : `<span style="color:var(--orange)">${T('browser.no_fp', '⚠️ No FP')}</span>`} ${p.has_cookies ? '🍪' : ''} ${hasGA ? '<span style="color:var(--green)">🔐 ' + esc(p.google_account.email) + '</span>' : ''}</p><div class="card-footer" style="flex-wrap:wrap;gap:8px"><span class="tag green">${esc((p.created_at||'').slice(0,10))}</span><div class="card-actions">${isR ? `<button class="btn-sm btn-danger" onclick="stopProfile('${esc(p.name)}',this)">⏹</button>` : (canOpenWindow ? `<button class="btn-sm" onclick="launchProfile('${esc(p.name)}',this)">▶</button>` : '')}<button class="btn-sm" onclick="openWSProfile('${esc(p.name)}')" title="Mở Browser Remote (Tab mới)" style="background:linear-gradient(135deg,#06b6d4,#3b82f6);color:#fff">🌐 Remote</button><button class="btn-danger" onclick="deleteProfile('${esc(p.name)}');setTimeout(()=>renderBrowserExt(getBrowserBody()),500)">✕</button></div></div></div>`;
     }).join('') + '</div>';
     el.innerHTML = h;
 }

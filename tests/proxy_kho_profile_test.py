@@ -244,6 +244,27 @@ check("nút «Quản lý kho» mở hộp Kho Proxy và nạp lại kho khi hộ
 check("ô chọn chèn bằng JS (index.html không đổi): không có id proxy-src tĩnh",
       "proxy-src" not in io.open(ROOT / "tubecli/extensions/webui/static/index.html", encoding="utf-8").read())
 
+# ── 5b. thẻ hồ sơ: proxy không tràn, không lộ mật khẩu (user 26/10/2026, ảnh thẻ bas-001) ──────────
+card = APP[APP.index("else h += '<div class=\"cards-grid\">' + profiles.map(p => {"):][:4000]
+check("thẻ hồ sơ KHÔNG còn in nguyên p.proxy", "esc(p.proxy||T('browser.no_proxy'))" not in card)
+check("thẻ hồ sơ: một dòng, cắt «…», hiện bản đã che + tên kho",
+      'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%' in card
+      and "maskProxy(p.proxy)" in card and "p.proxy_kho ?" in card)
+_mask_js = APP[APP.index("function maskProxy("):APP.index("function getBrowserBody(")]
+_cases = ["socks5://snqswdvxag:SECRETPW@mobile.socksnode.com:29694", "u:p@1.2.3.4:8080",
+          "103.179.188.215:30981:5o7y:5o7y", "http://1.2.3.4:8080", "socks5://user:p@ss@host.com:1080", ""]
+try:
+    _out = subprocess.run(["node", "-e", _mask_js + ";\nconsole.log(JSON.stringify(" + json.dumps(_cases) + ".map(maskProxy)))"],
+                          capture_output=True, text=True, encoding="utf-8", timeout=60).stdout
+    _res = json.loads(_out)
+except Exception as e:  # noqa: BLE001
+    _res = [str(e)] * len(_cases)
+check("maskProxy che đăng nhập ở cả ba dạng, giữ scheme + host:port",
+      _res[:3] == ["socks5://•••@mobile.socksnode.com:29694", "•••@1.2.3.4:8080", "103.179.188.215:30981:•••"], _res)
+check("maskProxy: không đăng nhập → giữ nguyên; mật khẩu có «@» vẫn che; rỗng → rỗng",
+      _res[3] == "http://1.2.3.4:8080" and _res[4] == "socks5://•••@host.com:1080" and _res[5] == "", _res)
+check("maskProxy không để lọt mật khẩu", not any("SECRETPW" in r or "5o7y" in r for r in _res), _res)
+
 # ── 6. 9 locale ─────────────────────────────────────────────────────────────
 KEYS = ["proxy_src_manual", "proxy_src_kho", "proxy_manage_pool", "proxy_rotate_after", "proxy_rotate_unit",
         "proxy_from_pool_ph", "proxy_kho_empty", "proxy_kho_hint", "proxy_kho_missing"]
