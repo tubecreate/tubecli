@@ -2185,6 +2185,9 @@ def _step_script(state: Dict, options: Dict) -> None:
         state["scene_count"] = _publish_plan(state["task_id"], str(agent.name), state["title"], state["script"])
         state["_say"]("script", "running", f"reusing the script from the previous attempt · {state['scene_count']} scenes")
         return
+    if _manga_mode(state):
+        _step_script_manga(state, options, agent, blocks, pasted, write_in, words)
+        return
     if reference:
         # Lượt 1 bóc CẤU TRÚC (không giữ câu nào); mọi lượt viết sau đó chỉ thấy bản cấu trúc.
         blueprint = build_blueprint(state, agent, "\n".join(blocks))
@@ -2352,6 +2355,34 @@ def _step_script(state: Dict, options: Dict) -> None:
     state["_say"]("script", "running", f"{nw} words · ~{minutes_of(nw)} min read aloud · {n} scenes")
 
 
+def _step_script_manga(state: Dict, options: Dict, agent, blocks: List[str], pasted: bool, write_in: str,
+                       words: int) -> None:
+    """MANGA DRAMA: dàn ý JSON (nhân vật / bối cảnh / phần) rồi từng phần các khung [SHOW: nơi | nhân vật | góc máy] + lời
+    theo người nói — content_video/manga_script.py. Độ dài theo mẫu (phút), không theo số từ của bài dán."""
+    from tubecli.extensions.content_video import manga_script as _ms
+    feedback = state.get("feedback") or []
+    material = (_PASTED_HEAD if pasted else _CORPUS_HEAD) + "\n".join(blocks)
+    if feedback:
+        material += ("\n\nThe reviewer asked for these changes to the previous episode (apply ALL of them):\n"
+                     + "\n".join(f"- {f}" for f in feedback))
+    lang_note = write_in + instructions_note(options)
+    minutes = float(minutes_of(words) or 10)
+    title, text = _ms.write(lambda sysm, user, budget: _ask_model(agent, sysm, user, budget), material, lang_note,
+                            minutes, say=lambda m: state["_say"]("script", "running", m),
+                            cancelled=state.get("_cancelled") or (lambda: False))
+    title = str(options.get("title") or "").strip() or title
+    state["script"], state["title"] = text, title[:120]
+    _task_title(state.get("task_id"), state["title"], options)
+    _task_meta(state.get("task_id"), language=state.get("language"))
+    _checkpoint_merge(state, {"script": text, "title": state["title"], "high_water": state.get("high_water", ""),
+                              "language": state.get("language", ""), "preset": state.get("preset_name", ""),
+                              "seo_sources": _checkpoint_sources(state)})
+    state["scene_count"] = _publish_plan(state["task_id"], str(agent.name), state["title"], text)
+    state["estimated_minutes"] = _ms.minutes_of_script(text)
+    state["_say"]("script", "running", f"{_ms.dialogue_chars(text)} characters of dialogue · ~{state['estimated_minutes']} "
+                                       f"min · {text.count('[SHOW:')} panels")
+
+
 # ── Stage 2 steps ────────────────────────────────────────────────────
 
 def _storyboards(ep_id: int) -> List[Dict]:
@@ -2481,6 +2512,19 @@ def _step_studio(state: Dict, options: Dict) -> None:
     state["drama_id"], state["episode_id"], state["title"] = drama_id, ep_id, title
     # thẻ bảng việc biết tập nào → hỏi Studio tiến độ từng cảnh (lưới ảnh / clip) khi bước images chạy
     _task_meta(state.get("task_id"), episode_id=ep_id, drama_id=drama_id)
+    if _manga_mode(state):
+        # MANGA DRAMA: khung tách CỐ ĐỊNH từ kịch bản (Studio) — không storyboard AI, không sửa độ phủ / chèn cảnh
+        res = _post(f"/api/v1/studio/episodes/{ep_id}/manga/storyboard", {}, timeout=180) or {}
+        shots = _storyboards(ep_id)
+        if not shots:
+            raise RuntimeError(f"The manga storyboard made no panels: {str(res)[:200]}")
+        state["shot_count"] = len(shots)
+        names = ", ".join(str(c.get("name") or c.get("id")) for c in (res.get("cast") or []) if not c.get("extra"))[:160]
+        state["_say"]("studio", "running", f"{len(shots)} panels" + (" (kept)" if res.get("kept") else "")
+                      + (f" · cast: {names}" if names else "") + " · one fixed voice per character")
+        for w in (res.get("warnings") or [])[:5]:
+            state.setdefault("warnings", []).append(f"Manga script: {w}")
+        return
 
     shots = _storyboards(ep_id)
     if shots and _duplicate_ratio(shots) >= 0.3:
@@ -3614,7 +3658,7 @@ def _step_images(state: Dict, options: Dict) -> None:
     else:
         filled = _fill_missing_prompts(state)
         # Lời đã chốt (storyboard xong) — đọc giọng ở luồng nền trong lúc ảnh vẽ trên đám mây.
-        if options.get("tts", True):
+        if options.get("tts", True) and not _manga_mode(state):
             _start_tts_prefetch(state, options)
     if filled:
         state["_say"]("images", "running", f"built {filled} missing image prompt(s) from the shot text")
@@ -3900,6 +3944,12 @@ def _capcut_account(preferred: str = "") -> str:
 def _preset_meta(state: Dict) -> Dict:
     """metadata của preset Studio đang dùng ({} nếu không có)."""
     return dict((((state.get("preset") or {}).get("fields") or {}).get("metadata")) or {})
+
+
+def _manga_mode(state: Dict) -> bool:
+    """Mẫu MANGA DRAMA (26/10/2026, wizScriptFormat=manga): kịch bản khung + lời theo người nói, Studio tách khung không qua
+    AI, giọng theo nhân vật + bóng thoại làm ở bước dựng — bỏ storyboard AI, TTS một giọng, lồng giọng Muse."""
+    return str(_preset_meta(state).get("script_format") or "").strip().lower() == "manga"
 
 
 def _preset_voice(state: Dict, options: Dict) -> Tuple[str, str, str]:
@@ -4576,6 +4626,9 @@ def _join_tts_prefetch(state: Dict) -> int:
 
 
 def _step_tts(state: Dict, options: Dict) -> None:
+    if _manga_mode(state):
+        state["_say"]("tts", "running", "voices are made per character while the video is assembled (Manga Drama)")
+        return
     state["_tts_ok_before"] = _join_tts_prefetch(state)
     engine = _tts_prepare(state, options)
     state["tts_engine"] = engine
@@ -4669,6 +4722,9 @@ def _audio_check(state: Dict) -> None:
 def _step_dub(state: Dict, options: Dict) -> None:
     import hashlib
     say = state["_say"]
+    if _manga_mode(state):
+        say("dub", "running", "Manga Drama voices every character separately — no one-take re-dub")
+        return
     ep_id = int(state["episode_id"])
     shots = sorted(_storyboards(ep_id), key=lambda s: int(s.get("storyboard_number") or 0))
     voiced = [s for s in shots if str(s.get("narration_text") or "").strip()]
@@ -4866,7 +4922,8 @@ def _step_render(state: Dict, options: Dict) -> None:
         path = _wait_export(state, ep_id, _start_export(state, ep_id, options))
     _use_video(state, path)
     _checkpoint_merge(state, {"video_path": path})
-    planned = planned_seconds(state)
+    # manga: kịch bản có dàn nhân vật / góc máy tiếng Anh — «dự kiến» theo số chữ của nó sai; giọng làm lúc dựng
+    planned = 0 if _manga_mode(state) else planned_seconds(state)
     voiced = float(state.get("audio_seconds") or 0)
     if state["video_seconds"] and voiced and state["video_seconds"] < voiced * _SHORT_VIDEO_RATIO:
         # Giọng đã thu dài hơn video nhiều lần: bộ dựng KHÔNG dùng giọng (không tìm thấy file, hay đường dẫn ghi
