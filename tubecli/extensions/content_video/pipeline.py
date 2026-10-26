@@ -2366,6 +2366,9 @@ def _step_script_manga(state: Dict, options: Dict, agent, blocks: List[str], pas
         material += ("\n\nThe reviewer asked for these changes to the previous episode (apply ALL of them):\n"
                      + "\n".join(f"- {f}" for f in feedback))
     lang_note = write_in + instructions_note(options)
+    # Bài dán ở mẫu manga là Ý TƯỞNG / đề tài (vài dòng), không phải bài phải kể đủ: độ dài theo MẪU (hay số chữ người dùng
+    # ghi rõ) — theo bài dán thì 48 chữ ý tưởng thành tập 2 phút.
+    words = resolve_words({**options, "source_text": ""}, state.get("preset"))[0]
     minutes = float(minutes_of(words) or 10)
     title, text = _ms.write(lambda sysm, user, budget: _ask_model(agent, sysm, user, budget), material, lang_note,
                             minutes, say=lambda m: state["_say"]("script", "running", m),
