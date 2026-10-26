@@ -121,6 +121,14 @@ class BrowserProcessManager:
         from tubecli.config import resolve_browser_ai_model
         ai_model = resolve_browser_ai_model(ai_model)
 
+        # Hồ sơ gắn kho proxy: lấy / đổi proxy từ kho TRƯỚC khi node đọc config.json (26/10/2026).
+        # Mọi đường mở đều qua spawn(); lặp lại an toàn; kho hỏng thì mở bằng proxy đang có.
+        try:
+            from .proxy_pool import refresh_profile_proxy
+            refresh_profile_proxy(profile)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[Browser] proxy kho refresh failed for {profile}: {e}")
+
         # Build command — expects browser-launcher in PATH or data dir
         args = self._build_args(profile, prompt, headless, manual, ai_model, url, instance_id, context, session_minutes, scripted_only)
         # Redacted at creation. _build_args puts --login-password on the argv for
