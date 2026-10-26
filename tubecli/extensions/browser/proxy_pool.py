@@ -32,6 +32,7 @@ import os
 import random
 import re
 import threading
+import time
 import uuid
 from datetime import date, datetime
 from typing import Dict, List, Optional
@@ -445,6 +446,77 @@ def next_after(kho: Optional[str], current: Optional[str]) -> Optional[str]:
     fewest = used.get(key_of(others[0]["proxy_str"]), 0)
     tied = [p for p in others if used.get(key_of(p["proxy_str"]), 0) == fewest]
     return random.choice(tied)["proxy_str"]
+
+
+# ── kho gắn với hồ sơ (26/10/2026) ──────────────────────────────────────────
+# User (ảnh Profile Settings): «chưa có chỗ thêm nhóm proxy (pool proxy)». Kho có từ .73 nhưng chỉ «phát»
+# MỘT lần qua /proxy-pool/assign: hồ sơ nhận một chuỗi rồi thôi. proxy_rotate_minutes được ghi lên hồ sơ
+# mà không đường mở nào đọc (RelayManager.acquire không ai gọi) → ô «Xoay mỗi N phút» chưa từng có tác
+# dụng. Nay mọi đường mở gọi refresh_profile_proxy() TRƯỚC khi chạy: proxy không còn trong kho (bị xoá /
+# hết hạn / đổi kho) → lấy proxy ít hồ sơ dùng nhất; đã dùng quá N phút → proxy kế tiếp. Đổi ở LẦN MỞ,
+# không đổi giữa phiên — đổi giữa phiên cần relay, mà relay chưa nối vào đường mở.
+ROTATE_MAX_MIN = 1440
+
+
+def clamp_rotate(value) -> int:
+    """Số phút xoay hợp lệ: 0 (không xoay) .. 1440 (một ngày). Rác → 0."""
+    try:
+        n = int(float(value))
+    except (TypeError, ValueError):
+        return 0
+    return max(0, min(ROTATE_MAX_MIN, n))
+
+
+def kho_problem(name: str) -> Optional[str]:
+    """None khi gắn hồ sơ vào kho này được; ngược lại là lý do, hiện thẳng cho người dùng.
+
+    Kho rỗng bị từ chối NGAY lúc gắn: gắn được rồi mới phát hiện thì hồ sơ mở không proxy."""
+    name = (name or "").strip()
+    if not name:
+        return "Pick a proxy pool."
+    if not any(k.get("name") == name for k in _load()["khos"]):
+        return f"Proxy pool '{name}' does not exist."
+    if not _usable(name):
+        return f"Proxy pool '{name}' has no usable proxy yet. Import some proxies into it first."
+    return None
+
+
+def refresh_profile_proxy(name: str, now: Optional[float] = None) -> Dict:
+    """Hồ sơ gắn kho (config proxy_kho): chọn / đổi proxy từ kho. Gọi TRƯỚC mỗi lần mở.
+
+    Lặp lại an toàn: gọi hai lần liền trong cùng một lần mở thì lần sau là «kept».
+    Không bao giờ xoá proxy: kho bị xoá / rỗng thì GIỮ proxy đang có — mở trần là lộ IP thật."""
+    from .profile_manager import _load_config, update_profile
+    cfg = _load_config(name) or {}
+    kho = str(cfg.get("proxy_kho") or "").strip()
+    if not kho:
+        return {"changed": False, "reason": "no_kho"}
+    with _LOCK:
+        usable = _usable(kho)
+        if not usable:
+            return {"changed": False, "reason": "kho_empty", "kho": kho}
+        now = time.time() if now is None else float(now)
+        cur = str(cfg.get("proxy") or "")
+        keys = {key_of(p.get("proxy_str", "")) for p in usable}
+        rot = clamp_rotate(cfg.get("proxy_rotate_minutes"))
+        try:
+            at = float(cfg.get("proxy_assigned_at") or 0)
+        except (TypeError, ValueError):
+            at = 0.0
+        if not cur or key_of(cur) not in keys:
+            new, reason = (distribute(kho, 1) or [None])[0], "not_in_kho"
+        elif rot and not at:
+            # Hồ sơ gán trước bản này: chưa có mốc → bắt đầu đếm từ bây giờ, chưa đổi.
+            update_profile(name, proxy_assigned_at=int(now))
+            return {"changed": False, "reason": "clock_started", "kho": kho}
+        elif rot and now - at >= rot * 60:
+            new, reason = next_after(kho, cur), "rotated"
+        else:
+            return {"changed": False, "reason": "kept", "kho": kho}
+        if not new:
+            return {"changed": False, "reason": "kho_empty", "kho": kho}
+        update_profile(name, proxy=new, proxy_assigned_at=int(now))
+    return {"changed": key_of(new) != key_of(cur), "reason": reason, "kho": kho, "proxy": new}
 
 
 # ── đo thật ─────────────────────────────────────────────────────────────────

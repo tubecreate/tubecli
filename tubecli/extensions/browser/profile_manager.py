@@ -456,7 +456,9 @@ def update_profile(name: str, **kwargs) -> Optional[Dict[str, Any]]:
     # proxy_kho / proxy_rotate_minutes: proxy nay den tu kho nao va co xoay khong.
     # Thieu hai khoa nay trong danh sach trang thi update_profile nhan roi VUT DI
     # lang le, va lan mo sau khong biet lay proxy ke tiep o dau de xoay.
-    for key in ("tags", "proxy", "proxy_kho", "proxy_rotate_minutes", "browser_version", "chrome_version", "window_size", "notes", "blacklist", "google_account", "facebook_account", "tiktok_account", "x_account", "discord_account", "telegram_account"):
+    # proxy_assigned_at (26/10/2026): mốc epoch lúc proxy hiện tại được lấy từ kho — xoay theo phút
+    # cần biết proxy này đã dùng bao lâu (proxy_pool.refresh_profile_proxy).
+    for key in ("tags", "proxy", "proxy_kho", "proxy_rotate_minutes", "proxy_assigned_at", "browser_version", "chrome_version", "window_size", "notes", "blacklist", "google_account", "facebook_account", "tiktok_account", "x_account", "discord_account", "telegram_account"):
         if key in kwargs and kwargs[key] is not None:
             config[key] = kwargs[key]
     _save_config(name, config)

@@ -59,6 +59,9 @@ class ProfileCreateRequest(BaseModel):
     tags: List[str] = ["Windows", "Chrome"]
     window_size: Optional[dict] = None   # {"width": 1920, "height": 1080}
     chrome_version: Optional[str] = ""
+    # Lấy proxy từ KHO thay cho chuỗi `proxy` (26/10/2026). Rỗng = nhập tay như cũ.
+    proxy_kho: str = ""
+    proxy_rotate_minutes: int = 0
 
 class ProfileUpdateRequest(BaseModel):
     proxy: Optional[str] = None
@@ -73,6 +76,9 @@ class ProfileUpdateRequest(BaseModel):
     discord_account: Optional[Any] = None
     telegram_account: Optional[Any] = None
     window_size: Optional[dict] = None   # {"width": int, "height": int}
+    # None = không đụng; "" = về nhập tay; tên kho = lấy proxy từ kho đó (26/10/2026).
+    proxy_kho: Optional[str] = None
+    proxy_rotate_minutes: Optional[int] = None
     chrome_version: Optional[str] = None
 
 class LaunchRequest(BaseModel):
@@ -151,21 +157,36 @@ def _has_display() -> bool:
 @router.post("/profiles")
 async def api_create_profile(req: ProfileCreateRequest):
     from .profile_manager import create_profile
+    # proxy_kho (26/10/2026): chọn proxy ít hồ sơ dùng nhất NGAY lúc tạo để config.json có proxy từ đầu.
+    # Kho sai / rỗng thì từ chối TRƯỚC khi tạo thư mục — tạo xong mới báo là để lại hồ sơ mở trần.
+    from . import proxy_pool as pool
+    kho = (req.proxy_kho or "").strip()
+    proxy = req.proxy
+    if kho:
+        problem = pool.kho_problem(kho)
+        if problem:
+            raise HTTPException(400, problem)
+        proxy = (pool.distribute(kho, 1) or [None])[0] or ""
     try:
         # Map 'version' to 'browser_version' if needed
         version = req.version or req.browser_version
         profile = await asyncio.to_thread(
             create_profile,
             req.name,
-            proxy=req.proxy,
+            proxy=proxy,
             browser_version=version,
             tags=req.tags,
             window_size=req.window_size,
             chrome_version=req.chrome_version or "",
         )
-        return {"status": "created", "profile": profile}
     except ValueError as e:
         raise HTTPException(409, str(e))
+    if kho:
+        profile = await asyncio.to_thread(
+            update_profile, profile["name"], proxy_kho=kho,
+            proxy_rotate_minutes=pool.clamp_rotate(req.proxy_rotate_minutes),
+            proxy_assigned_at=int(time.time())) or profile
+    return {"status": "created", "profile": profile}
 
 @router.get("/profiles/{name}")
 async def api_get_profile(name: str):
@@ -199,9 +220,28 @@ async def api_update_profile(name: str, req: ProfileUpdateRequest):
             else:
                 data[act_key] = None
     
+    # proxy_kho (26/10/2026): "" = về nhập tay; tên kho = lấy proxy từ kho đó. Gắn kho thì BỎ chuỗi proxy
+    # client gửi kèm (ô proxy lúc đó chỉ để xem) — refresh_profile_proxy bên dưới tự chọn trong kho.
+    from . import proxy_pool as pool
+    if "proxy_kho" in data:
+        kho = str(data.get("proxy_kho") or "").strip()
+        data["proxy_kho"] = kho
+        if kho:
+            problem = pool.kho_problem(kho)
+            if problem:
+                raise HTTPException(400, problem)
+            data.pop("proxy", None)
+        else:
+            data["proxy_rotate_minutes"] = 0
+    if "proxy_rotate_minutes" in data:
+        data["proxy_rotate_minutes"] = pool.clamp_rotate(data["proxy_rotate_minutes"])
     profile = await asyncio.to_thread(update_profile, name, **data)
     if not profile:
         raise HTTPException(404, f"Profile '{name}' not found")
+    if data.get("proxy_kho"):
+        from .profile_manager import _load_config
+        await asyncio.to_thread(pool.refresh_profile_proxy, name)
+        profile = {"name": name, **(await asyncio.to_thread(_load_config, name))}
     return {"status": "updated", "profile": profile}
 
 @router.delete("/profiles/{name}")
@@ -978,12 +1018,28 @@ def note_launch_output(text: str) -> Optional[str]:
     return None
 
 
+def _refresh_kho_proxy(profile_name) -> None:
+    """Hồ sơ gắn kho proxy: lấy / đổi proxy từ kho TRƯỚC khi mở (26/10/2026).
+
+    Gọi ở launch_refusal (trước khi xét proxy_blocker — xét trên proxy SẼ dùng, không phải proxy cũ),
+    process_manager.spawn và _spawn_preview_server. Lặp lại an toàn; không bao giờ chặn việc mở.
+    """
+    try:
+        from . import proxy_pool as pool
+        r = pool.refresh_profile_proxy(str(profile_name))
+        if r.get("changed"):
+            print(f"[proxy-kho] {profile_name}: {r.get('reason')} → proxy mới từ kho '{r.get('kho')}'")
+    except Exception as e:  # noqa: BLE001 — kho hỏng thì mở bằng proxy đang có
+        print(f"[proxy-kho] {profile_name}: không làm mới được proxy từ kho: {e}")
+
+
 def launch_refusal(profile_name: str) -> Optional[dict]:
     """Cùng một lời từ chối cho MỌI đường mở: /launch, live view, và lịch chạy.
 
     Trước đây chỉ /launch biết diễn giải mã chặn, nên lượt theo lịch cứ spawn rồi
     ghi "running" cho một tiến trình chết sau một giây.
     """
+    _refresh_kho_proxy(profile_name)
     code = check_launch_blockers(profile_name)
     if not code:
         return None
@@ -2919,6 +2975,9 @@ async def _spawn_preview_server(profile, url, extra_args=()):
     """
     ext_dir = os.path.dirname(os.path.abspath(__file__))
     preview_path = os.path.join(ext_dir, "preview_server.cjs")
+    # Mở MỚI (không phải xem ghép --attach-cdp vào phiên đang chạy): hồ sơ gắn kho lấy proxy trước.
+    if "--attach-cdp" not in tuple(extra_args or ()):
+        _refresh_kho_proxy(profile)
 
     # Fail with a reason rather than letting Popen raise a bare FileNotFoundError.
     import shutil as _shutil
@@ -4657,8 +4716,10 @@ async def api_proxy_assign(req: ProxyAssignRequest):
     for name, proxy in zip(names, picks):
         if not proxy:
             continue
+        # proxy_assigned_at: mốc để refresh_profile_proxy biết proxy này đã dùng bao lâu (26/10/2026).
         update_profile(name, proxy=proxy, proxy_kho=req.kho,
-                       proxy_rotate_minutes=int(req.rotate_minutes or 0))
+                       proxy_rotate_minutes=pool.clamp_rotate(req.rotate_minutes),
+                       proxy_assigned_at=int(time.time()))
         assigned.append({"profile": name, "proxy": proxy})
     return {"success": True, "assigned": assigned, "count": len(assigned)}
 

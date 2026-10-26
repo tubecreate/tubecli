@@ -1736,6 +1736,128 @@ async function showProxyPoolModal() {
     await loadProxyPool();
 }
 
+// ═══ Proxy từ KHO cho MỘT hồ sơ ═══
+// User 26/10/2026 (ảnh Profile Settings): «chưa có chỗ thêm nhóm proxy (pool proxy)». Kho có từ .73 (nút
+// «Kho Proxy» trên thanh hồ sơ) nhưng hai form hồ sơ chỉ có ô gõ MỘT chuỗi. Nay ngay trên ô proxy có ô chọn
+// nguồn (Nhập tay | Kho …) + nút mở Kho Proxy để tạo kho / nhập proxy; gắn kho thì lõi tự lấy proxy ít hồ sơ
+// dùng nhất và đổi trước mỗi lần mở (proxy_pool.refresh_profile_proxy). Chèn bằng JS (không sửa index.html)
+// để hai form dùng chung một bộ và lõi cũ thiếu /proxy-pool vẫn còn ô nhập tay như trước.
+const _proxyKhos = {};   // prefix ('settings' | 'profile') → [{name, total, live}]
+
+async function mountProxySource(prefix, current) {
+    const input = document.getElementById(prefix + '-proxy');
+    if (!input || !input.parentNode) return;
+    let sel = document.getElementById(prefix + '-proxy-src');
+    if (!sel) {
+        const box = document.createElement('div');
+        box.id = prefix + '-proxy-src-box';
+        box.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px';
+        box.innerHTML = `<select id="${prefix}-proxy-src" data-proxy-src="${prefix}" style="flex:1;min-width:240px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:.85rem"></select>`
+            + `<button type="button" class="btn-secondary btn-sm" id="${prefix}-proxy-manage">${esc(T('browser.proxy_manage_pool'))}</button>`;
+        input.parentNode.insertBefore(box, input);
+        const hint = document.createElement('div');
+        hint.id = prefix + '-proxy-src-hint';
+        hint.style.cssText = 'font-size:.75rem;margin-top:6px;color:var(--text-muted)';
+        input.parentNode.insertBefore(hint, input.nextSibling);
+        const rot = document.createElement('div');
+        rot.id = prefix + '-proxy-rot-row';
+        rot.style.cssText = 'display:none;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;font-size:.8rem;color:var(--text-muted)';
+        rot.innerHTML = `<span>${esc(T('browser.proxy_rotate_after'))}</span>`
+            + `<input id="${prefix}-proxy-rotate" type="number" min="0" max="1440" step="5" value="0" style="width:90px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg-input);color:var(--text)">`
+            + `<span>${esc(T('browser.proxy_rotate_unit'))}</span>`;
+        input.parentNode.insertBefore(rot, input.nextSibling);
+        sel = document.getElementById(prefix + '-proxy-src');
+        sel.onchange = () => syncProxySource(prefix);
+        document.getElementById(prefix + '-proxy-manage').onclick = () => openPoolFromProfile(prefix);
+    }
+    // Chưa nạp xong danh sách kho thì proxySourceValue() trả null → lưu sớm KHÔNG gỡ kho đang gắn.
+    delete sel.dataset.ready;
+    if (current) {
+        sel.dataset.want = current.kho || '';
+        const r = document.getElementById(prefix + '-proxy-rotate');
+        if (r) r.value = String(current.rotate || 0);
+    }
+    await fillProxySources(prefix);
+}
+
+async function fillProxySources(prefix) {
+    const sel = document.getElementById(prefix + '-proxy-src');
+    if (!sel) return;
+    const want = sel.dataset.want != null ? sel.dataset.want : sel.value;
+    const d = await apiGet('/api/v1/browser/proxy-pool');
+    const khos = (d && Array.isArray(d.khos)) ? d.khos : [];
+    _proxyKhos[prefix] = khos;
+    let opts = `<option value="">${esc(T('browser.proxy_src_manual'))}</option>`
+        + khos.map(k => `<option value="${esc(k.name)}">${esc(T('browser.proxy_src_kho', { name: k.name, live: k.live, total: k.total }))}</option>`).join('');
+    if (want && !khos.some(k => k.name === want)) {
+        opts += `<option value="${esc(want)}">${esc(want + ' ' + T('browser.proxy_kho_missing'))}</option>`;
+    }
+    sel.innerHTML = opts;
+    sel.value = want || '';
+    delete sel.dataset.want;
+    // Lõi cũ không có /proxy-pool → chỉ còn «Nhập tay», ẩn cả hàng cho khỏi rối.
+    const box = document.getElementById(prefix + '-proxy-src-box');
+    if (box) box.style.display = (d && d.error && !khos.length) ? 'none' : 'flex';
+    sel.dataset.ready = '1';
+    syncProxySource(prefix);
+}
+
+function syncProxySource(prefix) {
+    const sel = document.getElementById(prefix + '-proxy-src');
+    const input = document.getElementById(prefix + '-proxy');
+    const rot = document.getElementById(prefix + '-proxy-rot-row');
+    const hint = document.getElementById(prefix + '-proxy-src-hint');
+    if (!sel || !input) return;
+    const kho = sel.value;
+    if (!kho) {
+        input.readOnly = false;
+        input.style.opacity = '';
+        input.placeholder = 'socks5://user:pass@host:port';
+        if (rot) rot.style.display = 'none';
+        if (hint) hint.textContent = '';
+        return;
+    }
+    const k = (_proxyKhos[prefix] || []).find(x => x.name === kho);
+    input.readOnly = true;
+    input.style.opacity = '.65';
+    input.placeholder = T('browser.proxy_from_pool_ph');
+    if (rot) rot.style.display = 'flex';
+    if (hint) {
+        const empty = !k || !k.total;
+        hint.style.color = empty ? 'var(--orange)' : 'var(--text-muted)';
+        hint.textContent = empty ? T('browser.proxy_kho_empty', { name: kho }) : T('browser.proxy_kho_hint');
+    }
+}
+
+// {kho, rotate} để gửi lên lõi; null = ô chọn chưa sẵn sàng (đang nạp / lõi cũ) → người gọi gửi như cũ.
+function proxySourceValue(prefix) {
+    const sel = document.getElementById(prefix + '-proxy-src');
+    if (!sel || !sel.dataset.ready) return null;
+    const box = document.getElementById(prefix + '-proxy-src-box');
+    if (box && box.style.display === 'none') return null;
+    const raw = parseInt(document.getElementById(prefix + '-proxy-rotate')?.value, 10);
+    const rotate = Math.max(0, Math.min(1440, Number.isFinite(raw) ? raw : 0));
+    return { kho: sel.value || '', rotate };
+}
+
+// Mở Kho Proxy ngay từ form hồ sơ; đóng hộp đó (✕ / Esc) thì nạp lại danh sách kho (kho vừa tạo, proxy vừa
+// nhập hiện ngay) và — nếu ô proxy nhập tay đang trống — chọn sẵn kho vừa mở bên trong.
+async function openPoolFromProfile(prefix) {
+    const sel = document.getElementById(prefix + '-proxy-src');
+    if (sel && sel.value) _pp.kho = sel.value;
+    await showProxyPoolModal();
+    const timer = setInterval(() => {
+        if (document.getElementById('modal-proxy-pool')) return;
+        clearInterval(timer);
+        const s = document.getElementById(prefix + '-proxy-src');
+        if (!s) return;
+        // Đang nhập tay mà ô proxy CÒN TRỐNG mới tự chọn kho vừa mở; đã gõ proxy thì giữ nguyên lựa chọn.
+        const typed = (document.getElementById(prefix + '-proxy')?.value || '').trim();
+        s.dataset.want = s.value || (typed ? '' : (_pp.kho || ''));
+        fillProxySources(prefix);
+    }, 400);
+}
+
 async function loadProxyPool() {
     const d = await apiGet('/api/v1/browser/proxy-pool' + (_pp.kho ? `?kho=${encodeURIComponent(_pp.kho)}` : ''));
     if (!d || d.error) {
@@ -5399,7 +5521,8 @@ async function showCreateProfile() {
         console.warn('Failed to check engines:', e);
     }
     
-    document.getElementById('modal-profile').classList.remove('hidden'); 
+    document.getElementById('modal-profile').classList.remove('hidden');
+    mountProxySource('profile', { kho: '', rotate: 0 }); 
     // Fetch browser versions for dropdown
     const sel = document.getElementById('profile-version');
     if (sel) {
@@ -5691,18 +5814,30 @@ async function createProfile() {
     btn.textContent = T('browser.creating', 'Creating...');
     const width  = parseInt(document.getElementById('profile-win-width')?.value)  || 1920;
     const height = parseInt(document.getElementById('profile-win-height')?.value) || 1080;
-    await apiPost('/api/v1/browser/profiles', {
+    const body = {
         name,
-        proxy: document.getElementById('profile-proxy').value,
         tags: [document.getElementById('profile-os').value, document.getElementById('profile-browser').value],
         browser_version: document.getElementById('profile-version')?.value,
         window_size: { width, height },
-    });
+    };
+    // Gắn kho (26/10/2026): lõi chọn proxy ít hồ sơ dùng nhất trong kho; nhập tay thì gửi chuỗi như cũ.
+    const src = proxySourceValue('profile');
+    if (src && src.kho) { body.proxy_kho = src.kho; body.proxy_rotate_minutes = src.rotate; }
+    else body.proxy = document.getElementById('profile-proxy').value;
+    const res = await apiPost('/api/v1/browser/profiles', body);
     btn.disabled = false;
     btn.textContent = T('browser.create_fetch', 'Create & Fetch Fingerprint');
+    // Lỗi (kho rỗng, trùng tên…) giữ form mở và nói lý do — trước đây form đóng im lặng.
+    if (!res || res.detail || res.error) {
+        const why = res ? (typeof res.detail === 'string' ? res.detail : (res.error || JSON.stringify(res.detail))) : '';
+        alert(T('browser.alert_error', 'Error: ') + why);
+        return;
+    }
     closeModal('modal-profile');
     document.getElementById('profile-name').value = '';
     document.getElementById('profile-proxy').value = '';
+    const _ps = document.getElementById('profile-proxy-src');
+    if (_ps) { _ps.value = ''; syncProxySource('profile'); }
     if (document.getElementById('profile-win-width'))  document.getElementById('profile-win-width').value  = '1920';
     if (document.getElementById('profile-win-height')) document.getElementById('profile-win-height').value = '1080';
     renderBrowserExt(getBrowserBody());
@@ -6879,6 +7014,7 @@ async function showProfileSettings(name) {
         await loadEngineVersionsDropdown('settings-version', data?.browser_version || 'default');
         if (data) {
             document.getElementById('settings-proxy').value = data.proxy || '';
+            mountProxySource('settings', { kho: data.proxy_kho || '', rotate: data.proxy_rotate_minutes || 0 });
             // Set fingerprint tags
             const tags = data.tags || ['Windows', 'Chrome'];
             const osEl = document.getElementById('settings-fp-os');
@@ -7119,11 +7255,15 @@ async function saveProfileSettings() {
     }
 
     const payload = {
-        proxy: proxy,
         tags: [os, browser],
         browser_version: browserVersion,
         window_size: { width, height },
     };
+    // Nguồn proxy (26/10/2026): gắn kho → gửi proxy_kho, KHÔNG gửi chuỗi (ô proxy chỉ để xem, lõi tự chọn
+    // trong kho). Ô chọn chưa sẵn sàng (src null) → gửi chuỗi như cũ, không đụng kho đang gắn.
+    const src = proxySourceValue('settings');
+    if (src && src.kho) { payload.proxy_kho = src.kho; payload.proxy_rotate_minutes = src.rotate; }
+    else { payload.proxy = proxy; if (src) payload.proxy_kho = ''; }
     
     // Add all service accounts to payload
     const services = ['google', 'facebook', 'tiktok', 'x', 'discord', 'telegram'];
