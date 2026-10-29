@@ -329,6 +329,7 @@ function activateTab(tab, skipCloseDetail) {
     }
 
     // Tab-specific loading
+    if (tab === 'settings') mountCloudPasswordCard();   // thẻ Mật khẩu & TubeCLI Cloud (29/10/2026)
     if (tab === 'dashboard') loadDashboard();
     else if (tab === 'extensions') loadExtensions();
     else if (tab === 'api-manager') loadApiManagerPage();
@@ -1754,6 +1755,127 @@ async function showProxyPoolModal() {
     modal._onKey = (e) => { if (e.key === 'Escape') { modal.remove(); document.removeEventListener('keydown', modal._onKey); } };
     document.addEventListener('keydown', modal._onKey);
     await loadProxyPool();
+}
+
+// ═══ Mật khẩu & TubeCLI Cloud (thẻ trong Settings) ═══
+// User 29/10/2026: «bên tubecli setting … không có chỗ để đồng bộ pass với cloud». Cloud giữ mật khẩu
+// dashboard để đăng nhập hộ (Flow Builder, Dashboard ↗); đổi trên máy mà cloud không biết là Flow báo
+// «TubeCLI login failed». Trước chỉ app TubeCLI Connect báo được. Lõi: /api/v1/auth/cloud-link (máy có
+// liên kết không, qua đâu — KHÔNG trả token) + /api/v1/auth/cloud-sync + /auth/password {sync_cloud}
+// (core/cloud_link.py). Chèn bằng JS: index.html đang có thay đổi dở của phiên khác.
+let _cloudLink = null;
+
+async function mountCloudPasswordCard() {
+    const grid = document.querySelector('#tab-settings .settings-grid');
+    if (!grid || !grid.parentNode) return;
+    let card = document.getElementById('cloud-pw-card');
+    if (!card) {
+        const inp = 'style="width:100%"';
+        card = document.createElement('div');
+        card.id = 'cloud-pw-card';
+        card.className = 'settings-card full-width';
+        card.style.marginBottom = '20px';
+        card.innerHTML = `
+            <div class="settings-card-header">
+                <div class="settings-card-icon purple"><span class="material-symbols-outlined" style="font-size:18px">cloud_sync</span></div>
+                <div><h3>${esc(T('cloudpw.title'))}</h3><small>${esc(T('cloudpw.desc'))}</small></div>
+            </div>
+            <div id="cloud-pw-status" style="margin:0 0 14px;font-size:.85rem;color:var(--text-muted);line-height:1.5"></div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px">
+                <div>
+                    <div style="font-weight:600;margin-bottom:8px">${esc(T('cloudpw.change_title'))}</div>
+                    <div class="settings-field"><label>${esc(T('cloudpw.current'))}</label><input type="password" id="cpw-current" autocomplete="current-password" ${inp}></div>
+                    <div class="settings-field"><label>${esc(T('cloudpw.new'))}</label><input type="password" id="cpw-new" autocomplete="new-password" ${inp}></div>
+                    <div class="settings-field"><label>${esc(T('cloudpw.confirm'))}</label><input type="password" id="cpw-confirm" autocomplete="new-password" ${inp}></div>
+                    <label style="display:flex;gap:8px;align-items:center;font-size:.85rem;margin:6px 0 12px;cursor:pointer"><input type="checkbox" id="cpw-sync" checked style="width:auto"> ${esc(T('cloudpw.sync_too'))}</label>
+                    <button class="btn-primary" id="cpw-change-btn" onclick="cloudPwChange(this)">${esc(T('cloudpw.change_btn'))}</button>
+                </div>
+                <div>
+                    <div style="font-weight:600;margin-bottom:8px">${esc(T('cloudpw.sync_title'))}</div>
+                    <div style="margin-bottom:10px;font-size:.8rem;color:var(--text-muted);line-height:1.45">${esc(T('cloudpw.sync_hint'))}</div>
+                    <div class="settings-field"><label>${esc(T('cloudpw.current'))}</label><input type="password" id="cpw-sync-pw" autocomplete="current-password" ${inp}></div>
+                    <button class="btn-secondary" id="cpw-sync-btn" onclick="cloudPwSync(this)">${esc(T('cloudpw.sync_btn'))}</button>
+                </div>
+            </div>
+            <div id="cloud-pw-result" role="status" style="margin-top:14px;font-size:.88rem;line-height:1.5"></div>`;
+        grid.parentNode.insertBefore(card, grid);
+    }
+    const st = document.getElementById('cloud-pw-status');
+    const d = await apiGet('/api/v1/auth/cloud-link');
+    _cloudLink = (d && !d.error && typeof d.linked === 'boolean') ? d : null;
+    const syncBox = document.getElementById('cpw-sync');
+    const syncBtn = document.getElementById('cpw-sync-btn');
+    if (!_cloudLink) {
+        st.textContent = T('cloudpw.status_unknown');
+        return;
+    }
+    if (_cloudLink.linked) {
+        const k = _cloudLink.source === 'vps' ? 'cloudpw.linked_vps' : (_cloudLink.source === 'env' ? 'cloudpw.linked_env' : 'cloudpw.linked_connect');
+        st.innerHTML = `<span style="color:var(--green)">●</span> ${esc(T(k))}`;
+        if (syncBox) syncBox.disabled = false;
+        if (syncBtn) syncBtn.disabled = false;
+    } else {
+        st.innerHTML = `<span style="color:var(--orange)">●</span> ${esc(T(_cloudLink.source === 'unreadable' ? 'cloudpw.unreadable' : 'cloudpw.not_linked'))}`;
+        if (syncBox) { syncBox.checked = false; syncBox.disabled = true; }
+        if (syncBtn) syncBtn.disabled = true;
+    }
+}
+
+// Câu cho một kết quả đồng bộ của lõi ({ok, code, error}).
+function cloudPwSyncText(r) {
+    if (!r) return { ok: false, text: T('cloudpw.r_error') };
+    const map = { synced: 'cloudpw.r_synced', not_linked: 'cloudpw.r_not_linked', token_unreadable: 'cloudpw.r_unreadable',
+                  not_recognised: 'cloudpw.r_not_recognised', cloud_login_failed: 'cloudpw.r_login_failed' };
+    if (r.ok) return { ok: true, text: T('cloudpw.r_synced') };
+    if (map[r.code]) return { ok: false, text: T(map[r.code]) };
+    const lead = r.code === 'cloud_unreachable' ? T('cloudpw.r_unreachable') : T('cloudpw.r_error');
+    return { ok: false, text: lead + (r.error || '') };
+}
+
+function cloudPwShow(lines) {
+    const el = document.getElementById('cloud-pw-result');
+    if (!el) return;
+    el.innerHTML = lines.map(l => `<div style="color:${l.ok ? 'var(--green)' : 'var(--red)'}">${l.ok ? '✓' : '✗'} ${esc(l.text)}</div>`).join('');
+}
+
+async function cloudPwChange(btn) {
+    const cur = document.getElementById('cpw-current').value;
+    const nw = document.getElementById('cpw-new').value;
+    const cf = document.getElementById('cpw-confirm').value;
+    const syncBox = document.getElementById('cpw-sync');
+    if (!cur || !nw || !cf) return cloudPwShow([{ ok: false, text: T('cloudpw.fill') }]);
+    if (nw !== cf) return cloudPwShow([{ ok: false, text: T('cloudpw.mismatch') }]);
+    const label = btn.textContent;
+    btn.disabled = true; btn.textContent = T('cloudpw.working');
+    try {
+        const r = await apiPost('/api/v1/auth/password', { current_password: cur, new_password: nw,
+            sync_cloud: !!(syncBox && syncBox.checked && !syncBox.disabled) });
+        if (!r || !r.ok) {
+            cloudPwShow([{ ok: false, text: (r && (r.detail || r.error)) || T('cloudpw.r_error') }]);
+            return;
+        }
+        const lines = [{ ok: true, text: T('cloudpw.changed') }];
+        if (r.cloud) lines.push(cloudPwSyncText(r.cloud));
+        cloudPwShow(lines);
+        ['cpw-current', 'cpw-new', 'cpw-confirm'].forEach(id => { const i = document.getElementById(id); if (i) i.value = ''; });
+    } finally {
+        btn.disabled = false; btn.textContent = label;
+    }
+}
+
+async function cloudPwSync(btn) {
+    const pw = document.getElementById('cpw-sync-pw').value;
+    if (!pw) return cloudPwShow([{ ok: false, text: T('cloudpw.fill') }]);
+    const label = btn.textContent;
+    btn.disabled = true; btn.textContent = T('cloudpw.working');
+    try {
+        const r = await apiPost('/api/v1/auth/cloud-sync', { password: pw });
+        if (r && r.detail && r.ok === undefined) { cloudPwShow([{ ok: false, text: String(r.detail) }]); return; }
+        cloudPwShow([cloudPwSyncText(r)]);
+        if (r && r.ok) document.getElementById('cpw-sync-pw').value = '';
+    } finally {
+        btn.disabled = false; btn.textContent = label;
+    }
 }
 
 // ═══ Proxy từ KHO cho MỘT hồ sơ ═══
