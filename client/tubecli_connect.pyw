@@ -828,6 +828,91 @@ def password_problem(new_pw: str, again: str) -> str:
     return ""
 
 
+FORGOT_LINK = "Quên mật khẩu? Đặt mật khẩu mới"
+
+
+def open_forgot_password(parent, on_set) -> None:
+    """Hộp «Đặt mật khẩu mới» cho người QUÊN mật khẩu dashboard (29/10/2026).
+
+    Không hỏi mật khẩu cũ: Connect chạy trên CHÍNH máy chủ, cùng quyền với việc mở terminal gõ
+    `tubecli password` — change_node_password(new) không kèm `current` đi thẳng đường đó. Đặt xong
+    gọi on_set(mật_khẩu_mới) để cửa sổ gọi điền sẵn vào ô. Mật khẩu không vào log.
+    """
+    import tkinter as tk
+    from tkinter import ttk
+    dlg = tk.Toplevel(parent)
+    dlg.title("Đặt mật khẩu mới cho TubeCLI")
+    dlg.resizable(False, False)
+    dlg.transient(parent)
+    _set_icon(dlg)
+    try:
+        dlg.attributes("-topmost", True)
+    except Exception:
+        pass
+    box = ttk.Frame(dlg, padding=14)
+    box.grid()
+    ttk.Label(box, text="Mật khẩu mới (ít nhất 6 ký tự)").grid(column=0, row=0, sticky="w")
+    e1 = ttk.Entry(box, show="•", width=34)
+    e1.grid(column=0, row=1, sticky="we", pady=(2, 8))
+    ttk.Label(box, text="Nhập lại").grid(column=0, row=2, sticky="w")
+    e2 = ttk.Entry(box, show="•", width=34)
+    e2.grid(column=0, row=3, sticky="we", pady=(2, 8))
+    note = ttk.Label(box, wraplength=300, justify="left", foreground="#666666",
+                     text="Không cần mật khẩu cũ: mật khẩu mới được đặt thẳng trên máy này "
+                          "(giống lệnh «tubecli password»).")
+    note.grid(column=0, row=4, sticky="w", pady=(0, 10))
+    row = ttk.Frame(box)
+    row.grid(column=0, row=5, sticky="e")
+    b_ok = ttk.Button(row, text="Đặt mật khẩu")
+    b_ok.grid(column=0, row=0, padx=(0, 6))
+    ttk.Button(row, text="Huỷ", command=dlg.destroy).grid(column=1, row=0)
+
+    def finish(ok, msg, new_pw):
+        if not dlg.winfo_exists():
+            return
+        if ok:
+            dlg.destroy()
+            on_set(new_pw)
+            return
+        note.config(text=msg, foreground="#b91c1c")
+        b_ok.config(state="normal")
+
+    def submit(_evt=None):
+        a, b = e1.get(), e2.get()
+        err = password_problem(a, b)
+        if err:
+            note.config(text=err, foreground="#b91c1c")
+            return
+        b_ok.config(state="disabled")
+        note.config(text="Đang đặt mật khẩu…", foreground="#666666")
+
+        # Luồng phụ CHỈ ghi kết quả; luồng giao diện tự hỏi lại mỗi 100 ms. Gọi Tk (after) từ luồng phụ
+        # ném «main thread is not in main loop» khi vòng sự kiện chưa chạy.
+        res = []
+
+        def work():
+            try:
+                ok, msg, _how = change_node_password(a)
+            except Exception as e:  # noqa: BLE001
+                ok, msg = False, f"Không đặt được mật khẩu: {e}"
+            log(f"đặt mật khẩu mới từ cửa sổ ghép nối: {'ok' if ok else 'hỏng'}")
+            res.append((ok, msg))
+
+        def poll():
+            if not dlg.winfo_exists():
+                return
+            if res:
+                finish(res[0][0], res[0][1], a)
+            else:
+                dlg.after(100, poll)
+        threading.Thread(target=work, daemon=True).start()
+        dlg.after(100, poll)
+
+    b_ok.config(command=submit)
+    dlg.bind("<Return>", submit)
+    e1.focus_set()
+
+
 def _http_detail(e) -> str:
     """Câu lỗi mà máy chủ/cloud gửi kèm một HTTPError, hay "" nếu không đọc được."""
     try:
@@ -1265,7 +1350,20 @@ def ask_pairing_console(default_code: str = "", lang: str = "vi") -> tuple:
             print("  Nhập đủ mã và mật khẩu.")
             continue
         if not node_login(pw):
-            print("  Mật khẩu dashboard không đúng — thử lại.")
+            print("  Mật khẩu dashboard không đúng.")
+            # Quên mật khẩu (29/10/2026): đặt mật khẩu mới ngay đây, không cần mật khẩu cũ.
+            if input("  Quên mật khẩu? Đặt mật khẩu mới cho máy này [c/K]: ").strip().lower() in ("c", "co", "có", "y", "yes"):
+                a = getpass.getpass("  Mật khẩu mới (ít nhất 6 ký tự): ")
+                b = getpass.getpass("  Nhập lại: ")
+                err = password_problem(a, b)
+                if err:
+                    print(f"  {err}")
+                    continue
+                ok_pw, msg_pw, _how = change_node_password(a)
+                print(f"  {msg_pw}")
+                if ok_pw:
+                    suggest = a
+                    print("  Đã điền sẵn mật khẩu mới — Enter ở ô mật khẩu để dùng nó.")
             continue
         try:
             info = claim(code, pw)
@@ -1850,6 +1948,10 @@ def ask_pairing(default_code: str = "", lang: str = "vi", default_password: str 
         e_pw.insert(0, default_password)
     tk.Label(body, text="Máy vừa cài xong thì để 123456.", bg=UI["bg"],
              fg=UI["dim"], font=(FONT, 8), anchor="w").pack(fill="x")
+    # Quên mật khẩu (29/10/2026): đặt mật khẩu mới ngay đây, khỏi mở terminal gõ `tubecli password`.
+    forgot = tk.Label(body, text=FORGOT_LINK, bg=UI["bg"], fg=UI["cyan"],
+                      font=(FONT, 9, "underline"), anchor="w", cursor="hand2")
+    forgot.pack(fill="x", pady=(4, 0))
 
     msg = tk.Label(body, text="", bg=UI["bg"], fg=UI["red"], font=(FONT, 9),
                    anchor="w", justify="left", wraplength=400)
@@ -1880,7 +1982,7 @@ def ask_pairing(default_code: str = "", lang: str = "vi", default_password: str 
         log(f"ghép nối hỏng: {text}")
 
         def show():
-            msg.config(text=text)
+            msg.config(text=text, fg=UI["red"])
             state.config(text="Sửa rồi bấm Kết nối lại.", fg=UI["red"])
             set_dot(UI["red"])
             bar.stop()
@@ -1890,13 +1992,23 @@ def ask_pairing(default_code: str = "", lang: str = "vi", default_password: str 
             e_code.focus()
         root.after(0, show)
 
+    def on_new_password(new_pw: str):
+        e_pw.delete(0, "end")
+        e_pw.insert(0, new_pw)
+        msg.config(text="Đã đặt mật khẩu mới trên máy này — bấm «Kết nối».", fg=UI["green"])
+        btn.state(["!disabled"])
+        btn.focus()
+
+    forgot.bind("<Button-1>", lambda _e: open_forgot_password(root, on_new_password))
+
     def connect(code: str, pw: str):
         """Đăng nhập node rồi đổi mã — chạy ở luồng nền để cửa sổ không đơ."""
         if not tubecli_up():
             fail("TubeCLI không còn trả lời ở cổng 5295. Mở TubeCLI rồi thử lại.")
             return
         if not node_login(pw):
-            fail("Mật khẩu dashboard TubeCLI không đúng — cloud sẽ không mở được máy này.")
+            fail("Mật khẩu dashboard TubeCLI không đúng — cloud sẽ không mở được máy này. "
+                 f"Quên mật khẩu? Bấm «{FORGOT_LINK}» dưới ô mật khẩu.")
             return
         try:
             info = claim(code, pw)
