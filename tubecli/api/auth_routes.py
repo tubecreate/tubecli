@@ -20,6 +20,13 @@ class LoginRequest(BaseModel):
 class PasswordChangeRequest(BaseModel):
     current_password: str
     new_password: str
+    # Đổi xong báo luôn TubeCLI Cloud (core/cloud_link.py) — 29/10/2026. Mặc định False: client cũ
+    # (trang /login đổi mật khẩu mặc định) không gửi trường này và giữ đúng hành vi cũ.
+    sync_cloud: bool = False
+
+
+class CloudSyncRequest(BaseModel):
+    password: str
 
 
 class GuestTokenRequest(BaseModel):
@@ -233,13 +240,57 @@ async def change_password(body: PasswordChangeRequest, request: Request):
     # set_password cleared every session, including this caller's. Issue a fresh
     # one so changing the password does not bounce the user to the login screen.
     token = auth.create_session()
-    response = JSONResponse(content={"ok": True})
+    content = {"ok": True}
+    if body.sync_cloud:
+        content["cloud"] = await _sync_cloud(body.new_password)
+    response = JSONResponse(content=content)
     response.set_cookie(
         auth.SESSION_COOKIE, token,
         max_age=auth.SESSION_TTL_SECONDS,
         httponly=True, samesite="lax", path="/",
     )
     return response
+
+
+# ── TubeCLI Cloud: đồng bộ mật khẩu (29/10/2026) ──────────────────────────────
+# User: «bên tubecli setting … không có chỗ để đồng bộ pass với cloud». Hai route SAU cổng đăng nhập
+# (không nằm trong _AUTH_EXEMPT_EXACT của server.py): trạng thái liên kết, và báo cloud mật khẩu hiện tại.
+async def _sync_cloud(password: str) -> dict:
+    """Gọi cloud trong luồng riêng: cloud gọi NGƯỢC vào máy qua tunnel để thử đăng nhập trong lúc chờ."""
+    import asyncio
+    from tubecli.core import cloud_link
+    try:
+        return await asyncio.to_thread(cloud_link.sync_password, password)
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "code": "cloud_error", "error": str(e)[:200]}
+
+
+@router.get("/api/v1/auth/cloud-link")
+async def cloud_link_status():
+    """Máy có nối TubeCLI Cloud không (và qua đâu). Không bao giờ trả tunnel token."""
+    from tubecli.core import cloud_link
+    return cloud_link.link_status()
+
+
+@router.post("/api/v1/auth/cloud-sync")
+async def cloud_sync(body: CloudSyncRequest, request: Request):
+    """Báo cloud mật khẩu dashboard HIỆN TẠI (đã đổi ở nơi khác: trang /login, TubeCLI Connect, CLI).
+
+    Đòi đúng mật khẩu hiện tại, cùng bộ đếm sai như đổi mật khẩu: không có thì một trang lạ trong
+    trình duyệt chủ máy (loopback bỏ qua cổng đăng nhập) gửi được mật khẩu bất kỳ lên cloud — cloud
+    vẫn tự thử đăng nhập trước khi lưu, nhưng đó là lớp thứ hai, không phải lớp duy nhất.
+    """
+    auth.ensure_initialised()
+    key = auth.throttle_key(_client(request), request.headers)
+    locked, remaining = auth.throttle_status(key)
+    if locked:
+        return JSONResponse(status_code=429,
+                            content={"detail": f"Sai quá nhiều lần. Thử lại sau {remaining} giây."})
+    if not auth.verify_password(body.password):
+        auth.record_failure(key)
+        return JSONResponse(status_code=401, content={"detail": "Mật khẩu hiện tại không đúng."})
+    auth.clear_failures(key)
+    return await _sync_cloud(body.password)
 
 
 _LOGIN_PAGE = """<!doctype html>
