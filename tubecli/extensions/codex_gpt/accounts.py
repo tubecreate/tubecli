@@ -147,7 +147,8 @@ def usage_score(acc: Dict[str, Any]) -> int:
 
 def usable(acc: Dict[str, Any], now: Optional[int] = None) -> bool:
     now = _now() if now is None else now
-    return not acc.get("disabled") and int(acc.get("limited_until") or 0) <= now
+    # auth_error (30/10/2026): đăng nhập hỏng (token bị thu hồi / hết hạn) — đổi sang nó cũng chỉ nhận 401.
+    return not acc.get("disabled") and not acc.get("auth_error") and int(acc.get("limited_until") or 0) <= now
 
 
 def best(exclude: Optional[set] = None) -> Optional[Dict[str, Any]]:
@@ -164,7 +165,8 @@ def best(exclude: Optional[set] = None) -> Optional[Dict[str, Any]]:
 
 
 def public(acc: Dict[str, Any], active_id: Optional[str] = None) -> Dict[str, Any]:
-    keys = ("id", "label", "kind", "email", "plan", "disabled", "limits", "limited_until", "created_at", "last_used_at")
+    keys = ("id", "label", "kind", "email", "plan", "disabled", "limits", "limited_until", "created_at", "last_used_at",
+            "auth_error", "auth_checked_at", "probe_error")
     out = {k: acc.get(k) for k in keys}
     out["active"] = acc.get("id") == active_id
     return out

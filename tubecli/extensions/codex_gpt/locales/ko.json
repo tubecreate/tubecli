@@ -77,7 +77,7 @@
   "cg.resets": "{t} 초기화",
   "cg.auto_switch": "자동 전환",
   "cg.auto_switch_desc": "계정이 사용 한도에 도달하면 남은 한도가 가장 많은 계정으로 채팅을 이어갑니다.",
-  "cg.refresh_limits": "한도 확인",
+  "cg.refresh_limits": "계정 확인",
   "cg.api_key": "API 키",
   "cg.checked": "{t} 확인함",
   "cg.in_use": "사용 중",
@@ -221,5 +221,8 @@
   "cg.tg_status_off": "꺼짐",
   "cg.tg_status_on": "실행 중 {bot} · 허용 {chats}개 · 연결됨 {threads}개",
   "cg.tg_status_stopped": "중지됨",
-  "cg.tg_status_err": "오류: {err}"
+  "cg.tg_status_err": "오류: {err}",
+  "cg.auth_bad": "다시 로그인 필요",
+  "cg.auth_hint": "Codex가 이 계정의 로그인을 거부했습니다. 계속 쓰려면 다시 로그인하세요.",
+  "cg.relogin": "다시 로그인"
 }

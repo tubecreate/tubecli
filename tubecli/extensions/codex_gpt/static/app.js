@@ -168,7 +168,8 @@
     const p = (a.limits || {}).primary;
     const used = p ? p.used : 0;
     const limited = a.limited_until && ms(a.limited_until) > Date.now();
-    b.innerHTML = '<span class="dot ' + (limited ? 'bad' : sev(used)) + '"></span>'
+    // Đăng nhập hỏng (auth_error) → chấm ĐỎ: trước đây vẫn xanh theo hạn mức đo lần cuối (30/10/2026).
+    b.innerHTML = '<span class="dot ' + (limited || a.auth_error ? 'bad' : sev(used)) + '"></span>'
       + '<span class="name">' + esc(a.label || a.email || 'Codex') + '</span>'
       + (a.plan ? '<span class="cg-plan">' + esc(plan(a.plan)) + '</span>' : '')
       + (p ? '<span class="cg-bar bar ' + sev(used) + '" title="' + esc(winLabel(p.window_mins) + ' ' + used + '%') + '"><i style="width:' + Math.min(100, used) + '%"></i></span>' : '');
@@ -866,12 +867,16 @@
         const limited = a.limited_until && ms(a.limited_until) > Date.now();
         return '<div class="cg-acct' + (a.active ? ' on' : '') + (a.disabled ? ' off' : '') + '" data-acc="' + esc(a.id) + '">'
           + '<div class="cg-acct-head"><div style="flex:1;min-width:0"><div class="cg-acct-name">' + esc(a.label || a.email || 'Codex') + '</div>'
-          + '<div class="cg-acct-mail">' + esc(a.kind === 'apiKey' ? T('cg.api_key', null, 'API key') : (a.email || '')) + (lim.at ? ' · ' + esc(T('cg.checked', { t: rel(lim.at) }, 'checked {t}')) : '') + '</div></div>'
+          + '<div class="cg-acct-mail">' + esc(a.kind === 'apiKey' ? T('cg.api_key', null, 'API key') : (a.email || '')) + ((a.auth_checked_at || lim.at) ? ' · ' + esc(T('cg.checked', { t: rel(Math.max(a.auth_checked_at || 0, lim.at || 0)) }, 'checked {t}')) : '') + '</div></div>'
           + (a.plan ? '<span class="cg-plan">' + esc(plan(a.plan)) + '</span>' : '')
           + (a.active ? '<span class="cg-badge on">' + esc(T('cg.in_use', null, 'In use')) + '</span>' : '')
-          + (limited ? '<span class="cg-badge lim" title="' + esc(T('cg.resets', { t: until(a.limited_until) }, 'resets {t}')) + '">' + esc(T('cg.limited', null, 'Limit reached')) + '</span>' : '') + '</div>'
+          + (limited ? '<span class="cg-badge lim" title="' + esc(T('cg.resets', { t: until(a.limited_until) }, 'resets {t}')) + '">' + esc(T('cg.limited', null, 'Limit reached')) + '</span>' : '')
+          + (a.auth_error ? '<span class="cg-badge lim" data-auth-bad="1">' + esc(T('cg.auth_bad', null, 'Sign in again')) + '</span>' : '') + '</div>'
+          + (a.auth_error ? '<div class="cg-hint" data-auth-why="1" style="color:var(--red,#f87171);margin:4px 0 6px">' + esc(T('cg.auth_hint', null, 'Codex rejected this account sign-in. Sign in again to keep using it.')) + ' (' + esc(a.auth_error) + ')</div>'
+             : (a.probe_error ? '<div class="cg-hint" style="margin:4px 0 6px">' + esc(a.probe_error) + '</div>' : ''))
           + limitRow(lim.primary) + limitRow(lim.secondary)
           + '<div class="cg-acct-acts">'
+          + (a.auth_error ? '<button type="button" class="cg-btn cg-btn-sm cg-btn-pri" data-act="relogin">' + esc(T('cg.relogin', null, 'Sign in again')) + '</button>' : '')
           + (!a.active && !a.disabled ? '<button type="button" class="cg-btn cg-btn-sm cg-btn-pri" data-act="use">' + esc(T('cg.use', null, 'Use this account')) + '</button>' : '')
           + '<button type="button" class="cg-btn cg-btn-sm" data-act="rename">' + esc(T('cg.rename', null, 'Rename')) + '</button>'
           + '<button type="button" class="cg-btn cg-btn-sm" data-act="toggle">' + esc(a.disabled ? T('cg.turn_on', null, 'Turn on') : T('cg.turn_off', null, 'Turn off')) + '</button>'
@@ -892,6 +897,7 @@
         const act = b.dataset.act;
         const a = accs.find((x) => x.id === id) || {};
         try {
+          if (act === 'relogin') { openAddAccount(); return; }   // cùng email → thay khoá cho tài khoản cũ
           if (act === 'use') {
             try { await api('/accounts/' + id + '/activate', { method: 'POST', body: {} }); }
             catch (e) {

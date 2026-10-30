@@ -77,7 +77,7 @@
   "cg.resets": "{t} sıfırlanır",
   "cg.auto_switch": "Otomatik geçiş",
   "cg.auto_switch_desc": "Bir hesap kullanım limitine ulaştığında sohbet, en çok kotası kalan hesapta devam eder.",
-  "cg.refresh_limits": "Limitleri kontrol et",
+  "cg.refresh_limits": "Hesapları kontrol et",
   "cg.api_key": "API anahtarı",
   "cg.checked": "{t} kontrol edildi",
   "cg.in_use": "Kullanımda",
@@ -221,5 +221,8 @@
   "cg.tg_status_off": "Kapalı",
   "cg.tg_status_on": "Çalışıyor {bot} · {chats} sohbete izin verildi · {threads} sohbet bağlı",
   "cg.tg_status_stopped": "Durduruldu",
-  "cg.tg_status_err": "hata: {err}"
+  "cg.tg_status_err": "hata: {err}",
+  "cg.auth_bad": "Yeniden giriş gerekli",
+  "cg.auth_hint": "Codex bu hesabın oturumunu reddetti. Kullanmaya devam etmek için yeniden giriş yapın.",
+  "cg.relogin": "Yeniden giriş yap"
 }

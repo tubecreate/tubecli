@@ -156,7 +156,7 @@ async def complete(messages: List[Dict[str, Any]], model: str = "", timeout: flo
     """Một lượt hỏi-đáp không công cụ. {"text", "model"}; hỏng → CodexLLMError(code, message)."""
     from . import cli
     from .rpc import RpcError
-    from .service import GptError, _is_usage_limit, service
+    from .service import GptError, _is_auth_error, _is_usage_limit, service
 
     if not cli.command():
         raise CodexLLMError("not_installed", "Codex CLI is not installed on this machine (Codex GPT → Install).")
@@ -221,6 +221,12 @@ async def complete(messages: List[Dict[str, Any]], model: str = "", timeout: flo
                 service.last_activity = time.time()
                 return {"text": text, "model": PREFIX + (m or DEFAULT_ID)}
             msg = str(err.get("message") or err)
+            if _is_auth_error(err):
+                # Token tài khoản bị thu hồi / hết hạn (30/10/2026, task #491): đánh dấu + đổi tài khoản MỘT lần.
+                if attempt == 0 and await service.llm_limit_switch("auth", msg):
+                    continue
+                raise CodexLLMError("auth_error", "The Codex account needs to sign in again (Codex GPT → Accounts → "
+                                    f"Sign in again): {msg}")
             if _is_usage_limit(err):
                 if attempt == 0 and await service.llm_limit_switch():
                     continue
