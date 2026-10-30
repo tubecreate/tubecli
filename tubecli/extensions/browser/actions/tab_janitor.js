@@ -1,8 +1,8 @@
 // Dọn tab của LƯỢT AGENT (user 30/10/2026: «cho agent tự đóng khi chạy xong»).
 //
 // Vì sao: lượt agent theo lịch mở tab bài viết / kết quả tìm kiếm rồi bỏ đó. Hồ sơ testphienbansharr149 của agent
-// «chuyên gia it» dồn tới 202 tab (≈ 200 tiến trình, máy treo) — phần dồn QUA các lượt đã chặn bằng cách bỏ
-// --restore-last-session; file này chặn phần dồn TRONG một lượt và dọn khi lượt xong.
+// «chuyên gia it» dồn tới 202 tab (≈ 200 tiến trình, máy treo) — phần dồn QUA các lượt chặn bằng clearSavedSession()
+// trong browser_manager.js; file này chặn phần dồn TRONG một lượt và dọn khi lượt xong.
 //
 //   trimTabs(context, keep, max): còn quá `max` tab thì đóng tab CŨ NHẤT trước, không bao giờ đóng `keep`
 //     (tab agent đang làm việc). Gọi mỗi lần có tab mới trong lượt agent.

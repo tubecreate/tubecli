@@ -829,6 +829,30 @@ function clearStaleSingletonLocks(profilePath) {
     }
 }
 
+/** Xoá phiên đã lưu (danh sách tab) trước khi mở — trình duyệt luôn bắt đầu từ tab trắng.
+ *
+ * Bỏ cờ khôi phục là KHÔNG đủ: thử ShardX thật 30/10/2026 trên hồ sơ tạm, không cờ khôi phục vẫn mở lại đủ tab sau khi
+ * thoát sạch, và --hide-crash-restore-bubble còn khôi phục cả sau khi bị giết. Chỉ xoá tệp phiên mới cho 0 tab. Hồ sơ
+ * testphienbansharr149 vì vậy vẫn mở lại 205 tab ≈ 27 GB RAM. Cookie / đăng nhập ở tệp khác, không bị đụng.
+ * Không xoá được (Windows: tiến trình khác đang giữ) thì bỏ qua — không chặn lượt mở.
+ */
+export function clearSavedSession(profilePath) {
+    const dflt = path.join(profilePath, 'Default');
+    const targets = ['Current Session', 'Current Tabs', 'Last Session', 'Last Tabs'].map((f) => path.join(dflt, f));
+    try {
+        const dir = path.join(dflt, 'Sessions');
+        for (const f of fs.readdirSync(dir)) {
+            if (/^(Session|Tabs)_/.test(f)) targets.push(path.join(dir, f));
+        }
+    } catch (e) { /* hồ sơ mới: chưa có thư mục */ }
+    let removed = 0;
+    for (const t of targets) {
+        try { fs.unlinkSync(t); removed++; } catch (e) { /* không có / đang bị giữ */ }
+    }
+    if (removed) console.log(`[Launch] Cleared ${removed} saved session file(s) — old tabs will not reopen.`);
+    return removed;
+}
+
 export class BrowserManager {
     constructor(config = {}) {
         this.baseDir = config.baseDir || './profiles';
@@ -1608,6 +1632,8 @@ export class BrowserManager {
         // ProcessSingleton ... Aborting now to avoid profile corruption") và giết
         // MỌI lượt sau, mỗi lượt ~5 giây. Dọn ở đây — phễu chung của mọi đường gọi.
         clearStaleSingletonLocks(profilePath);
+        // Sau bước trên: hồ sơ đang có phiên hợp lệ thì đã ném PROFILE_IN_USE, không tới đây.
+        clearSavedSession(profilePath);
         let {
             headless = false,
             proxy = null,
@@ -2260,8 +2286,8 @@ export class BrowserManager {
             '--no-first-run',
             // KHÔNG còn cờ restore-last-session (bỏ 30/10/2026): mỗi lần mở khôi phục TOÀN BỘ tab lần trước, mà lượt
             // agent mở tab bài viết không đóng → tab dồn qua từng lượt. Hồ sơ testphienbansharr149 của agent
-            // «chuyên gia it» (lịch 10 lượt/ngày) dồn tới 202 tab ≈ 200 tiến trình → máy treo. Cookie / đăng nhập
-            // nằm ở kho cookie, không phụ thuộc cờ này. Không hồ sơ nào đặt session.restore_on_startup.
+            // «chuyên gia it» (lịch 10 lượt/ngày) dồn tới 202 tab ≈ 200 tiến trình → máy treo. Riêng bỏ cờ KHÔNG đủ
+            // (ShardX vẫn tự khôi phục) — chỗ chặn thật là clearSavedSession() trong launch().
             '--hide-crash-restore-bubble',
             '--disable-blink-features=AutomationControlled',
             '--proxy-bypass-list=localhost,127.0.0.1,::1',
