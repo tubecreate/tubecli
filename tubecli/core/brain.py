@@ -68,6 +68,12 @@ _OPENAI_COMPAT_BASES = {
 }
 
 
+def _looks_like_llm_error(text) -> bool:
+    """Chuỗi trả về là câu LỖI của một provider (kể cả khi _failover_llm gắn tiền tố «⚠️ *[Auto-Failover…]*»)."""
+    head = str(text or "").lstrip()[:240]
+    return head.startswith("[") or "Error]" in head or "[AI SERVER]" in head
+
+
 def _is_codex_model(model) -> bool:
     """Codex (ChatGPT) làm model: tên `codex/<id>` (codex_gpt/llm.py). Chép luật ở đây để brain khỏi nạp extension
     cho mọi lượt gọi."""
@@ -1244,7 +1250,10 @@ Rules:
                 # Tên trung tính để _failover_llm không đoán nhầm «codex/gpt-…» là OpenRouter hay OpenAI.
                 print(f"[Brain] ⚠️ {out[:160]} — trying other providers")
                 alt = AgentBrain._failover_llm("codex", cloud_keys, messages, temperature, out)
-                if alt and not alt.lstrip().startswith("["):
+                # Bản dự phòng HỎNG cũng trả chuỗi, có khi kèm tiền tố «⚠️ *[Auto-Failover: … → 9router]*» trước
+                # «[OpenAI Error] …» — task #491 (30/10/2026) coi đúng câu lỗi ấy là kịch bản 18 chữ. Lỗi = có thẻ
+                # «… Error]» ở đầu chuỗi, không chỉ «bắt đầu bằng [».
+                if alt and not _looks_like_llm_error(alt):
                     return alt
             return out
         if explicit_provider:

@@ -318,6 +318,15 @@ check("Codex lỗi → dự phòng với tên trung tính «codex» (không bị
 B.AgentBrain._failover_llm = staticmethod(lambda fm, ck, msgs, t, err: "[Gemini Error] no key")
 out = B.AgentBrain._call_llm({"id": "a-mine", "model": "codex/gpt-x"}, [{"role": "user", "content": "hi"}])
 check("không provider nào cứu được → trả nguyên lỗi Codex", out.startswith("[Codex Error] usage_limit"), out)
+# Task #491 (30/10/2026): dự phòng HỎNG nhưng chuỗi bắt đầu bằng «⚠️ *[Auto-Failover…]*» — không được coi là câu trả lời.
+DECORATED = "⚠️ *[Auto-Failover: None → 9router]*\n\n[OpenAI Error] Error code: 503 - {'error': {'message': 'HTTP 403'}}"
+B.AgentBrain._failover_llm = staticmethod(lambda fm, ck, msgs, t, err: DECORATED)
+out = B.AgentBrain._call_llm({"id": "a-mine", "model": "codex/gpt-x"}, [{"role": "user", "content": "hi"}])
+check("dự phòng hỏng có tiền tố ⚠️ Auto-Failover → vẫn trả LỖI Codex, không trả câu lỗi như kịch bản",
+      out.startswith("[Codex Error] usage_limit"), out[:120])
+check("_looks_like_llm_error nhận cả lỗi có tiền tố, không nhận câu trả lời thường",
+      B._looks_like_llm_error(DECORATED) and B._looks_like_llm_error("[Gemini Error] x")
+      and B._looks_like_llm_error("❌ [AI SERVER] AI server error") and not B._looks_like_llm_error("El Tao que puede nombrarse..."))
 B.AgentBrain._failover_llm = _orig_fo
 public_agents.get_settings = _orig_gs
 
