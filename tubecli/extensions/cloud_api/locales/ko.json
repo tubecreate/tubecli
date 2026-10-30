@@ -90,5 +90,9 @@
   "cloud_api.pv_key_unused": "아직 사용 안 함",
   "cloud_api.pv_key_revoke": "취소",
   "cloud_api.pv_key_revoke_confirm": "키 «{n}»을(를) 취소할까요? 이 키를 쓰는 기기는 즉시 빌려 쓰기를 멈춥니다. 다른 키는 계속 작동합니다.",
-  "cloud_api.pv_key_revoked": "키를 취소했습니다"
+  "cloud_api.pv_key_revoked": "키를 취소했습니다",
+  "cloud_api.codex_open": "Codex GPT 열기",
+  "cloud_api.codex_accounts_tag": "Codex 계정 {n}개",
+  "cloud_api.codex_no_account": "아직 Codex 계정이 없습니다",
+  "cloud_api.codex_not_installed": "Codex CLI 미설치"
 }

@@ -90,5 +90,9 @@
   "cloud_api.pv_key_unused": "ещё не использовался",
   "cloud_api.pv_key_revoke": "Отозвать",
   "cloud_api.pv_key_revoke_confirm": "Отозвать ключ «{n}»? Машина с этим ключом сразу перестанет заимствовать; остальные ключи продолжат работать.",
-  "cloud_api.pv_key_revoked": "Ключ отозван"
+  "cloud_api.pv_key_revoked": "Ключ отозван",
+  "cloud_api.codex_open": "Открыть Codex GPT",
+  "cloud_api.codex_accounts_tag": "Аккаунтов Codex: {n}",
+  "cloud_api.codex_no_account": "Аккаунтов Codex пока нет",
+  "cloud_api.codex_not_installed": "Codex CLI не установлен"
 }

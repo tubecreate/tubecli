@@ -66,7 +66,7 @@ print("=" * 70)
 # ── provider metadata the dashboard depends on ──────────────────────────────
 km, _ = fresh()
 provs = {p["id"]: p for p in km.list_providers()}
-check("all eleven providers listed (Muse added 2026-10-02)", len(provs) == 11, sorted(provs))
+check("all twelve providers listed (Muse added 2026-10-02, Codex (ChatGPT) 2026-10-30)", len(provs) == 12 and "codex" in provs, sorted(provs))
 check("gemini is a chat provider", provs["gemini"]["capabilities"] == ["chat"], provs["gemini"])
 check("github has no consumer", provs["github"]["capabilities"] == [], provs["github"])
 check("everai has no consumer", provs["everai"]["capabilities"] == [], provs["everai"])

@@ -68,6 +68,21 @@ _OPENAI_COMPAT_BASES = {
 }
 
 
+def _is_codex_model(model) -> bool:
+    """Codex (ChatGPT) làm model: tên `codex/<id>` (codex_gpt/llm.py). Chép luật ở đây để brain khỏi nạp extension
+    cho mọi lượt gọi."""
+    return str(model or "").strip().lower().startswith("codex/")
+
+
+def _codex_base_url() -> str:
+    try:
+        from tubecli.config import get_api_port
+        port = int(get_api_port())
+    except Exception:      # noqa: BLE001
+        port = 5295
+    return f"http://127.0.0.1:{port}/api/v1/codex-gpt/v1"
+
+
 def _is_muse_model(model) -> bool:
     """Model của Muse (muse.ai)? Cùng luật với tubecli.core.muse.is_muse_model — chép ở đây để brain không phải
     nạp mô-đun Muse cho mọi lượt gọi."""
@@ -1153,6 +1168,9 @@ Rules:
         provider = str(agent.get("provider") or "").strip().lower()
         if provider == "chatgpt":
             provider = "openai"
+        if provider == "codex" or (not provider and _is_codex_model(model)):
+            # Codex (ChatGPT) — cổng chuẩn OpenAI do CHÍNH TubeCLI phục vụ (codex_gpt/routes.py), chỉ loopback.
+            return (_codex_base_url(), "codex", model)
         if provider == "muse" or (not provider and _is_muse_model(model)):
             # Muse đi qua phiên trình duyệt; cổng chuẩn OpenAI của nó do chính TubeCLI phục vụ, không cần khoá.
             from tubecli.core import muse
@@ -1219,6 +1237,16 @@ Rules:
         # that are indistinguishable from OpenRouter ids, so a model picked from
         # the 9router group would otherwise be sent to OpenRouter and rejected.
         explicit_provider = (agent.get("provider") or "").strip().lower()
+        if explicit_provider == "codex" or _is_codex_model(model):
+            out = AgentBrain._call_codex(model, messages, agent)
+            if out.startswith("[Codex Error]"):
+                # Hết hạn mức mọi tài khoản / Codex chưa chạy / agent công khai: lui sang provider khác có khoá.
+                # Tên trung tính để _failover_llm không đoán nhầm «codex/gpt-…» là OpenRouter hay OpenAI.
+                print(f"[Brain] ⚠️ {out[:160]} — trying other providers")
+                alt = AgentBrain._failover_llm("codex", cloud_keys, messages, temperature, out)
+                if alt and not alt.lstrip().startswith("["):
+                    return alt
+            return out
         if explicit_provider:
             forced = AgentBrain._call_provider(
                 explicit_provider, model, cloud_keys, messages, temperature
@@ -1443,6 +1471,8 @@ Rules:
             return AgentBrain._call_cloudflare(model, messages, temperature=temperature)
         if p == "muse":
             return AgentBrain._call_muse(model, messages)
+        if p == "codex":
+            return AgentBrain._call_codex(model, messages)
 
         # Any other OpenAI-compatible provider declared in the cloud_api registry.
         try:
@@ -1837,6 +1867,31 @@ Rules:
             return f"[Muse Error] {e}"
         except Exception as e:      # noqa: BLE001
             return f"[Muse Error] {type(e).__name__}: {e}"
+
+    @staticmethod
+    def _call_codex(model: str, messages: List[Dict], agent: Optional[Dict] = None) -> str:
+        """Codex (ChatGPT) qua extension Codex GPT — gói ChatGPT của CHỦ MÁY (codex_gpt/llm.py, 30/10/2026).
+
+        Agent đang bật CÔNG KHAI trên Agent Town thì từ chối: người lạ chat / thuê agent ấy sẽ dùng gói ChatGPT
+        của chủ máy (điều khoản OpenAI: gói ChatGPT là cho cá nhân tự dùng). Agent «chỉ mình tôi» vẫn dùng được.
+        Lỗi trả về dạng chuỗi "[Codex Error] …" như các nhà khác."""
+        aid = str((agent or {}).get("id") or "")
+        if aid:
+            try:
+                from tubecli.core import public_agents
+                st = public_agents.get_settings(aid)
+                if st.get("enabled") and str(st.get("visibility") or "public").lower() == "public":
+                    return ("[Codex Error] Codex (ChatGPT) is not available to agents published publicly on "
+                            "Agent Town — choose another model for this agent.")
+            except Exception:      # noqa: BLE001
+                pass
+        try:
+            from tubecli.extensions.codex_gpt import llm
+            return llm.complete_sync(messages, model)["text"]
+        except Exception as e:      # noqa: BLE001
+            msg = getattr(e, "message", None) or str(e)
+            code = getattr(e, "code", type(e).__name__)
+            return f"[Codex Error] {code}: {msg}"
 
     @staticmethod
     def _call_cloudflare(model: str, messages: List[Dict], temperature: float = 0.7) -> str:

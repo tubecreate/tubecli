@@ -2947,13 +2947,19 @@ async function renderCloudApiExt(el) {
                    : (p.capability && p.capability !== 'none' ? [p.capability] : []);
         // A provider with no consumer must not offer an Add button that pretends
         // its key will be used — that was the "Failed." trap on Cloudflare/GitHub.
-        const addBtn = p.browser_session
+        const addBtn = p.codex_session
+            // Codex (ChatGPT): không có khoá — tài khoản đăng nhập trong trang Codex GPT (30/10/2026).
+            ? `<a class="btn-sm btn-primary" href="/codex-gpt" target="_blank" rel="noopener" data-codex-open="1">${T('cloud_api.codex_open')}</a>`
+            : p.browser_session
             // Muse: không có khoá để thêm — chọn hồ sơ trình duyệt đã đăng nhập muse.ai trong hộp ⚙.
             ? `<button class="btn-sm btn-primary" onclick="editProviderSettings('${esc(p.id)}', '${esc(p.models.join(','))}')">${T('cloud_api.muse_setup')}</button>`
             : !caps.length
             ? `<button class="btn-sm" disabled style="opacity:.5;cursor:not-allowed" title="${T('cloud_api.cap_none_hint')}">${T('cloud_api.cap_none')}</button>`
             : `<button class="btn-sm btn-primary" onclick="prefillAddKey('${esc(p.id)}')">${T('cloud_api.add')}</button>`;
-        const keyTag = p.browser_session
+        const keyTag = p.codex_session
+            ? `<span class="tag ${p.has_key?'green':''}" data-codex-tag="1">${p.has_key ? esc(T('cloud_api.codex_accounts_tag', { n: p.accounts || 0 }))
+                : (p.installed ? T('cloud_api.codex_no_account') : T('cloud_api.codex_not_installed'))}</span>`
+            : p.browser_session
             ? `<span class="tag ${p.has_key?'green':''}">${p.has_key ? esc(T('cloud_api.muse_profile_tag', { profile: p.profile || '' })) : T('cloud_api.no_key')}</span>`
             : `<span class="tag ${p.has_key?'green':''}">${p.has_key?T('cloud_api.active'):T('cloud_api.no_key')} <span style="font-size:0.75rem;margin-left:4px">(${p.key_count || 0})</span></span>`;
         h += `<div class="card" style="text-align:center">
@@ -3076,7 +3082,7 @@ function _cloudExtBody() {
 function buildAddKeyProviderSelect(preferred) {
     const sel = document.getElementById('add-key-provider');
     if (!sel) return;
-    const provs = (window._cloudProviders || []).filter(p => !p.browser_session);
+    const provs = (window._cloudProviders || []).filter(p => !p.browser_session && !p.codex_session);
     sel.innerHTML = provs.map(p => {
         const suffix = p.capability === 'none' ? ` — ${T('cloud_api.cap_none')}` : (p.compound ? ' — Cloudflare' : '');
         return `<option value="${esc(p.id)}">${esc(p.name)}${suffix}</option>`;
@@ -6339,7 +6345,7 @@ function renderCloudModelsHTML(cloudProviders, selId = 'set-model') {
     cloudProviders.forEach(p => {
         if (!p.models || p.models.length === 0) return;
         if (p.id === '9router') return;
-        const label = { gemini: '✨ Gemini', openai: '🤖 OpenAI', claude: '🧠 Claude', grok: '⚡ Grok', deepseek: '🔮 DeepSeek', openrouter: '🌐 OpenRouter' }[p.id] || p.id;
+        const label = { gemini: '✨ Gemini', openai: '🤖 OpenAI', claude: '🧠 Claude', grok: '⚡ Grok', deepseek: '🔮 DeepSeek', openrouter: '🌐 OpenRouter', codex: '🧠 Codex (ChatGPT)' }[p.id] || p.id;
         html += `<optgroup label="☁️ ${esc(label)}">`;
         p.models.forEach(m => {
             html += `<option value="${esc(m)}">${esc(m)}</option>`;

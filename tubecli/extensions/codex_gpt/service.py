@@ -126,6 +126,11 @@ class CodexGptService:
         # CHỈ trong RAM và chết theo app-server — mở lại máy là hỏi lại từ đầu, vì đây là lòng
         # tin cho MỘT lượt làm việc, không phải một cài đặt.
         self.no_ask: set = set()
+        # Codex làm MODEL cho agent (llm.py, 30/10/2026): luồng tạm của lời gọi → hàng đợi sự kiện riêng;
+        # các luồng ấy không phát lên trang, không nhận «tiếp tục» khi hết hạn mức, không được dùng công cụ.
+        self.llm_sinks: Dict[str, asyncio.Queue] = {}
+        self.llm_threads: Set[str] = set()
+        self.loop: Optional[asyncio.AbstractEventLoop] = None   # vòng sự kiện của server (llm.complete_sync)
 
     # ── đường dẫn + trạng thái ───────────────────────────────────────────────
     @property
@@ -357,6 +362,8 @@ class CodexGptService:
         force = công cụ LUÔN hỏi (town_agent_offer — đưa agent ra cho người lạ, đặt giá): bỏ qua cả «Không cần hỏi»
         lẫn «Cho phép trong phiên này»; thẻ mang once=True (không có nút cho cả phiên)."""
         tid = self._thread_for_tool(tool, args)
+        if tid and tid in self.llm_threads:
+            return False, "TubeCLI tools are not available to model calls.", tid
         if not force and (self.state()["settings"].get("tools_auto") or (tid and tid in self.tool_session_ok)):
             return True, "", tid
         if not self.subscribers:
@@ -408,6 +415,7 @@ class CodexGptService:
 
     # ── app-server chính ─────────────────────────────────────────────────────
     async def ensure_bridge(self) -> AppServer:
+        self.loop = asyncio.get_running_loop()
         async with self.lock:
             if self.bridge is not None and self.bridge.alive:
                 return self.bridge
@@ -522,6 +530,12 @@ class CodexGptService:
             self.win_sandbox.update(setup="done" if ok else "failed", error=str(params.get("error") or ""))
             if ok:
                 self.win_sandbox["status"] = "ready"
+        if tid and (tid in self.llm_sinks or tid in self.llm_threads):
+            # Luồng tạm của Codex-làm-model: sự kiện thuộc về lời gọi, không phải khung chat.
+            sink = self.llm_sinks.get(tid)
+            if sink is not None:
+                sink.put_nowait((method, params))
+            return
         if method in _QUIET:
             return
         await self.broadcast({"type": "event", "method": method, "params": params})
@@ -609,6 +623,8 @@ class CodexGptService:
 
     # ── tự chuyển tài khoản khi hết hạn mức ──────────────────────────────────
     async def _handle_limit(self, tid: str) -> None:
+        if tid in self.llm_threads:
+            return                                  # llm.complete tự đổi tài khoản + chạy lại trên luồng mới
         st = self.state()
         cur = st.get("active")
         acc = A.get(cur) if cur else None
@@ -629,6 +645,25 @@ class CodexGptService:
             await self.send(tid, CONTINUE_TEXT, user=False)
         except (GptError, RpcError) as e:
             await self.broadcast({"type": "limit", "threadId": tid, "account": cur, "switched": False, "error": str(e)})
+
+    async def llm_limit_switch(self) -> bool:
+        """Codex-làm-model chạm hạn mức: đánh dấu tài khoản đang dùng, đổi sang tài khoản tốt nhất còn lại.
+        True = đã đổi (người gọi chạy lại MỘT lần trên luồng mới). Tôn trọng «tự đổi tài khoản» của trang."""
+        st = self.state()
+        cur = st.get("active")
+        acc = A.get(cur) if cur else None
+        if acc is not None:
+            A.update(cur, limited_until=max(int(acc.get("limited_until") or 0), _limit_reset(acc.get("limits") or {}, _now())))
+        nxt = A.best(exclude={cur}) if st.get("auto_switch") else None
+        if nxt is None:
+            return False
+        try:
+            await self.switch(nxt["id"], reason="limit", force=True)
+        except (GptError, RpcError):
+            return False
+        await self.broadcast({"type": "switched", "threadId": None, "from": cur, "to": nxt["id"],
+                              "label": nxt.get("label") or nxt.get("email") or ""})
+        return True
 
     async def switch(self, acc_id: str, reason: str = "manual", force: bool = False) -> Dict[str, Any]:
         acc = A.get(acc_id)
@@ -771,6 +806,12 @@ class CodexGptService:
                          "efforts": [e.get("reasoningEffort") if isinstance(e, dict) else e for e in efforts],
                          "isDefault": bool(m.get("isDefault"))})
         self._models.update(acc=acc, at=time.time(), data=data)
+        # Bảng chọn model (Cloud API Keys → «Codex (ChatGPT)») đọc bản lưu này, không phải mở Codex.
+        ids = [d["id"] for d in data if d.get("id")]
+        st = self.state()
+        if ids and st.get("llm_models") != ids:
+            st["llm_models"] = ids
+            self.save_state(st)
         return data
 
     # ── tài khoản ────────────────────────────────────────────────────────────

@@ -126,6 +126,17 @@ PROVIDERS = {
         "icon": "🎨",
         "description": "Meta Muse through a browser profile signed in to muse.ai — chat + images, no API key",
     },
+    # Codex (ChatGPT): KHÔNG có khoá. Gói ChatGPT đăng nhập trong extension Codex GPT, model tên `codex/<id>`
+    # (codex_gpt/llm.py); base_url là cổng chuẩn OpenAI do chính TubeCLI phục vụ (chỉ loopback). 30/10/2026.
+    "codex": {
+        "name": "Codex (ChatGPT)",
+        "base_url": "",
+        "models": ["codex/default"],
+        "env_var": "",
+        "codex_session": True,
+        "icon": "🧠",
+        "description": "ChatGPT plans signed in through the Codex GPT extension — text only, no API key",
+    },
     "github": {
         "name": "GitHub",
         "base_url": "https://api.github.com",
@@ -181,6 +192,7 @@ PROVIDER_CAPABILITY = {
     "grok": ["chat"], "openrouter": ["chat"], "9router": ["chat"],
     "cloudflare": ["chat", "deploy"],
     "muse": ["chat", "image"],
+    "codex": ["chat"],
     # github, everai: registered but no consumer yet -> [] (nothing reads them)
 }
 
@@ -240,6 +252,25 @@ def _muse_base_url() -> str:
         return muse.local_base_url()
     except Exception:      # noqa: BLE001
         return "http://127.0.0.1:5295/api/v1/muse/v1"
+
+
+def _codex_base_url() -> str:
+    try:
+        from tubecli.core.brain import _codex_base_url as f
+        return f()
+    except Exception:      # noqa: BLE001
+        return "http://127.0.0.1:5295/api/v1/codex-gpt/v1"
+
+
+def _codex_state() -> dict:
+    """{installed, accounts, models} — không mở Codex (đọc tệp trạng thái của extension)."""
+    try:
+        from tubecli.extensions.codex_gpt import llm
+        st = llm.available()
+        st["models"] = llm.cached_models()
+        return st
+    except Exception:      # noqa: BLE001
+        return {"installed": False, "accounts": 0, "models": ["codex/default"]}
 
 
 def _muse_profile() -> str:
@@ -315,6 +346,8 @@ class KeyManager:
             PROVIDERS[prov]["base_url"] = custom or _DEFAULT_BASE_URLS.get(prov, "")
         if "muse" in PROVIDERS:
             PROVIDERS["muse"]["base_url"] = _muse_base_url()
+        if "codex" in PROVIDERS:
+            PROVIDERS["codex"]["base_url"] = _codex_base_url()
 
     def _save(self):
         # Provider API keys: owner-only file, atomic write (core/private_file.py).
@@ -366,6 +399,8 @@ class KeyManager:
 
     def get_models(self, provider: str) -> List[str]:
         """Get models for a provider, merging defaults with custom settings."""
+        if provider == "codex":
+            return _codex_state()["models"]      # theo tài khoản Codex đang đăng nhập (bản lưu model/list)
         self._load()
         default_models = PROVIDERS.get(provider, {}).get("models", [])
         custom_models = self._keys.get("_settings", {}).get(provider, {}).get("models")
@@ -386,6 +421,8 @@ class KeyManager:
         """Endpoint đang dùng: endpoint tự đặt, không có thì mặc định của provider."""
         if provider == "muse":
             return _muse_base_url()
+        if provider == "codex":
+            return _codex_base_url()
         self._load()
         settings = self._keys.get("_settings") or {}
         custom = (settings.get(provider) or {}).get("base_url") if isinstance(settings, dict) else ""
@@ -526,6 +563,9 @@ class KeyManager:
         if p == "muse":
             from tubecli.core import muse
             return list(muse.CHAT_MODELS)
+
+        if p == "codex":
+            return _codex_state()["models"]
 
         raise RuntimeError(f"Provider {provider} chưa có API danh sách model.")
 
@@ -756,6 +796,11 @@ class KeyManager:
             local = bool(prov_info.get("local")) and is_local_url(base)
             has_key = self.get_active_key(prov_id) is not None or local
             extra = {}
+            if prov_info.get("codex_session"):
+                # Codex không có khoá: «có sẵn» = đã cài Codex CLI + có tài khoản bật trong Codex GPT.
+                cs = _codex_state()
+                has_key = bool(cs["installed"] and cs["accounts"])
+                extra = {"codex_session": True, "accounts": cs["accounts"], "installed": cs["installed"]}
             if prov_info.get("browser_session"):
                 # Muse không có khoá: "có sẵn" = đã chọn hồ sơ trình duyệt giữ phiên. Đăng nhập còn hay không thì
                 # bảng chọn model hỏi /api/v1/muse/status (mở trình duyệt mới biết — không làm ở đây).

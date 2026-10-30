@@ -220,5 +220,9 @@
   "cloud_api.pv_key_unused": "not used yet",
   "cloud_api.pv_key_revoke": "Revoke",
   "cloud_api.pv_key_revoke_confirm": "Revoke key «{n}»? The machine using it stops borrowing right away; other keys keep working.",
-  "cloud_api.pv_key_revoked": "Key revoked"
+  "cloud_api.pv_key_revoked": "Key revoked",
+  "cloud_api.codex_open": "Open Codex GPT",
+  "cloud_api.codex_accounts_tag": "{n} Codex account(s)",
+  "cloud_api.codex_no_account": "No Codex account yet",
+  "cloud_api.codex_not_installed": "Codex CLI not installed"
 }
