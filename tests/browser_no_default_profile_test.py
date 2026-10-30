@@ -29,7 +29,8 @@ assert m and "if (!prof) { setMode('create')" in m.group(1), m.group(1)[:200] if
 print("4 launch     : không có hồ sơ → mở ô tạo, không gửi tên rỗng xuống server")
 
 # 5. createProfile still downloads the engine BEFORE creating (the point of the change)
-cp = NODES[NODES.index("const createProfile = async"):][:2200]
+# cả thân hàm (không cắt 2200 ký tự): từ 25/10/2026 hàm có nhánh chọn nhân BAS nên dài hơn
+cp = NODES[NODES.index("const createProfile = async"):NODES.index("const drawBlob = useCallback(")]
 assert "engine/versions" in cp and "engine/download/" in cp and "engine/status/" in cp
 assert cp.index("engine/download/") < cp.index("'/api/v1/browser/profiles'"), "phải tải nhân TRƯỚC khi tạo hồ sơ"
 print("5 nhan       : tạo hồ sơ = tải nhân ShardX (có tiến độ) rồi mới tạo")

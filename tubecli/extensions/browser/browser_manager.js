@@ -2258,7 +2258,10 @@ export class BrowserManager {
             // NOTE: --user-data-dir is passed as the first positional arg to
             // launchPersistentContext(), NOT as a CLI flag. Playwright enforces this.
             '--no-first-run',
-            '--restore-last-session',
+            // KHÔNG còn cờ restore-last-session (bỏ 30/10/2026): mỗi lần mở khôi phục TOÀN BỘ tab lần trước, mà lượt
+            // agent mở tab bài viết không đóng → tab dồn qua từng lượt. Hồ sơ testphienbansharr149 của agent
+            // «chuyên gia it» (lịch 10 lượt/ngày) dồn tới 202 tab ≈ 200 tiến trình → máy treo. Cookie / đăng nhập
+            // nằm ở kho cookie, không phụ thuộc cờ này. Không hồ sơ nào đặt session.restore_on_startup.
             '--hide-crash-restore-bubble',
             '--disable-blink-features=AutomationControlled',
             '--proxy-bypass-list=localhost,127.0.0.1,::1',
