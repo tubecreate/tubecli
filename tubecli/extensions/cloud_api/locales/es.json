@@ -90,5 +90,9 @@
   "cloud_api.pv_key_unused": "aún sin usar",
   "cloud_api.pv_key_revoke": "Revocar",
   "cloud_api.pv_key_revoke_confirm": "¿Revocar la clave «{n}»? La máquina que la usa deja de tomar prestado al instante; las demás claves siguen funcionando.",
-  "cloud_api.pv_key_revoked": "Clave revocada"
+  "cloud_api.pv_key_revoked": "Clave revocada",
+  "cloud_api.codex_open": "Abrir Codex GPT",
+  "cloud_api.codex_accounts_tag": "{n} cuenta(s) de Codex",
+  "cloud_api.codex_no_account": "Aún no hay cuentas de Codex",
+  "cloud_api.codex_not_installed": "Codex CLI no instalado"
 }

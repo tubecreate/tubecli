@@ -95,6 +95,8 @@ async def install():
 @router.on_event("startup")
 async def _telegram_start() -> None:
     """Bot Telegram của Codex GPT chạy từ lúc server lên (nếu đã bật trong Settings) — không đợi ai mở trang."""
+    # Vòng sự kiện của server cho llm.complete_sync (brain gọi Codex-làm-model từ luồng phụ).
+    service.loop = asyncio.get_running_loop()
     try:
         service.telegram.start()
     except Exception as e:      # noqa: BLE001
@@ -361,3 +363,61 @@ async def ws(websocket: WebSocket):
         pass
     finally:
         service.unsubscribe(q)
+
+
+# ── Codex (ChatGPT) làm MODEL: cổng chuẩn OpenAI cho chính máy này (30/10/2026) ────────────────────────
+# Cho chỗ chỉ biết gọi kiểu OpenAI qua HTTP (Content Studio đọc PROVIDERS["codex"]["base_url"]). brain.py gọi thẳng
+# llm.complete_sync, không qua đây. CHỈ loopback, không qua tunnel/proxy: đây là gói ChatGPT của chủ máy — người được
+# chia sẻ workspace hay khách qua tunnel không được dùng nó làm API miễn phí.
+def _loopback_only(request: Request) -> bool:
+    from tubecli.core.auth import behind_proxy, is_loopback
+    host = request.client.host if request.client else ""
+    return is_loopback(host) and not behind_proxy(request.headers)
+
+
+@router.get(API + "/v1/models")
+async def oai_models(request: Request):
+    from . import llm
+    if not _loopback_only(request):
+        return JSONResponse({"error": {"message": "local only", "code": "forbidden"}}, status_code=403)
+    try:
+        await service.models()
+    except Exception:   # noqa: BLE001 — chưa có tài khoản / chưa cài: vẫn trả bản lưu
+        pass
+    return {"object": "list", "data": [{"id": m, "object": "model", "created": 0, "owned_by": "codex"}
+                                       for m in llm.cached_models(service)]}
+
+
+@router.post(API + "/v1/chat/completions")
+async def oai_chat(request: Request):
+    import json as _json
+    import time as _time
+
+    from fastapi.responses import StreamingResponse
+
+    from . import llm
+    if not _loopback_only(request):
+        return JSONResponse({"error": {"message": "local only", "code": "forbidden"}}, status_code=403)
+    body = await _body(request)
+    model = str(body.get("model") or llm.DEFAULT_MODEL)
+    try:
+        r = await llm.complete(body.get("messages") or [], model)
+    except llm.CodexLLMError as e:
+        status = {"usage_limit": 429, "timeout": 504, "empty": 400, "not_installed": 503,
+                  "no_account": 503}.get(e.code, 502)
+        return JSONResponse({"error": {"message": e.message, "code": e.code, "type": "codex_error"}}, status_code=status)
+    cid = "chatcmpl-codex-" + secrets.token_hex(8)
+    now = int(_time.time())
+    if body.get("stream"):
+        def gen():
+            chunk = {"id": cid, "object": "chat.completion.chunk", "created": now, "model": r["model"],
+                     "choices": [{"index": 0, "delta": {"role": "assistant", "content": r["text"]}, "finish_reason": None}]}
+            yield "data: " + _json.dumps(chunk, ensure_ascii=False) + "\n\n"
+            end = {"id": cid, "object": "chat.completion.chunk", "created": now, "model": r["model"],
+                   "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}
+            yield "data: " + _json.dumps(end) + "\n\n"
+            yield "data: [DONE]\n\n"
+        return StreamingResponse(gen(), media_type="text/event-stream")
+    return {"id": cid, "object": "chat.completion", "created": now, "model": r["model"],
+            "choices": [{"index": 0, "message": {"role": "assistant", "content": r["text"]}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}}

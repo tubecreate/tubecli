@@ -90,5 +90,9 @@
   "cloud_api.pv_key_unused": "henüz kullanılmadı",
   "cloud_api.pv_key_revoke": "İptal et",
   "cloud_api.pv_key_revoke_confirm": "«{n}» anahtarı iptal edilsin mi? Onu kullanan makine hemen ödünç almayı bırakır; diğer anahtarlar çalışmaya devam eder.",
-  "cloud_api.pv_key_revoked": "Anahtar iptal edildi"
+  "cloud_api.pv_key_revoked": "Anahtar iptal edildi",
+  "cloud_api.codex_open": "Codex GPT'yi aç",
+  "cloud_api.codex_accounts_tag": "{n} Codex hesabı",
+  "cloud_api.codex_no_account": "Henüz Codex hesabı yok",
+  "cloud_api.codex_not_installed": "Codex CLI kurulu değil"
 }

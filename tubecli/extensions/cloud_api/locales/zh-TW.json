@@ -90,5 +90,9 @@
   "cloud_api.pv_key_unused": "尚未使用",
   "cloud_api.pv_key_revoke": "撤銷",
   "cloud_api.pv_key_revoke_confirm": "撤銷金鑰「{n}」？使用它的機器會立即停止借用；其他金鑰繼續有效。",
-  "cloud_api.pv_key_revoked": "金鑰已撤銷"
+  "cloud_api.pv_key_revoked": "金鑰已撤銷",
+  "cloud_api.codex_open": "開啟 Codex GPT",
+  "cloud_api.codex_accounts_tag": "{n} 個 Codex 帳號",
+  "cloud_api.codex_no_account": "尚未有 Codex 帳號",
+  "cloud_api.codex_not_installed": "未安裝 Codex CLI"
 }

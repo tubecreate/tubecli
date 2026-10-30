@@ -90,5 +90,9 @@
   "cloud_api.pv_key_unused": "未使用",
   "cloud_api.pv_key_revoke": "取り消す",
   "cloud_api.pv_key_revoke_confirm": "キー「{n}」を取り消しますか? このキーを使うマシンはすぐに借用を止めます。他のキーは動き続けます。",
-  "cloud_api.pv_key_revoked": "キーを取り消しました"
+  "cloud_api.pv_key_revoked": "キーを取り消しました",
+  "cloud_api.codex_open": "Codex GPT を開く",
+  "cloud_api.codex_accounts_tag": "Codex アカウント {n} 件",
+  "cloud_api.codex_no_account": "Codex アカウントがまだありません",
+  "cloud_api.codex_not_installed": "Codex CLI 未インストール"
 }
