@@ -82,6 +82,21 @@ def _is_usage_limit(err: Dict[str, Any]) -> bool:
     return bool(re.search(r"usage limit|hit your (usage )?limit", str(err.get("message") or ""), re.I))
 
 
+_AUTH_RE = re.compile(r"\b401\b|unauthori[sz]ed|token[_ ]revoked|invalidated oauth|refresh[_ ]token"
+                      r"|sign in again|log ?in again|not logged in|login required|access token could not be refreshed", re.I)
+
+
+def _is_auth_error(err: Any) -> bool:
+    """Lỗi XÁC THỰC của tài khoản (token bị thu hồi / hết hạn / 401) — khác hết hạn mức. Nhận dict lỗi lượt hay chuỗi."""
+    if isinstance(err, dict):
+        info = err.get("codexErrorInfo")
+        if info == "unauthorized" or (isinstance(info, dict) and ("unauthorized" in info or any(
+                isinstance(v, dict) and v.get("httpStatusCode") == 401 for v in info.values()))):
+            return True
+        err = " ".join(str(err.get(k) or "") for k in ("message", "additionalDetails"))
+    return bool(_AUTH_RE.search(str(err or "")))
+
+
 def _limit_reset(limits: Dict[str, Any], now: int) -> int:
     """Lúc tài khoản dùng lại được: giờ đặt lại của cửa sổ đã chạm 100 %, không biết thì +1 giờ."""
     resets = []
@@ -511,6 +526,8 @@ class CodexGptService:
             err = turn.get("error") or {}
             if turn.get("status") == "failed" and err and _is_usage_limit(err):
                 asyncio.ensure_future(self._handle_limit(tid))
+            elif turn.get("status") == "failed" and err and _is_auth_error(err) and self.active_id():
+                asyncio.ensure_future(self._mark_auth(self.active_id(), str(err.get("message") or err)))
         elif method == "thread/started":
             t = (params.get("thread") or {}).get("id")
             if t:
@@ -646,19 +663,45 @@ class CodexGptService:
         except (GptError, RpcError) as e:
             await self.broadcast({"type": "limit", "threadId": tid, "account": cur, "switched": False, "error": str(e)})
 
-    async def llm_limit_switch(self) -> bool:
+    async def _mark_auth(self, acc_id: str, msg: str) -> None:
+        """Tài khoản cần ĐĂNG NHẬP LẠI: ghi lý do (trang hiện nhãn đỏ + nút), báo trang đang mở."""
+        if not acc_id or A.get(acc_id) is None:
+            return
+        A.update(acc_id, auth_error=(str(msg or "").strip() or "unauthorized")[:200], auth_checked_at=_now())
+        await self.broadcast({"type": "auth_error", "account": acc_id})
+
+    def _clear_auth(self, acc_id: str) -> None:
+        if acc_id and A.get(acc_id) is not None:
+            A.update(acc_id, auth_error="", probe_error="", auth_checked_at=_now())
+
+    async def _reload_active_auth(self, acc_id: str) -> None:
+        """Vừa đăng nhập lại CHÍNH tài khoản đang dùng: app-server đang chạy còn giữ khoá cũ trong home.
+        Dừng nó TRƯỚC (_stop_bridge gọi _sync_back — chép khoá cũ của home về két), rồi mới ghi khoá mới vào
+        cả két lẫn home; lần gọi sau ensure_bridge khởi động lại bằng khoá mới."""
+        fresh = A.read_auth(acc_id)
+        async with self.lock:
+            await self._stop_bridge()
+            A.write_auth(acc_id, fresh)
+            self.home.mkdir(parents=True, exist_ok=True)
+            A._atomic_write(self.home / "auth.json", fresh, private=True)
+            self._marker().write_text(acc_id, encoding="utf-8")
+            self._models["acc"] = None
+
+    async def llm_limit_switch(self, reason: str = "limit", msg: str = "") -> bool:
         """Codex-làm-model chạm hạn mức: đánh dấu tài khoản đang dùng, đổi sang tài khoản tốt nhất còn lại.
         True = đã đổi (người gọi chạy lại MỘT lần trên luồng mới). Tôn trọng «tự đổi tài khoản» của trang."""
         st = self.state()
         cur = st.get("active")
         acc = A.get(cur) if cur else None
-        if acc is not None:
+        if acc is not None and reason == "auth":
+            await self._mark_auth(cur, msg)
+        elif acc is not None:
             A.update(cur, limited_until=max(int(acc.get("limited_until") or 0), _limit_reset(acc.get("limits") or {}, _now())))
         nxt = A.best(exclude={cur}) if st.get("auto_switch") else None
         if nxt is None:
             return False
         try:
-            await self.switch(nxt["id"], reason="limit", force=True)
+            await self.switch(nxt["id"], reason=reason, force=True)
         except (GptError, RpcError):
             return False
         await self.broadcast({"type": "switched", "threadId": None, "from": cur, "to": nxt["id"],
@@ -906,10 +949,13 @@ class CodexGptService:
                 saved = A.add_or_update({"label": job["label"] or info.get("email") or "Codex", "kind": kind,
                                          "email": info.get("email"), "plan": info.get("planType"),
                                          "limits": limits}, auth)
+                self._clear_auth(saved["id"])
                 st = self.state()
                 if not st.get("active") or A.get(st["active"]) is None:
                     st["active"] = saved["id"]
                     self.save_state(st)
+                elif st.get("active") == saved["id"]:
+                    await self._reload_active_auth(saved["id"])
                 job.update(state="done", account=A.public(saved, self.active_id()))
             else:
                 job.update(state="error", error=error or "Login failed")
@@ -949,20 +995,35 @@ class CodexGptService:
             if acc.get("disabled"):
                 continue
             if acc["id"] == act and self.bridge is not None and self.bridge.alive:
+                # Trước đây lỗi ở đây bị NUỐT: tài khoản đang dùng hỏng đăng nhập vẫn «In use», vạch xanh (30/10/2026).
                 try:
+                    info = await self.bridge.request("account/read", {"refreshToken": True}, timeout=40)
+                    if not (info or {}).get("account"):
+                        await self._mark_auth(acc["id"], "Codex is not signed in with this account")
+                        continue
+                    self._sync_back()
                     rl = await self.bridge.request("account/rateLimits/read", timeout=40)
                     self._store_limits((rl or {}).get("rateLimits"))
                     A.update(acc["id"], limits=A.limits_from((rl or {}).get("rateLimits")))
-                except RpcError:
-                    pass
+                    self._clear_auth(acc["id"])
+                except RpcError as e:
+                    if _is_auth_error(str(e)):
+                        await self._mark_auth(acc["id"], str(e))
+                    else:
+                        A.update(acc["id"], probe_error=str(e)[:200])
                 continue
             home = self._tmp_home("probe")
             srv = None
             try:
                 A._atomic_write(home / "auth.json", A.read_auth(acc["id"]), private=True)
                 srv = await self._temp_server(home, f"probe-{acc['id']}")
+                # refreshToken=True: ép làm mới token — token bị thu hồi lộ ra NGAY ở đây (30/10/2026).
+                got = (await srv.request("account/read", {"refreshToken": True}, timeout=40)) or {}
+                info = got.get("account") or {}
+                if not info:
+                    await self._mark_auth(acc["id"], "Codex is not signed in with this account")
+                    continue
                 rl = await srv.request("account/rateLimits/read", timeout=40)
-                info = ((await srv.request("account/read", {"refreshToken": False})) or {}).get("account") or {}
                 lim = A.limits_from((rl or {}).get("rateLimits"))
                 fields: Dict[str, Any] = {"limits": lim}
                 if info.get("planType"):
@@ -971,12 +1032,16 @@ class CodexGptService:
                     fields["limited_until"] = _limit_reset(lim, _now())
                 elif int(acc.get("limited_until") or 0) > _now():
                     fields["limited_until"] = 0          # đã đặt lại sớm hơn dự tính
+                fields.update(auth_error="", probe_error="", auth_checked_at=_now())
                 A.update(acc["id"], **fields)
                 data = (home / "auth.json").read_bytes()
                 if data and data != A.read_auth(acc["id"]):
                     A.write_auth(acc["id"], data)
             except (GptError, RpcError, OSError) as e:
-                A.update(acc["id"], probe_error=str(e)[:200])
+                if _is_auth_error(str(e)):
+                    await self._mark_auth(acc["id"], str(e))
+                else:
+                    A.update(acc["id"], probe_error=str(e)[:200])
             finally:
                 if srv is not None:
                     await srv.stop()

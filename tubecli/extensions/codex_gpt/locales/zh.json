@@ -77,7 +77,7 @@
   "cg.resets": "{t}重置",
   "cg.auto_switch": "自动切换",
   "cg.auto_switch_desc": "当某个账号达到用量上限时，改用剩余额度最多的账号继续对话。",
-  "cg.refresh_limits": "检查额度",
+  "cg.refresh_limits": "检查账号",
   "cg.api_key": "API 密钥",
   "cg.checked": "{t}检查",
   "cg.in_use": "使用中",
@@ -221,5 +221,8 @@
   "cg.tg_status_off": "关闭",
   "cg.tg_status_on": "运行中 {bot} · 允许 {chats} 个聊天 · 已关联 {threads} 个会话",
   "cg.tg_status_stopped": "已停止",
-  "cg.tg_status_err": "错误：{err}"
+  "cg.tg_status_err": "错误：{err}",
+  "cg.auth_bad": "需要重新登录",
+  "cg.auth_hint": "Codex 拒绝了此账号的登录。请重新登录以继续使用。",
+  "cg.relogin": "重新登录"
 }

@@ -77,7 +77,7 @@
   "cg.resets": "đặt lại {t}",
   "cg.auto_switch": "Tự chuyển tài khoản",
   "cg.auto_switch_desc": "Khi một tài khoản hết hạn mức, làm tiếp phiên bằng tài khoản còn nhiều hạn mức nhất.",
-  "cg.refresh_limits": "Kiểm hạn mức",
+  "cg.refresh_limits": "Kiểm tra tài khoản",
   "cg.api_key": "API key",
   "cg.checked": "kiểm {t}",
   "cg.in_use": "Đang dùng",
@@ -221,5 +221,8 @@
   "cg.tg_status_off": "Tắt",
   "cg.tg_status_on": "Đang chạy {bot} · {chats} chat được phép · {threads} chat đã nối phiên",
   "cg.tg_status_stopped": "Đã dừng",
-  "cg.tg_status_err": "lỗi: {err}"
+  "cg.tg_status_err": "lỗi: {err}",
+  "cg.auth_bad": "Cần đăng nhập lại",
+  "cg.auth_hint": "Codex từ chối đăng nhập của tài khoản này. Đăng nhập lại để dùng tiếp.",
+  "cg.relogin": "Đăng nhập lại"
 }
