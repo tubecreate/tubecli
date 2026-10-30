@@ -106,7 +106,9 @@ _AUTH_EXEMPT_EXACT = {"/login", "/api/v1/auth/login", "/api/v1/auth/status",
 # route tự kiểm hạn dùng + file còn tồn tại). Người nhận không có tài khoản.
 # /api/v1/public/hire/file/ = cloud lấy file đã giao của việc thuê — chữ ký HMAC miền
 # «hire-file» trên CHÍNH đường dẫn, route tự kiểm (không phiên nào để đòi).
-_AUTH_EXEMPT_PREFIX = ("/webui/static/", "/static/", "/s/", "/api/v1/public/hire/file/")
+# /api/v1/clone/bundle/ = gói nhân bản (core/clone_kit.py): máy ĐÍCH tải qua tunnel, không có phiên đăng nhập — mã
+# 256 bit trong đường dẫn là chìa khoá, route tự kiểm hạn 2 giờ + tối đa 5 lượt; gói không chứa dữ liệu/tệp bí mật.
+_AUTH_EXEMPT_PREFIX = ("/webui/static/", "/static/", "/s/", "/api/v1/public/hire/file/", "/api/v1/clone/bundle/")
 
 
 def _auth_exempt(path: str) -> bool:
@@ -6127,6 +6129,9 @@ app.include_router(_muse_router)
 # Kho MẪU chung của mọi studio (3/10/2026): Content Studio và Pod Studio cùng đọc/ghi một mẫu.
 from tubecli.api.templates_routes import router as _templates_router
 app.include_router(_templates_router)
+# Nhân bản extension + template sang máy khác (30/10/2026) — core/clone_kit.py.
+from tubecli.api.clone_routes import router as _clone_router
+app.include_router(_clone_router)
 
 # Kho NHÂN VẬT chung (10/10/2026): hồ sơ + sheet của một nhân vật dùng lại qua mọi video; mẫu mang dàn nhân vật.
 from tubecli.api.characters_routes import router as _characters_router

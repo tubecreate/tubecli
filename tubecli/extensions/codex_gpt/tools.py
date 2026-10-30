@@ -48,7 +48,8 @@ BLOCK_ALL = ("/api/v1/codex-gpt", "/api/v1/auth", "/api/v1/auth-manager", "/api/
 BLOCK_WRITE = ("/api/v1/settings", "/api/v1/system", "/api/v1/market", "/api/v1/public-agents", "/api/v1/codex/settings")
 # Được gọi, nhưng LUÔN hỏi chủ — kể cả «Không cần hỏi» và «Cho phép trong phiên»: cài extension từ một git URL bất kỳ
 # là chạy mã lạ với quyền của TubeCLI (SECURITY.md «Installing extensions»).
-ALWAYS_ASK_WRITE = ("/api/v1/extensions/install",)
+# /api/v1/clone/import (30/10/2026): chép mã extension của máy khác vào đây = cài mã mới, cùng mức với install.
+ALWAYS_ASK_WRITE = ("/api/v1/extensions/install", "/api/v1/clone/import")
 # Đoạn đường mang bí mật: cookie phiên, mã 2FA, proxy có mật khẩu, tài khoản/khoá của extension.
 SECRET_SEGMENTS = {"cookies", "cookie", "2fa", "totp", "token", "tokens", "credential", "credentials", "password",
                    "passwords", "secret", "secrets", "key", "keys", "api-keys", "api_keys", "apikeys", "proxy-pool",
@@ -1052,6 +1053,86 @@ async def t_market_install(args, ctx):
     return text_result(out, error=status >= 400)
 
 
+# ── nhân bản sang máy khác (core/clone_kit.py, 30/10/2026) ───────────────────
+# User: «clone tubecli từ vps này qua vps khác thông qua mcp … chỉ copy các extension, template, không copy data, agent».
+# Máy NGUỒN: clone_export → mã tải. Máy ĐÍCH: clone_import(url) → tự tải qua tunnel nguồn, LUÔN hỏi chủ (cài mã mới).
+# Công cụ cloud `server_clone` (tubecli-cloud lib/mcpConnector.js) nối hai bước cho hai máy trong một lời gọi.
+CLONE_SECTIONS = {"type": "array", "items": {"type": "string", "enum": ["extensions", "templates"]},
+                  "description": "What to copy (default both). Data and agents are never copied."}
+CLONE_MODE = {"type": "string", "enum": ["newer", "missing", "all"],
+              "description": "newer (default) = install missing + update older; missing = only install missing; "
+                             "all = also overwrite same/newer versions"}
+CLONE_EXPORT_TIMEOUT_S = 300
+
+
+def _json_of(data: bytes) -> Any:
+    try:
+        return json.loads(data.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        return None
+
+
+async def t_clone_manifest(args, ctx):
+    status, ctype, data = await asgi_call(ctx["app"], "GET", "/api/v1/clone/manifest")
+    return text_result(render_response(status, ctype, data), error=status >= 400)
+
+
+async def t_clone_export(args, ctx):
+    body = {"sections": args.get("sections") or None, "fresh": bool(args.get("fresh"))}
+    try:
+        status, ctype, data = await asgi_call(ctx["app"], "POST", "/api/v1/clone/export", body=body,
+                                              timeout=CLONE_EXPORT_TIMEOUT_S)
+    except asyncio.TimeoutError:
+        raise ToolError("Packing is still running — call clone_export again in a minute; it returns the finished bundle.")
+    js = _json_of(data)
+    if status >= 400 or not isinstance(js, dict):
+        return text_result(render_response(status, ctype, data), error=True)
+    man = js.get("manifest") or {}
+    ext = ((man.get("sections") or {}).get("extensions") or {}).get("items") or []
+    # Dòng đầu là JSON gọn để cloud (server_clone) đọc máy được; phần sau cho người đọc.
+    head = json.dumps({"token": js.get("token"), "path": js.get("path"), "bytes": js.get("bytes"),
+                       "expires_at": js.get("expires_at"), "sections": js.get("sections"), "reused": bool(js.get("reused"))})
+    note = (f"\nBundle ready: {len(ext)} extension folder(s), {round((js.get('bytes') or 0) / 1048576, 1)} MB, "
+            f"valid 2 h / 5 downloads. On the TARGET server call clone_import with url = "
+            f"<this server's https address>{js.get('path')}.")
+    return text_result(head + note)
+
+
+async def _clone_plan(args, ctx):
+    url = _str(args, "url", True, 600)
+    body = {"url": url, "sections": args.get("sections") or None, "mode": args.get("mode") or "newer"}
+    status, ctype, data = await asgi_call(ctx["app"], "POST", "/api/v1/clone/plan", body=body)
+    js = _json_of(data)
+    if status >= 400 or not isinstance(js, dict):
+        detail = (js or {}).get("detail") if isinstance(js, dict) else ""
+        raise ToolError(f"Cannot use that bundle: {detail or render_response(status, ctype, data)}")
+    host = url.split("/")[2] if "//" in url else url
+    return {"summary": f"Copy extensions/templates from {host} onto this server:\n{js.get('summary') or ''}"[:1900],
+            "body": body}
+
+
+async def t_clone_import(args, ctx):
+    p = ctx.get("plan") or await _clone_plan(args, ctx)
+    status, ctype, data = await asgi_call(ctx["app"], "POST", "/api/v1/clone/import", body=p["body"])
+    js = _json_of(data)
+    if status >= 400 or not isinstance(js, dict):
+        return text_result(render_response(status, ctype, data), error=True)
+    return text_result(f"Clone started (job {js.get('job_id')}). It downloads the bundle and installs in the "
+                       f"background — call clone_status with job_id \"{js.get('job_id')}\" to follow it.\n"
+                       f"Plan:\n{p['summary']}")
+
+
+async def t_clone_status(args, ctx):
+    jid = _str(args, "job_id", True, 40)
+    status, ctype, data = await asgi_call(ctx["app"], "GET", f"/api/v1/clone/jobs/{jid}")
+    js = _json_of(data)
+    if isinstance(js, dict) and js.get("status") == "done" and js.get("restart_required"):
+        return text_result(render_response(status, ctype, data) + "\nTubeCLI needs a restart to load the newly "
+                           "installed extensions (and to import templates waiting for Content Studio). It was NOT "
+                           "restarted automatically — tell the owner to restart TubeCLI on this server.")
+    return text_result(render_response(status, ctype, data), error=status >= 400)
+
+
 def _api_always_ask(args) -> bool:
     try:
         a = _api_prepare(args)
@@ -1084,6 +1165,24 @@ TOOLS: Dict[str, Tool] = {t.name: t for t in [
          {"item": {**S, "description": "Market item id (public_id, e.g. con_st) or its exact title"},
           "update": {"type": "boolean", "description": "true = reinstall over an installed copy to update it"}},
          ["item"], t_market_install, write=True, always_ask=True, plan=_market_plan),
+    Tool("clone_manifest", "What this server could copy to another TubeCLI server: installed extensions (with "
+         "versions), Content Studio templates, and which sections exist (data and agents are never copied).",
+         {}, [], t_clone_manifest),
+    Tool("clone_export", "Pack this server's extensions and/or Content Studio templates into a one-time bundle for "
+         "another server (no data, no agents, no secrets). Returns a download path valid 2 hours. Usually called by "
+         "server_clone; call it again if packing timed out — it returns the finished bundle.",
+         {"sections": CLONE_SECTIONS, "fresh": {"type": "boolean", "description": "true = pack again even if a "
+                                                "recent bundle exists"}},
+         [], t_clone_export, write=True, summary=lambda a: "Pack extensions/templates for cloning"),
+    Tool("clone_import", "Copy extensions and/or Content Studio templates from another TubeCLI server onto THIS one, "
+         "from the bundle url that clone_export gave (https://<source>/api/v1/clone/bundle/<token>). Installs code, so "
+         "the owner ALWAYS approves it on a card showing exactly what will be installed. Runs in the background — "
+         "follow it with clone_status.",
+         {"url": {**S, "description": "https://<source server>/api/v1/clone/bundle/<token>"},
+          "sections": CLONE_SECTIONS, "mode": CLONE_MODE},
+         ["url"], t_clone_import, write=True, always_ask=True, plan=_clone_plan),
+    Tool("clone_status", "Progress and report of a clone_import job on this server.",
+         {"job_id": {**S, "description": "job id from clone_import"}}, ["job_id"], t_clone_status),
     Tool("board_list", "List tasks on the TubeCLI Task Board (Bảng việc) with counts per status and paused lanes.",
          {"group": {"type": "string", "enum": list(BOARD_GROUPS + BOARD_STATUSES),
                     "description": "A group (needs_you = pending_approval + review; working = queued + running; "

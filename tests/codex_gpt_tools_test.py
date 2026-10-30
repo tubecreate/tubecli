@@ -237,8 +237,8 @@ async def main():
 
     # ── H. danh sách + chặn cứng + GET ───────────────────────────────────────
     names = [t["name"] for t in TL.list_tools()]
-    check("H1 tools/list đủ 19 công cụ (thêm market_install 14/10), mỗi cái có inputSchema + readOnlyHint",
-          len(names) == 19 and all(t["inputSchema"]["type"] == "object" and "readOnlyHint" in t["annotations"] for t in TL.list_tools()), names)
+    check("H1 tools/list đủ 23 công cụ (thêm market_install 14/10, 4 clone_* 30/10), mỗi cái có inputSchema + readOnlyHint",
+          len(names) == 23 and all(t["inputSchema"]["type"] == "object" and "readOnlyHint" in t["annotations"] for t in TL.list_tools()), names)
     blocked = [("GET", "/api/v1/codex-gpt/accounts"), ("GET", "/api/v1/keychain/items"), ("GET", "/api/v1/auth/status"),
                ("POST", "/api/v1/terminal/run"), ("GET", "/api/v1/file-manager/list"), ("GET", "/api/v1/browser/profiles/main/cookies"),
                ("GET", "/api/v1/capcut-tts/accounts"), ("GET", "/api/v1/demo/../codex-gpt/status"), ("GET", "/api/v1/demo/%2e%2e/keychain"),
@@ -451,7 +451,7 @@ async def main():
                      headers={"x-codex-gpt-key": svc.mcp_key(), "x-forwarded-for": "8.8.8.8"})
         check("K8 loopback qua proxy/tunnel (X-Forwarded-For) → 403", rr.status_code == 403, rr.status_code)
         rr = tc.post("/api/v1/codex-gpt/mcp", json={"method": "tools/list"}, headers={"x-codex-gpt-key": svc.mcp_key()})
-        check("K9 loopback + đúng khoá → danh sách công cụ", rr.status_code == 200 and len(rr.json()["result"]["tools"]) == 19,
+        check("K9 loopback + đúng khoá → danh sách công cụ", rr.status_code == 200 and len(rr.json()["result"]["tools"]) == 23,
               rr.status_code)
 
     # ── L. phiên + sandbox Windows (app-server giả) ──────────────────────────
