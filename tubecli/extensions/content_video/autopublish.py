@@ -239,6 +239,23 @@ def commit_published(agent_id: str, high_water: str = "", video_url: str = "",
         return "error: %s" % e
 
 
+def skip_window(agent_id: str, high_water: str = "") -> bool:
+    """Bỏ qua một cửa sổ corpus: mốc tiến nhưng KHÔNG tính vào trần ngày (không có video nào lên kênh). Không bao giờ ném.
+
+    Dùng khi tiêu đề bị chặn vì từ cấm của mẫu: video còn đó, Retry đăng được; còn dựng lại từ đúng kho ấy thì tốn cả giờ máy."""
+    aid = str(agent_id or "")
+    if not aid:
+        return False
+    try:
+        with _LOCK:
+            row = get_mark(aid)
+            hw = str(high_water or "") or row["high_water_pending"]
+            return bool(hw and hw > row["high_water"] and save_mark(aid, high_water=hw))
+    except Exception as e:      # noqa: BLE001
+        logger.error("[AutoPublish] could not skip the window for %s (%s)", aid, e)
+        return False
+
+
 # ── Tạm dừng vì kênh chưa xác minh (19/10/2026) ─────────────────────
 #
 # YouTube không nhận video quá 15 phút từ kênh chưa xác minh số điện thoại. Đăng hỏng thì mốc corpus đứng yên (cố ý,

@@ -37,6 +37,7 @@ import os
 import re
 import threading
 import time
+import unicodedata
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from tubecli.extensions.content_video.capabilities import (
@@ -2218,6 +2219,7 @@ def _step_script(state: Dict, options: Dict) -> None:
     if dna_note:
         system_prompt += dna_note
         state["_say"]("script", "running", f"writing with the content DNA “{state['content_dna']['name']}”")
+    system_prompt += _seo_title_note(state)
     fmt = (
         "Format, exactly:\n"
         "TITLE: <a punchy title>\n\n"
@@ -2326,6 +2328,8 @@ def _step_script(state: Dict, options: Dict) -> None:
         text = "\n".join(lines[1:]).strip()
     if not title:
         title = f"{agent.name} · {time.strftime('%Y-%m-%d')}"
+    if not str(options.get("title") or "").strip():      # tiêu đề người dùng tự gõ thì không đụng
+        title = _title_within_rules(state, agent, title, lang)
     state["script"] = text
     state["title"] = title[:120]
     _task_title(state.get("task_id"), state["title"], options)
@@ -2365,7 +2369,7 @@ def _step_script_manga(state: Dict, options: Dict, agent, blocks: List[str], pas
     if feedback:
         material += ("\n\nThe reviewer asked for these changes to the previous episode (apply ALL of them):\n"
                      + "\n".join(f"- {f}" for f in feedback))
-    lang_note = write_in + instructions_note(options)
+    lang_note = write_in + instructions_note(options) + _seo_title_note(state)
     # Bài dán ở mẫu manga là Ý TƯỞNG / đề tài (vài dòng), không phải bài phải kể đủ: độ dài theo MẪU (hay số chữ người dùng
     # ghi rõ) — theo bài dán thì 48 chữ ý tưởng thành tập 2 phút.
     words = resolve_words({**options, "source_text": ""}, state.get("preset"))[0]
@@ -2373,7 +2377,7 @@ def _step_script_manga(state: Dict, options: Dict, agent, blocks: List[str], pas
     title, text = _ms.write(lambda sysm, user, budget: _ask_model(agent, sysm, user, budget), material, lang_note,
                             minutes, say=lambda m: state["_say"]("script", "running", m),
                             cancelled=state.get("_cancelled") or (lambda: False))
-    title = str(options.get("title") or "").strip() or title
+    title = str(options.get("title") or "").strip() or _title_within_rules(state, agent, title, "Japanese")
     state["script"], state["title"] = text, title[:120]
     _task_title(state.get("task_id"), state["title"], options)
     _task_meta(state.get("task_id"), language=state.get("language"))
@@ -5651,12 +5655,14 @@ def _desc_parts(desc: str) -> Tuple[str, str]:
 
 
 def _seo_polish(title: str, desc: str, tags: List[str], keyword: str, chapters: List[Tuple[float, str]],
-                channel: Dict, state: Dict, keep_title: bool = False, keep_desc: bool = False) -> Dict[str, Any]:
-    """Áp tiêu chí đo được lên bản model viết. Phần người gọi tự viết (seo_title / seo_description) giữ nguyên."""
+                channel: Dict, state: Dict, keep_title: bool = False, keep_desc: bool = False,
+                own_title: bool = False) -> Dict[str, Any]:
+    """Áp tiêu chí đo được lên bản model viết. Phần người gọi tự viết (seo_title / seo_description) giữ nguyên.
+    own_title: mẫu tự khai khung tiêu đề — chỉ giữ giới hạn độ dài, không ghép « | từ khoá» / « | tên kênh» phá khung."""
     kw = " ".join(str(keyword or "").replace("#", " ").split())[:60]
     ch_name = str((channel or {}).get("name") or "").strip()
     if not keep_title:
-        title = _fit_title(title, kw, ch_name)
+        title = _fit_title(title, "", "") if own_title else _fit_title(title, kw, ch_name)
     # Tag: từ khoá chính đứng đầu, ≥ 5 (thiếu thì thêm từ hashtag của mô tả và tên kênh).
     tags = list(tags or [])
     if kw and kw.lower() not in [t.lower() for t in tags]:
@@ -5692,7 +5698,144 @@ def _seo_polish(title: str, desc: str, tags: List[str], keyword: str, chapters: 
             "chapters": [{"start": _ts(t), "title": n} for t, n in chapters]}
 
 
+# Quy tắc tiêu đề / mô tả RIÊNG TỪNG MẪU (30/10/2026, user «thêm logic custom tiêu đề mô tả khi reup cho từng template»,
+# sau khi pipeline chạy lại đăng thêm một video «leyes» dù kênh muốn bỏ khung ấy). Mẫu khai wizSeoTitleRule / wizSeoDescRule
+# / wizSeoBanned → metadata.seo_title_rule / seo_desc_rule / seo_banned. Lời dặn thì model có thể lờ, nên từ cấm được KIỂM
+# bằng mã sau khi model viết: tiêu đề vi phạm ⇒ viết lại, vẫn vi phạm ⇒ KHÔNG đăng.
+SEO_BAN_RETRIES = 2
+
+
+class SeoBannedTitle(RuntimeError):
+    """Không đăng: tiêu đề vẫn dính từ cấm của mẫu sau khi đã viết lại."""
+
+
+def _banned_words(raw: Any) -> List[str]:
+    """«leyes, ley; secreto» → danh sách từ cấm, không trùng (so bỏ hoa thường / dấu)."""
+    items = raw if isinstance(raw, (list, tuple)) else re.split(r"[,;，、\n]+", str(raw or ""))
+    out: Dict[str, str] = {}
+    for w in items:
+        w = " ".join(str(w or "").split())
+        if w:
+            out.setdefault(_fold(w), w)
+    return list(out.values())
+
+
+def _fold(text: Any) -> str:
+    """Chữ thường, bỏ dấu Latin (Jesús = jesus), gộp khoảng trắng. Chỉ bỏ dấu U+0300–036F: が không được thành か."""
+    s = unicodedata.normalize("NFKD", str(text or "")).casefold()
+    return " ".join(re.sub(r"[̀-ͯ]", "", s).split())
+
+
+def _banned_hits(text: Any, banned: List[str]) -> List[str]:
+    """Từ cấm có trong `text`: nguyên từ («ley» không dính «leyenda»); Hán / kana / Thái không có dấu cách nên so chuỗi con."""
+    t = _fold(text)
+    hits = []
+    for w in banned or []:
+        f = _fold(w)
+        pat = re.escape(f) if _RUN_RE.search(f) else rf"(?<!\w){re.escape(f)}(?!\w)"
+        if f and re.search(pat, t):
+            hits.append(w)
+    return hits
+
+
+def _seo_rules(state: Dict) -> Dict[str, Any]:
+    m = _preset_meta(state)
+    return {"title": str(m.get("seo_title_rule") or "").strip(), "desc": str(m.get("seo_desc_rule") or "").strip(),
+            "banned": _banned_words(m.get("seo_banned"))}
+
+
+def _seo_title_note(state: Dict) -> str:
+    """Lời dặn cho dòng TITLE của người viết kịch bản (mẫu không khai ⇒ rỗng)."""
+    r = _seo_rules(state)
+    note = f"\n\nThis template's rule for the video title: {r['title']}" if r["title"] else ""
+    if r["banned"]:
+        note += "\nNever use these words in the title, in any casing or form: " + ", ".join(r["banned"]) + "."
+    return note
+
+
+def _title_within_rules(state: Dict, agent, title: str, lang: str) -> str:
+    """Tiêu đề tạm dính từ cấm ⇒ xin model MỘT tiêu đề khác; vẫn dính ⇒ giữ và cảnh báo ở phần duyệt (bước đăng còn chặn lần nữa)."""
+    banned = _seo_rules(state)["banned"]
+    hits = _banned_hits(title, banned)
+    if not hits:
+        return title
+    (state.get("_say") or (lambda *a: None))("script", "running", f"the title uses a banned word ({', '.join(hits)}) — rewriting it")
+    new = ""
+    try:
+        new = _ask_model(agent, f"You write YouTube video titles in {lang}. Answer with the title only.",
+                         f"Rewrite this title without changing the topic: {title}" + _seo_title_note(state), 60)
+        new = re.sub(r"^\s*TITLE\s*:\s*", "", new.strip().splitlines()[0], flags=re.I).strip("*\"“” ")
+    except (RuntimeError, IndexError) as e:
+        logger.info(f"[ContentVideo] title rewrite failed: {e}")
+    if new and not _banned_hits(new, banned):
+        return new
+    state.setdefault("warnings", []).append(
+        f"The working title still contains a word this template bans ({', '.join(hits)}). "
+        "The publish step will not post the video under a title with that word.")
+    return title
+
+
+def _seo_scrub(seo: Dict[str, Any], banned: List[str], keep_desc: bool) -> Tuple[Dict[str, Any], bool]:
+    """Bỏ từ cấm khỏi tag, chương, mô tả bằng mã (câu chứa từ / hashtag chứa từ). Trả (seo, có bỏ phần mô tả không)."""
+    def in_tag(x: Any) -> bool:      # tag / hashtag viết liền («#LeyesDeVida») không có ranh giới từ
+        c = _fold(x).replace(" ", "")
+        return any(_fold(w).replace(" ", "") in c for w in banned)
+    out = dict(seo)
+    out["tags"] = [t for t in (seo.get("tags") or []) if not in_tag(t)]
+    if _banned_hits(seo.get("keyword"), banned):
+        out["keyword"] = ""
+    if seo.get("chapters"):
+        out["chapters"] = [c for c in seo["chapters"] if not _banned_hits(c.get("title"), banned)]
+    if keep_desc:
+        return out, False
+    lines = []
+    cut = False
+    for ln in str(seo.get("description") or "").splitlines():
+        if ln.lstrip().startswith("#"):
+            kept = [w for w in ln.split() if not in_tag(w)]
+        elif _banned_hits(ln, banned):
+            kept = [s for s in re.split(r"(?<=[.!?…。！？])\s*", ln) if s and not _banned_hits(s, banned)]
+        else:
+            lines.append(ln)
+            continue
+        cut = True
+        if kept:
+            lines.append(" ".join(kept))
+    out["description"] = _clamp_desc("\n".join(lines).strip())
+    return out, cut
+
+
 def _seo_for(state: Dict, options: Dict, channel: Dict) -> Dict[str, Any]:
+    """_seo_write + kiểm từ cấm của mẫu. Tiêu đề do người gọi tự gõ (seo_title) thì tôn trọng, chỉ cảnh báo."""
+    rules = _seo_rules(state)
+    seo = _seo_write(state, options, channel, rules)
+    banned = rules["banned"]
+    if not banned:
+        return seo
+    typed = bool(str(options.get("seo_title") or "").strip())
+    for _ in range(SEO_BAN_RETRIES):
+        hits = _banned_hits(seo["title"], banned)
+        if typed or not hits:
+            break
+        (state.get("_say") or (lambda *a: None))("publish", "running", f"the title uses a banned word ({', '.join(hits)}) — writing it again")
+        seo = _seo_write(state, options, channel, rules,
+                         retry=f"Your previous title «{seo['title']}» used the banned word(s) {', '.join(hits)}. "
+                               "Write a different title on a different angle, without them.")
+    hits = _banned_hits(seo["title"], banned)
+    if hits and typed:
+        state.setdefault("warnings", []).append(f"The title you typed contains a word this template bans ({', '.join(hits)}).")
+    elif hits:
+        # Thà chưa đăng còn hơn đăng sai khung: video vẫn còn, Retry bước đăng hoặc gõ tiêu đề là đăng được.
+        raise SeoBannedTitle(f"Not published: the title «{seo['title']}» contains a word this template bans ({', '.join(hits)}), "
+                             "even after rewriting. Retry, or give the video its own title.")
+    seo, cut = _seo_scrub(seo, banned, keep_desc=bool(str(options.get("seo_description") or "").strip()))
+    if cut:
+        state.setdefault("warnings", []).append(
+            "Sentences or hashtags with a word this template bans were removed from the YouTube description.")
+    return seo
+
+
+def _seo_write(state: Dict, options: Dict, channel: Dict, rules: Optional[Dict] = None, retry: str = "") -> Dict[str, Any]:
     """Tiêu đề / mô tả / hashtag cho ĐÚNG kênh này, bằng model của chính agent.
 
     Nguyên liệu: TÊN KÊNH + phần giới thiệu kênh + kịch bản + tiêu đề các trang
@@ -5701,6 +5844,7 @@ def _seo_for(state: Dict, options: Dict, channel: Dict) -> Dict[str, Any]:
     """
     from tubecli.core.brain import AgentBrain
 
+    rules = rules or {}
     ov_title = str(options.get("seo_title") or "").strip()
     ov_desc = str(options.get("seo_description") or "").strip()
     ov_tags = _clean_tags(options.get("seo_tags") or [])
@@ -5751,6 +5895,20 @@ def _seo_for(state: Dict, options: Dict, channel: Dict) -> Dict[str, Any]:
            f"stamp, the first is 0:00, at least {int(CHAPTER_GAP)} seconds apart; titles of 2–6 words\n"
            if timeline else "- chapters: []\n")
     )
+    # Mẫu tự khai cách đặt tiêu đề / mô tả: thắng luật chung ở trên, trừ độ dài. Đặt cuối prompt để model đọc sau cùng.
+    own = []
+    if rules.get("title"):
+        own.append(f"- title: {rules['title']}")
+    if rules.get("desc"):
+        own.append(f"- description: {rules['desc']}")
+    if rules.get("banned"):
+        own.append("- never use these words anywhere (title, description, tags, keyword, chapters), in any casing: "
+                   + ", ".join(rules["banned"]))
+    if own:
+        user_prompt += ("\nTHIS TEMPLATE'S OWN RULES — they win over the rules above, except the length limits:\n"
+                        + "\n".join(own) + "\n")
+    if retry:
+        user_prompt += "\n" + retry + "\n"
     raw = ""
     try:
         raw = AgentBrain._call_llm(
@@ -5791,7 +5949,7 @@ def _seo_for(state: Dict, options: Dict, channel: Dict) -> Dict[str, Any]:
         desc = "\n".join(ln for ln in desc.splitlines() if not re.match(r"^\s*(?:\d+:)?\d{1,2}:\d{2}\s", ln))
     chapters = _chapters_fit((data or {}).get("chapters"), points, float(state.get("_seo_video_secs") or 0))
     return _seo_polish(title, desc, tags, keyword or (tags[0] if tags else ""), chapters, channel, state,
-                       keep_title=bool(ov_title), keep_desc=bool(ov_desc))
+                       keep_title=bool(ov_title), keep_desc=bool(ov_desc), own_title=bool(rules.get("title")))
 
 
 _PRIVACY = ("public", "unlisted", "private")
@@ -7060,6 +7218,19 @@ def _commit_autopublish(state: Dict, options: Dict) -> None:
         logger.warning(f"[ContentVideo] could not commit the auto-publish mark: {e}")
 
 
+def _skip_autopublish_window(state: Dict, options: Dict) -> None:
+    """Tiêu đề bị chặn vì từ cấm: mốc đứng yên thì lượt thu thập sau dựng lại nguyên video từ đúng kho ấy, lại dễ ra đúng đề ấy."""
+    if not options.get("autopublish"):
+        return
+    try:
+        from tubecli.extensions.content_video import autopublish
+
+        autopublish.skip_window(str(getattr(state.get("agent"), "id", "") or ""),
+                                str(state.get("high_water") or options.get("high_water") or ""))
+    except Exception as e:
+        logger.warning(f"[ContentVideo] could not move the auto-publish mark: {e}")
+
+
 def _thumbnail_template(state: Dict, options: Dict) -> str:
     """Mẫu thumbnail phải dùng: người dùng gõ trong chat > preset > rỗng (AI tự chọn).
 
@@ -7696,6 +7867,9 @@ def _step_publish(state: Dict, options: Dict) -> None:
             raise
         msg = str(e)[:300]
         state["publish_error"] = msg
+        if isinstance(e, SeoBannedTitle):
+            state["publish_blocked"] = "banned_title"
+            _skip_autopublish_window(state, options)
         kept = str(state.get("video_path") or "")
         state.setdefault("warnings", []).append(
             f"Upload to YouTube failed: {msg}"
