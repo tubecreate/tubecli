@@ -43,6 +43,7 @@ import * as searchExtractAction from './actions/search_extract.js';
 import * as extractContentAction from './actions/extract_content.js';
 import * as readGmailAction from './actions/read_gmail.js';
 import { attachPopupDismisser } from './actions/dismiss_popups.js';
+import { trimTabs, closeExtraTabs, MAX_AGENT_TABS } from './actions/tab_janitor.js';
 import { SessionManager } from './session_manager.js';
 import { BrowserManager } from './browser_manager.js';
 import axios from 'axios';
@@ -1336,6 +1337,14 @@ async function main() {
         console.log('[TabManager] New tab detected! Switching focus...');
         page = newPage; // Update the main page reference
         console.log(`[TabManager] Now on: ${page.url()}`);
+        // Lượt agent: giữ tối đa MAX_AGENT_TABS tab, đóng tab cũ nhất (không đóng tab vừa chuyển sang) — 30/10/2026,
+        // hồ sơ testphienbansharr149 từng dồn 202 tab ≈ 200 tiến trình. Người dùng tự mở thì không đụng.
+        if (!isManual) {
+          try {
+            const n = await trimTabs(context, newPage, MAX_AGENT_TABS);
+            if (n) console.log(`[TabManager] Closed ${n} old tab(s) — keeping at most ${MAX_AGENT_TABS} during an agent run`);
+          } catch (e) { /* đang tắt trình duyệt */ }
+        }
       });
 
       // --- POPUP DISMISSER (user 18/10/2026) ---
@@ -2298,6 +2307,13 @@ async function main() {
         console.log('Closing browser in 5 seconds...');
         if (page && !page.isClosed()) {
           await page.waitForTimeout(5000);
+        }
+        // Chạy xong: đóng mọi tab thừa, chỉ giữ một (user 30/10/2026: «cho agent tự đóng khi chạy xong»).
+        if (typeof context !== 'undefined' && context) {
+          try {
+            const n = await closeExtraTabs(context, page);
+            if (n) console.log(`[TabManager] Run finished — closed ${n} extra tab(s)`);
+          } catch (e) { /* trình duyệt đã tắt */ }
         }
         if (typeof context !== 'undefined') {
           try { await context.close(); } catch (e) {}
