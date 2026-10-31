@@ -1,0 +1,40 @@
+{
+  "name": "Parallel web search",
+  "nodes": [
+    {
+      "id": "query",
+      "type": "text_input",
+      "config": {
+        "text": "TubeCLI open source AI agents"
+      }
+    },
+    {
+      "id": "search",
+      "type": "web_search",
+      "config": {
+        "provider": "parallel"
+      }
+    },
+    {
+      "id": "output",
+      "type": "output",
+      "config": {
+        "print": true
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from_node_id": "query",
+      "from_port_id": "content",
+      "to_node_id": "search",
+      "to_port_id": "query"
+    },
+    {
+      "from_node_id": "search",
+      "from_port_id": "results",
+      "to_node_id": "output",
+      "to_port_id": "data"
+    }
+  ]
+}
