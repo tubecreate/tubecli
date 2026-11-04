@@ -214,8 +214,11 @@ def jpeg_size(data: bytes) -> Tuple[int, int]:
 class Tool:
     def __init__(self, name: str, description: str, props: Dict[str, Any], required: List[str],
                  fn: Callable, write: Any = False, summary: Optional[Callable] = None, prepare: Optional[Callable] = None,
-                 always_ask: Any = False, plan: Optional[Callable] = None):
+                 always_ask: Any = False, plan: Optional[Callable] = None, perm: str = ""):
         self.name, self.description, self.fn = name, description, fn
+        # Quyền THÊM mà người gọi phải có (ngoài mức đọc/ghi): «share» = chia sẻ file công khai. Codex GPT trên máy
+        # không có quyền thêm nào; trình kết nối claude.ai có khi chủ bật trong TubeCLI Cloud › Connectors.
+        self.perm = perm
         self.schema = {"type": "object", "properties": props, "required": required, "additionalProperties": False}
         self._write, self._summary, self.prepare = write, summary, prepare
         # LUÔN hỏi chủ: bỏ qua «Không cần hỏi» lẫn «Cho phép trong phiên này» (đưa agent ra cho người lạ, đặt giá,
@@ -1133,6 +1136,175 @@ async def t_clone_status(args, ctx):
     return text_result(render_response(status, ctype, data), error=status >= 400)
 
 
+# ── chia sẻ file công khai (user 4/11/2026) ───────────────────────────────────
+# User: «trên file manager của tubecli có tính năng share file public … cho phép cấp quyền trong cài đặt kết nối».
+# File Manager vẫn nằm trong BLOCK_ALL: nó đọc được gần như mọi file của máy, và link /s/<mã> mở KHÔNG cần đăng nhập.
+# Ở đây chỉ chia sẻ FILE KẾT QUẢ (video xuất, ảnh/clip đã tạo) trong vài thư mục cố định, đuôi media/tài liệu, LUÔN hỏi
+# chủ, link có hạn (mặc định 7, tối đa 30 ngày); chạy khi kết nối có quyền «share» (chủ bật cho từng kết nối).
+SHARE_PERM = "share"
+PERM_TEXT = {
+    SHARE_PERM: ("Sharing files publicly is turned off for this connection. The owner can allow it in TubeCLI Cloud › "
+                 "Connectors (\"Allow public share links\"); until then, ask the owner to share the file from the "
+                 "File Manager."),
+}
+SHARE_DIRS = ("content_studio/outputs", "content_studio/exports", "content_studio/api_images",
+              "content_studio/grok_images", "content_studio/grok_videos", "content_studio/hook_videos",
+              "content_studio/veo3_videos", "content_studio/thumbs")
+SHARE_KINDS = {
+    "video": (".mp4", ".webm", ".mov", ".m4v"),
+    "image": (".png", ".jpg", ".jpeg", ".webp", ".gif"),
+    "audio": (".mp3", ".wav", ".m4a", ".aac", ".ogg"),
+    "document": (".pdf", ".srt", ".vtt"),
+}
+SHARE_EXTS = tuple(e for v in SHARE_KINDS.values() for e in v)
+SHARE_DAYS_DEFAULT, SHARE_DAYS_MAX = 7, 30
+SHARE_SCAN_MAX = 20000
+
+
+def share_roots() -> List[str]:
+    import os
+    from tubecli.config import DATA_DIR
+    return [os.path.realpath(os.path.join(str(DATA_DIR), *d.split("/"))) for d in SHARE_DIRS]
+
+
+def _within(path: str, root: str) -> bool:
+    import os
+    try:
+        return os.path.commonpath([os.path.normcase(path), os.path.normcase(root)]) == os.path.normcase(root)
+    except ValueError:          # ổ đĩa khác nhau (Windows)
+        return False
+
+
+def _share_root_of(path: str) -> str:
+    return next((r for r in share_roots() if _within(path, r)), "")
+
+
+def share_target(raw: Any) -> str:
+    """Đường thật (đã giải symlink) của một file được phép chia sẻ, hoặc ToolError nói rõ vì sao không."""
+    import os
+    s = str(raw or "").strip()
+    if not s:
+        raise ToolError("'path' is required — find the file with share_find first")
+    if "\x00" in s:
+        raise ToolError("Bad path")
+    real = os.path.realpath(os.path.abspath(os.path.expanduser(s)))
+    if not _share_root_of(real):
+        raise ToolError("Only result files can be shared: videos, images and audio that TubeCLI made, inside "
+                        + ", ".join(SHARE_DIRS) + " of the data folder. Use share_find to list them.")
+    if not os.path.isfile(real):
+        raise ToolError("No such file (folders cannot be shared)")
+    if not real.lower().endswith(SHARE_EXTS):
+        raise ToolError("Only media and document files can be shared (" + " ".join(SHARE_EXTS) + ")")
+    return real
+
+
+def _mb(n: int) -> str:
+    return f"{n / 1048576:.1f} MB" if n >= 1048576 else f"{max(1, n // 1024)} KB"
+
+
+async def t_share_find(args, ctx):
+    import os
+    import time as _t
+    q = _str(args, "query", False, 200).lower()
+    kind = _str(args, "kind", False, 20).lower()
+    exts = SHARE_KINDS.get(kind, SHARE_EXTS)
+    limit = _int(args, "limit", 30, 1, 100)
+    found, seen = [], 0
+    for root in share_roots():
+        if not os.path.isdir(root):
+            continue
+        for dirpath, dirnames, files in os.walk(root):
+            dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+            for f in files:
+                seen += 1
+                if seen > SHARE_SCAN_MAX:
+                    break
+                if not f.lower().endswith(exts) or (q and q not in f.lower()):
+                    continue
+                # Đường THẬT: symlink trong thư mục kết quả trỏ ra tệp khoá không được hiện ra (share_file cũng chặn).
+                p = os.path.realpath(os.path.join(dirpath, f))
+                if not _share_root_of(p) or not p.lower().endswith(exts):
+                    continue
+                try:
+                    st = os.stat(p)
+                except OSError:
+                    continue
+                found.append((st.st_mtime, p, st.st_size))
+    found.sort(reverse=True)
+    rows = [{"path": p, "name": os.path.basename(p), "size": _mb(n),
+             "modified": _t.strftime("%Y-%m-%d %H:%M", _t.localtime(m))} for m, p, n in found[:limit]]
+    head = f"{len(found)} shareable file(s)" + (f" matching '{q}'" if q else "") + (f" ({kind})" if kind in SHARE_KINDS else "")
+    return text_result(head + ", newest first. Pass a path to share_file.\n" + _dump(rows))
+
+
+async def _share_plan(args, ctx):
+    import os
+    path = share_target(args.get("path"))
+    days = _int(args, "expires_days", SHARE_DAYS_DEFAULT, 1, SHARE_DAYS_MAX)
+    name = _str(args, "name", False, 120) or os.path.basename(path)
+    rel = os.path.relpath(path, os.path.dirname(_share_root_of(path)))
+    summary = (f"Make this file PUBLIC — anyone with the link can open and download it, without signing in:\n"
+               f"{name}  ({_mb(os.path.getsize(path))})\n{rel}\nThe link stops working after {days} day(s); "
+               f"revoke it any time with share_revoke or in the File Manager.")
+    return {"summary": summary, "body": {"path": path, "expires_days": days, "name": name}}
+
+
+def _share_row(sh: Dict[str, Any]) -> Dict[str, Any]:
+    import time as _t
+    from tubecli.core.public_host import absolute
+    exp = sh.get("expires")
+    return {"name": sh.get("name"), "url": absolute(str(sh.get("url_path") or "")), "token": sh.get("token"),
+            "expires": _t.strftime("%Y-%m-%d %H:%M", _t.localtime(float(exp))) if exp else "never",
+            "downloads": sh.get("downloads", 0), "alive": sh.get("alive", True)}
+
+
+async def t_share_file(args, ctx):
+    p = ctx.get("plan") or await _share_plan(args, ctx)
+    status, ctype, data = await asgi_call(ctx["app"], "POST", "/api/v1/file-manager/share", body=p["body"],
+                                          agent=ctx.get("agent") or AGENT_HEADER)
+    js = _json_of(data)
+    share = (js or {}).get("share") if isinstance(js, dict) else None
+    if status >= 400 or not isinstance(share, dict):
+        return text_result(render_response(status, ctype, data), error=True)
+    row = _share_row(share)
+    note = "" if row["url"].startswith("http") else (" (this server does not know its public address yet — put the "
+                                                    "server's https address in front of this path)")
+    again = "" if js.get("created") else "\nThis file already had a link; the existing link is returned with its own expiry."
+    return text_result(f"Public link: {row['url']}{note}\nExpires: {row['expires']}{again}\n" + _dump(row))
+
+
+async def _own_shares(ctx) -> List[Dict[str, Any]]:
+    import os
+    status, ctype, data = await asgi_call(ctx["app"], "GET", "/api/v1/file-manager/shares",
+                                          agent=ctx.get("agent") or AGENT_HEADER)
+    js = _json_of(data)
+    if status >= 400 or not isinstance(js, dict):
+        raise ToolError("Could not read the share list: " + render_response(status, ctype, data)[:300])
+    out = []
+    for sh in js.get("shares") or []:
+        p = os.path.realpath(str((sh or {}).get("path") or ""))
+        if _share_root_of(p):               # chỉ link của file kết quả — link chủ tự tạo cho file khác thì không đụng
+            out.append(sh)
+    return out
+
+
+async def t_share_list(args, ctx):
+    rows = [_share_row(sh) for sh in await _own_shares(ctx)]
+    return text_result(f"{len(rows)} public link(s) to result files.\n" + _dump(rows))
+
+
+async def t_share_revoke(args, ctx):
+    tok = _str(args, "token", True, 80)
+    mine = {str(sh.get("token")) for sh in await _own_shares(ctx)}
+    if tok not in mine:
+        raise ToolError("No public link with that token among result files (see share_list)")
+    status, ctype, data = await asgi_call(ctx["app"], "DELETE", f"/api/v1/file-manager/share/{tok}",
+                                          agent=ctx.get("agent") or AGENT_HEADER)
+    if status >= 400:
+        return text_result(render_response(status, ctype, data), error=True)
+    return text_result("Link revoked — it stops working now.")
+
+
 def _api_always_ask(args) -> bool:
     try:
         a = _api_prepare(args)
@@ -1183,6 +1355,23 @@ TOOLS: Dict[str, Tool] = {t.name: t for t in [
          ["url"], t_clone_import, write=True, always_ask=True, plan=_clone_plan),
     Tool("clone_status", "Progress and report of a clone_import job on this server.",
          {"job_id": {**S, "description": "job id from clone_import"}}, ["job_id"], t_clone_status),
+    Tool("share_find", "Find result files that can be shared publicly: exported videos, generated images, clips and "
+         "audio (newest first). Needs the owner to allow public share links for this connection.",
+         {"query": {**S, "description": "part of the file name"},
+          "kind": {"type": "string", "enum": list(SHARE_KINDS), "description": "video, image, audio or document"},
+          "limit": {**I, "description": "max files (default 30)"}},
+         [], t_share_find, perm=SHARE_PERM),
+    Tool("share_file", "Create a public link (anyone with it can open and download, no sign-in) for ONE result file from "
+         "share_find. The owner ALWAYS approves it on a card. The link expires (default 7 days, at most 30).",
+         {"path": {**S, "description": "file path from share_find"},
+          "expires_days": {**I, "description": "1-30, default 7"},
+          "name": {**S, "description": "optional name shown on the share page"}},
+         ["path"], t_share_file, write=True, always_ask=True, plan=_share_plan, perm=SHARE_PERM),
+    Tool("share_list", "Public links that exist for result files (url, expiry, downloads).", {}, [], t_share_list,
+         perm=SHARE_PERM),
+    Tool("share_revoke", "Revoke a public link from share_list — it stops working at once.",
+         {"token": {**S, "description": "token from share_list"}}, ["token"], t_share_revoke, write=True,
+         summary=lambda a: f"Revoke public link {a.get('token')}", perm=SHARE_PERM),
     Tool("board_list", "List tasks on the TubeCLI Task Board (Bảng việc) with counts per status and paused lanes.",
          {"group": {"type": "string", "enum": list(BOARD_GROUPS + BOARD_STATUSES),
                     "description": "A group (needs_you = pending_approval + review; working = queued + running; "
@@ -1246,7 +1435,12 @@ TOOLS: Dict[str, Tool] = {t.name: t for t in [
 ]}
 
 
-async def call_tool(name: str, args: Any, app, approve: Callable, agent: str = AGENT_HEADER) -> Dict[str, Any]:
+def perm_refusal(tool) -> str:
+    return PERM_TEXT.get(tool.perm, f"'{tool.name}' needs a permission this connection does not have")
+
+
+async def call_tool(name: str, args: Any, app, approve: Callable, agent: str = AGENT_HEADER,
+                    perms: Any = ()) -> Dict[str, Any]:
     """Chạy một công cụ. `approve(tool, summary, args)` → (được, lý do) — chỉ gọi cho lệnh thay đổi, SAU khi đã
     kiểm hợp lệ/khoá cứng (không bắt chủ duyệt một lời gọi đằng nào cũng hỏng).
     `agent` = ai gọi: đi vào X-TubeCLI-Agent và created_by của việc tạo ra — «codex_gpt», hay «claude_connector»
@@ -1255,7 +1449,9 @@ async def call_tool(name: str, args: Any, app, approve: Callable, agent: str = A
     if tool is None:
         return text_result(f"Unknown TubeCLI tool '{name}'", error=True)
     args = args if isinstance(args, dict) else {}
-    ctx: Dict[str, Any] = {"app": app, "agent": agent or AGENT_HEADER}
+    if tool.perm and tool.perm not in (perms or ()):
+        return text_result(perm_refusal(tool), error=True)
+    ctx: Dict[str, Any] = {"app": app, "agent": agent or AGENT_HEADER, "perms": tuple(perms or ())}
     try:
         if tool.prepare:
             tool.prepare(args)
@@ -1280,7 +1476,8 @@ async def call_tool(name: str, args: Any, app, approve: Callable, agent: str = A
 
 
 def list_tools() -> List[Dict[str, Any]]:
-    return [t.public() for t in TOOLS.values()]
+    # Codex GPT trên máy không có quyền thêm nào (perm) — công cụ cần quyền ấy không hiện cho nó.
+    return [t.public() for t in TOOLS.values() if not t.perm]
 
 
 async def handle_rpc(msg: Dict[str, Any], app, approve: Callable) -> Dict[str, Any]:

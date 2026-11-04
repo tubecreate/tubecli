@@ -30,6 +30,9 @@ logger = logging.getLogger("ClaudeConnector")
 SETTING = "claude_connector"          # global_settings.json — True = chủ cho Claude điều khiển máy này
 AGENT = "claude_connector"            # X-TubeCLI-Agent + created_by của việc Claude tạo
 LEVELS = ("read", "write")
+# Quyền THÊM chủ cấp cho từng kết nối trên TubeCLI Cloud › Connectors (cloud gửi kèm «perms»). «share» = chia sẻ file
+# kết quả bằng link công khai (codex_gpt/tools.py SHARE_*). Lạ thì bỏ.
+PERMS = ("share",)
 MAX_BODY = 256 * 1024                 # board_create nhận goal tới 20 000 ký tự, browser_type 5 000
 
 # Công cụ luôn nguy hiểm: đóng trình duyệt (cắt ngang phiên/việc đang chạy trên hồ sơ đó), cài mã mới, mở agent ra Town.
@@ -88,7 +91,7 @@ async def _yes(*_a, **_k):
     return True, "", ""
 
 
-async def call(name: str, args: Any, level: str, approved: bool, app) -> Dict[str, Any]:
+async def call(name: str, args: Any, level: str, approved: bool, app, perms: Any = ()) -> Dict[str, Any]:
     """{"result": <MCP tools/call result>} hoặc {"needs_approval": {tool, summary}}."""
     from tubecli.extensions.codex_gpt import tools as T
 
@@ -96,6 +99,9 @@ async def call(name: str, args: Any, level: str, approved: bool, app) -> Dict[st
     if tool is None:
         return {"result": T.text_result(f"Unknown TubeCLI tool '{name}'", error=True)}
     args = args if isinstance(args, dict) else {}
+    perms = tuple(perms or ())
+    if tool.perm and tool.perm not in perms:      # trước thẻ duyệt: không bắt chủ duyệt một lệnh đằng nào cũng bị từ chối
+        return {"result": T.text_result(T.perm_refusal(tool), error=True)}
     try:
         if tool.prepare:
             tool.prepare(args)                 # sai / bị khoá cứng → báo luôn, không bắt chủ duyệt thứ đằng nào cũng hỏng
@@ -105,14 +111,14 @@ async def call(name: str, args: Any, level: str, approved: bool, app) -> Dict[st
                 "This connection is read-only — the owner granted Claude read access to this server. Ask the owner to "
                 "reconnect with read & write access if this change is needed.", error=True)}
         if write and not approved and is_dangerous(tool, args):
-            ctx: Dict[str, Any] = {"app": app, "agent": AGENT}
+            ctx: Dict[str, Any] = {"app": app, "agent": AGENT, "perms": perms}
             summary = (await tool.plan(args, ctx))["summary"] if tool.plan else tool.summary(args)
             return {"needs_approval": {"tool": tool.name, "summary": str(summary)[:2000]}}
     except T.ToolError as e:
         return {"result": T.text_result(str(e), error=True)}
     except ImportError as e:
         return {"result": T.text_result(f"This TubeCLI does not have that feature enabled ({e.name or e})", error=True)}
-    return {"result": await T.call_tool(tool.name, args, app, _yes, agent=AGENT)}
+    return {"result": await T.call_tool(tool.name, args, app, _yes, agent=AGENT, perms=perms)}
 
 
 async def handle(payload: Any, app) -> Tuple[int, Dict[str, Any]]:
@@ -132,6 +138,9 @@ async def handle(payload: Any, app) -> Tuple[int, Dict[str, Any]]:
 
         return 200, {"ok": True, "result": {"tools": list_tools(level)}, "version": __version__}
     if method == "tools/call":
-        out = await call(params.get("name"), params.get("arguments"), level, payload.get("approved") is True, app)
+        raw = payload.get("perms")
+        perms = tuple(p for p in (raw if isinstance(raw, list) else []) if p in PERMS)
+        out = await call(params.get("name"), params.get("arguments"), level, payload.get("approved") is True, app,
+                         perms=perms)
         return 200, {"ok": True, **out}
     return 400, {"ok": False, "code": "bad_method"}
