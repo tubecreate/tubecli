@@ -740,7 +740,30 @@ let createCanvas, loadImage, registerFont, NodeImage;
 // bundled fonts + the Windows system fonts so every family resolves correctly.
 (function setupFontconfig() {
     try {
-        if (process.platform !== 'win32') return;
+        if (process.platform !== 'win32') {
+            // Linux/macOS: Pango đã dùng fontconfig, nhưng 'sans-serif' rơi về font hệ thống bất kỳ
+            // (4/11/2026 trên contabo: khoảng trắng và chữ số rộng bất thường → "Bài 1 0", "4   + 1   = 5").
+            // Giữ cấu hình hệ thống, thêm thư mục static và ép sans-serif → Be Vietnam Pro.
+            if (process.env.TUBECLI_KEEP_SYSTEM_FONTS === '1') return;
+            const os = require('os');
+            const staticAbs = path.resolve(path.join(__dirname, '..', 'static'));
+            const cacheDir = path.join(os.tmpdir(), 'edu_fontconfig_cache');
+            try { fs.mkdirSync(cacheDir, { recursive: true }); } catch (e) {}
+            const sysConf = process.env.FONTCONFIG_FILE || '/etc/fonts/fonts.conf';
+            const confXml = '<?xml version="1.0"?>\n' +
+                '<!DOCTYPE fontconfig SYSTEM "fonts.dtd">\n' +
+                '<fontconfig>\n' +
+                (fs.existsSync(sysConf) ? '  <include ignore_missing="yes">' + sysConf + '</include>\n' : '') +
+                '  <dir>' + staticAbs + '</dir>\n' +
+                '  <cachedir>' + cacheDir + '</cachedir>\n' +
+                '  <alias binding="strong"><family>sans-serif</family><prefer><family>Be Vietnam Pro</family><family>Noto Sans</family><family>DejaVu Sans</family></prefer></alias>\n' +
+                '  <alias binding="strong"><family>Sans</family><prefer><family>Be Vietnam Pro</family><family>Noto Sans</family><family>DejaVu Sans</family></prefer></alias>\n' +
+                '</fontconfig>\n';
+            const confPath = path.join(cacheDir, 'fonts.conf');
+            fs.writeFileSync(confPath, confXml, 'utf8');
+            process.env.FONTCONFIG_FILE = confPath;
+            return;
+        }
         const os = require('os');
         const staticAbs = path.resolve(path.join(__dirname, '..', 'static')).replace(/\\/g, '/');
         const winFonts = (process.env.WINDIR ? process.env.WINDIR.replace(/\\/g, '/') : 'C:/Windows') + '/Fonts';
@@ -3222,6 +3245,32 @@ function makeUiKit(ctx, artStyle, time, rc, drawEmojiFn) {
             ctx.beginPath(); ctx.arc(0, -size * 0.14, size * 0.17, 0, Math.PI * 2); ctx.fill();
             ctx.beginPath(); ctx.ellipse(0, size * 0.44, size * 0.33, size * 0.30, 0, Math.PI, Math.PI * 2); ctx.fill();
         }
+        ctx.restore();
+    };
+    // ── DẢI HÌNH ĐỘNG (4/11/2026) — clip Muse phông xanh đã tách nền thành PNG lưới khung hình ──
+    // Khoá `<tên>_a<số khung>x<số cột>f<fps>` (muse_clip_library.py) → chọn khung theo thời gian.
+    // o: {t (giây, mặc định time), fps, frame, offset, loop:false (dừng ở khung cuối), pingpong,
+    //     alpha, rot, flip}. Khoá không đúng quy ước / thiếu ảnh → rơi về ui.sprite (vẽ cả tấm).
+    ui.anim = function (name, cx, cy, size, o = {}) {
+        const m = /_a(\d+)x(\d+)f(\d+)$/.exec(String(name || ''));
+        const img = (typeof global !== 'undefined' && global.SPRITES) ? global.getSprite(name) : null;
+        if (!m || !img) return ui.sprite(name, cx, cy, size, o);
+        const n = Math.max(1, +m[1]), cols = Math.max(1, +m[2]);
+        const fps = o.fps || +m[3] || 12;
+        const rows = Math.ceil(n / cols), cw = img.width / cols, ch = img.height / rows;
+        const tt = (o.t !== undefined && o.t !== null) ? o.t : time;
+        let f = (o.frame !== undefined && o.frame !== null) ? Math.floor(o.frame) : Math.floor(tt * fps + (o.offset || 0));
+        if (o.loop === false) f = Math.max(0, Math.min(n - 1, f));
+        else if (o.pingpong && n > 1) { const p = 2 * n - 2; const k = ((f % p) + p) % p; f = k < n ? k : p - k; }
+        else f = ((f % n) + n) % n;
+        size = size || 360;
+        const s = size / Math.max(cw, ch);
+        ctx.save();
+        if (o.alpha !== undefined && o.alpha !== null) ctx.globalAlpha *= Math.max(0, Math.min(1, o.alpha));
+        ctx.translate(cx, cy);
+        if (o.rot) ctx.rotate(o.rot);
+        if (o.flip) ctx.scale(-1, 1);
+        ctx.drawImage(img, (f % cols) * cw, Math.floor(f / cols) * ch, cw, ch, -cw * s / 2, -ch * s / 2, cw * s, ch * s);
         ctx.restore();
     };
     ui.withA = withA; ui.mix = mix; ui.col = col; ui.lite = lite;
