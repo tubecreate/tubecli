@@ -723,7 +723,7 @@ function makeSubtitle(preset, opts) {
         ctx.font = font;
         // Tiếng Nhật/Trung viết LIỀN: mốc từ của TTS là từng chữ hay cụm 1–3 chữ, chèn dấu cách giữa chúng thì
         // phụ đề ra "送る 前 に 、" — đọc như bị vỡ chữ. Quá nửa số «từ» là chữ Hán/kana ⇒ xếp sát nhau.
-        const spaceW = isCjkRun(words) ? 0 : measureW(ctx, ' ', ls);
+        const spaceW = isCjkRun(words) ? 0 : Math.min(measureW(ctx, ' ', ls), Math.max(1, ctx.measureText('a a').width - ctx.measureText('aa').width + (ls || 0)));
 
         // Từ dài hơn CẢ DÒNG (URL, chuỗi dính) → cắt thành các mẩu vừa bề ngang
         // NGAY TỪ ĐÂY, mỗi mẩu là một "từ" độc lập với lát thời gian riêng (chia
