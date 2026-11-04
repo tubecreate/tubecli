@@ -68,10 +68,16 @@ PLAN_STEPS = [
     ("gather", "Read the agent's corpus", "gather", False),
     ("transcripts", "Transcripts of watched videos", "transcripts", True),
     ("crawl", "Crawl extra sources", "crawl", True),
+    # Bộ lọc ngách (core/niche.py, 4/11/2026): sự cố #149 — kênh Kinh Thánh viết video cổ phiếu từ 5 bài báo tài chính.
+    ("niche", "Check the sources fit the niche", "gather", False),
     ("script", "Write the script", "script", False),
+    ("fit", "Check the script fits the niche", "gather", False),
 ]
 RENDER_STEPS = [
     ("capabilities", "Check what this server can do", "capabilities", False),
+    # Kịch bản tới THẲNG lượt dựng (Claude / API dán sẵn) chưa qua bộ lọc ngách: kiểm ở đây. Kịch bản đã kiểm ở lượt
+    # kế hoạch thì bỏ qua — kể cả khi bị dừng vì lạc ngách mà NGƯỜI vẫn bấm Accept (người duyệt thắng bộ lọc).
+    ("fit", "Check the script fits the niche", "gather", False),
     ("studio", "Storyboard in Content Studio", "studio", False),
     ("images", "Generate shot images", "images", False),
     ("tts", "Voice the narration", "tts", True),
@@ -88,15 +94,15 @@ RENDER_STEPS = [
 ]
 # Bước tuỳ chọn mà hỏng giữa chừng vẫn KHÔNG làm hỏng lượt — trừ khi người dùng ra lệnh (_publish_hard, _drive_hard).
 SOFT_FAIL_STEPS = {"publish", "thumbnail", "drive"}
-STEPS = PLAN_STEPS + RENDER_STEPS[1:]      # the full chain, for plan()/describe_plan()
+STEPS = PLAN_STEPS + [s for s in RENDER_STEPS[1:] if s[0] != "fit"]      # the full chain, for plan()/describe_plan()
 # Cùng dãy đó, nhưng để CHẠY: "capabilities" chỉ cần một lần cho cả lượt.
-AUTO_STEPS = PLAN_STEPS + RENDER_STEPS[1:]
+AUTO_STEPS = PLAN_STEPS + [s for s in RENDER_STEPS[1:] if s[0] != "fit"]
 LABELS = {sid: label for sid, label, _, _ in STEPS}
 # Lượt clone: bước «clone» thay cho «studio» (tập mới = nhịp + ảnh của bản gốc, chữ đã dịch); không đăng YouTube —
 # bản ngôn ngữ khác thường lên kênh khác, người dùng tự đăng.
 CLONE_STEPS = ([s for s in RENDER_STEPS if s[0] == "capabilities"]
                + [("clone", "Clone into the new language", "studio", False)]
-               + [s for s in RENDER_STEPS if s[0] not in ("capabilities", "studio", "publish")])
+               + [s for s in RENDER_STEPS if s[0] not in ("capabilities", "studio", "publish", "fit")])
 LABELS["clone"] = "Clone into the new language"
 
 DEFAULTS: Dict[str, Any] = {
@@ -1601,9 +1607,25 @@ def _gather_youtube(state: Dict, options: Dict, ids: List[str]) -> None:
 _OUTLINE_LINE_RE = re.compile(r"\[SHOW:\s*(.*?)\]\s*(?:[—–:-]\s*)?(.*)", re.I | re.S)
 
 
-def _ask_model(agent, system_prompt: str, user_prompt: str, budget_words: int) -> str:
-    """Một lượt gọi model dưới ngân sách token của `budget_words`; lỗi provider
-    (chuỗi "[… Error]") và trả lời rỗng thành RuntimeError có gợi ý."""
+# Brain chuyển dự phòng thành công thì ĐẶT TIỀN TỐ «⚠️ *[Auto-Failover: x → y]*» trước câu trả lời; mọi AI cùng hết
+# quota thì trả câu «⚠️ **Tất cả AI Cloud đều hết quota!**». Trước 4/11/2026 cả hai được nhận làm KỊCH BẢN.
+_FAILOVER_PREFIX_RE = re.compile(r"^\s*⚠️?\s*\*?\[Auto-Failover[^\]]*\]\*?\s*", re.I)
+_ALL_AI_DOWN_RE = re.compile(r"^\s*⚠️?\s*\**\s*Tất cả AI Cloud", re.I)
+# Sổ model dự phòng đã dùng của lượt đang chạy (mỗi luồng worker một lượt) — _prepare gắn vào state["fallbacks"].
+_FALLBACK_LOG = threading.local()
+_TEXT_CHOICES_TTL = 300
+_text_choices_cache: Dict[str, Any] = {"at": 0.0, "rows": []}
+
+
+class AIUnavailable(RuntimeError):
+    """Mọi model dùng được đều lỗi TẠM THỜI (hết lượt, hết tiền, 5xx, trả rỗng) — _run_steps hẹn chạy lại task."""
+
+    def __init__(self, message: str, kinds: List[str], tried: List[str]):
+        super().__init__(message)
+        self.kinds, self.tried = kinds, tried
+
+
+def _ask_once(agent, system_prompt: str, user_prompt: str, budget_words: int) -> str:
     from tubecli.core.brain import AgentBrain
 
     with AgentBrain.output_budget(script_token_budget(budget_words)):
@@ -1612,12 +1634,100 @@ def _ask_model(agent, system_prompt: str, user_prompt: str, budget_words: int) -
             [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
             temperature=0.7,
         )
-    text = (text or "").strip()
+    text = _FAILOVER_PREFIX_RE.sub("", (text or "").strip()).strip()
     if not text or text.startswith("❌"):
         raise RuntimeError(text or "The model returned an empty script.")
+    if _ALL_AI_DOWN_RE.match(text):
+        raise RuntimeError("[Error] quota: every cloud AI is out of quota — " + " ".join(text.split())[:200])
     if is_llm_error(text):
         raise RuntimeError(llm_error_hint(text, budget_words))
     return text
+
+
+def _text_model_choices() -> List[Dict[str, Any]]:
+    """Phần «text» của retry_model_choices (nhà có khoá + biết chat), nhớ 5 phút — không hỏi nhà vẽ ảnh."""
+    now = time.time()
+    if now - float(_text_choices_cache["at"]) < _TEXT_CHOICES_TTL:
+        return list(_text_choices_cache["rows"])
+    rows: List[Dict[str, Any]] = []
+    try:
+        from tubecli.extensions.cloud_api.extension import key_manager
+        for p in key_manager.list_providers():
+            if not p.get("has_key") or "chat" not in (p.get("capabilities") or []):
+                continue
+            models = [str(m) for m in (p.get("models") or []) if m and "image" not in str(m).lower()]
+            if models:
+                rows.append({"provider": p["id"], "label": str(p.get("name") or p["id"]), "models": models})
+    except Exception as e:      # noqa: BLE001
+        logger.info(f"[ContentVideo] text model list unavailable: {e}")
+    _text_choices_cache.update(at=now, rows=rows)
+    return list(rows)
+
+
+def _model_label(agent) -> str:
+    d = agent.to_dict() if hasattr(agent, "to_dict") else {}
+    prov, model = str(d.get("provider") or ""), str(d.get("model") or getattr(agent, "model", "") or "")
+    return f"{prov}|{model}" if prov else model
+
+
+def _model_chain(agent, max_alternates: int = 3):
+    """Model của agent trước, rồi tối đa `max_alternates` model của NHÀ KHÁC đang dùng được (danh sách của hộp Retry
+    /api/v1/content-video/models). Nhà đang «nghỉ» (llm_errors.cool_down) thì bỏ qua."""
+    from tubecli.core import llm_errors as LE
+
+    d = agent.to_dict() if hasattr(agent, "to_dict") else {}
+    own = LE.provider_of(str(d.get("model") or getattr(agent, "model", "") or ""), str(d.get("provider") or ""))
+    if not LE.cooling_until(own):
+        yield agent
+    n = 0
+    for row in _text_model_choices():
+        prov = str(row.get("provider") or "")
+        if not prov or prov == own or LE.cooling_until(prov) or not row.get("models"):
+            continue
+        yield _AgentModelOverride(agent, prov, str(row["models"][0]))
+        n += 1
+        if n >= max_alternates:
+            break
+
+
+def _ask_model(agent, system_prompt: str, user_prompt: str, budget_words: int) -> str:
+    """Một lượt gọi model dưới ngân sách token của `budget_words`; lỗi provider (chuỗi "[… Error]") và trả lời rỗng
+    thành RuntimeError có gợi ý.
+
+    Lỗi TẠM THỜI (hết lượt, hết tiền, 5xx, rỗng — core/llm_errors.py, 4/11/2026): nhà đó «nghỉ» một khoảng, thử lần lượt
+    model của nhà khác; hết lựa chọn → AIUnavailable (_run_steps hẹn chạy lại task, không đánh hỏng). Lỗi khác ném ngay."""
+    from tubecli.core import llm_errors as LE
+
+    kinds: List[str] = []
+    tried: List[str] = []
+    last = ""
+    for cand in _model_chain(agent):
+        label = _model_label(cand)
+        tried.append(label)
+        try:
+            text = _ask_once(cand, system_prompt, user_prompt, budget_words)
+        except RuntimeError as e:
+            msg = str(e)
+            kind = LE.classify(msg)
+            # Model SUY LUẬN tiêu hết ngân sách vào phần nghĩ: không phải lỗi của nhà cung cấp — người gọi có đường
+            # riêng (viết theo đợt). Không cho nhà đó nghỉ, không đổi model.
+            if kind not in LE.RETRYABLE or "reasoning" in msg.lower():
+                raise
+            d = cand.to_dict()
+            LE.cool_down(LE.provider_of(str(d.get("model") or ""), str(d.get("provider") or "")), kind, msg)
+            kinds.append(kind)
+            last = msg
+            continue
+        if cand is not agent:
+            log = getattr(_FALLBACK_LOG, "rows", None)
+            if isinstance(log, list):
+                log.append({"from": _model_label(agent), "to": label, "why": ", ".join(dict.fromkeys(kinds)) or "cooling"})
+        return text
+    if not tried:
+        own = _model_label(agent)
+        raise AIUnavailable(f"every AI model on this server is resting after recent errors (the agent's {own} too)",
+                            ["cooling"], [own])
+    raise AIUnavailable(last or "the AI returned nothing", kinds, tried)
 
 
 def _complete_outline(agent, system_prompt: str, outline_prompt: str, title: str,
@@ -2068,6 +2178,178 @@ def write_script_verbatim(state: Dict, agent, text: str, lang_code: str, lang: s
             shows.append(show or _fallback_show(passage))
             texts.append(tr if translate else passage)
     return f"TITLE: {title}\n\n" + "\n\n".join(f"[SHOW: {s}]\n{t}" for s, t in zip(shows, texts))
+
+
+# ── bộ lọc ngách (core/niche.py, 4/11/2026) ──────────────────────────────────
+NICHE_MIN_SOURCES = 3          # ít hơn chừng này nguồn đạt chuẩn thì KHÔNG viết (đợt 2: lấy chủ đề trong kho)
+
+
+class NicheHold(Exception):
+    """Dừng lượt ở REVIEW (không storyboard / dựng / đăng): nguồn hoặc kịch bản lạc ngách. run_plan/run_auto/run_render
+    bắt lỗi này và trả kết quả bắt đầu bằng «⚠ OFF-NICHE…» (worker đưa task về review với dòng đó làm tiêu đề)."""
+
+    def __init__(self, headline: str, reason: str = "", unavailable: bool = False):
+        super().__init__(headline)
+        self.headline, self.reason, self.unavailable = headline, reason, unavailable
+
+
+def _task_event(task_id: Any, message: str) -> None:
+    if not task_id:
+        return
+    try:
+        from tubecli.extensions.codex.manager import codex_manager
+        codex_manager.append_event(str(task_id), "log", message[:1000], actor=ACTOR)
+    except Exception as e:      # noqa: BLE001
+        logger.info(f"[ContentVideo] cannot log to task {task_id}: {e}")
+
+
+def _niche_cfg(state: Dict) -> Dict[str, Any]:
+    from tubecli.core import niche as N
+    if "niche_cfg" not in state:
+        cfg, warns = N.effective(state["agent"])
+        state["niche_cfg"] = cfg
+        if warns:
+            state.setdefault("warnings", []).append(
+                "This agent has no niche set up yet (agent settings › Niche) — the niche check used its research "
+                "brief instead. Add the niche, the must-relate-to list and blocked terms for a sharper check.")
+            _task_meta(state.get("task_id"), niche_warnings=warns)
+    return state["niche_cfg"]
+
+
+def _skip_window_after_hold(state: Dict, options: Dict, hold: "NicheHold") -> None:
+    """Lượt TỰ ĐỘNG bị dừng vì nguồn lạc ngách: bỏ qua cửa sổ kho đó, kẻo lượt thu thập sau châm ngòi lại đúng mớ bài ấy.
+    Cổng không gọi được AI thì GIỮ cửa sổ (lần sau chấm lại được)."""
+    if hold.unavailable or not options.get("autopublish"):
+        return
+    try:
+        from . import autopublish
+        autopublish.skip_window(str(state["agent"].id), str(state.get("high_water") or ""))
+    except Exception as e:      # noqa: BLE001
+        logger.info(f"[ContentVideo] cannot skip the corpus window: {e}")
+
+
+def _step_niche(state: Dict, options: Dict) -> None:
+    """Lọc từng nguồn (bài đọc, phụ đề, trang crawl) qua bộ lọc ngách — nguồn lạc bị bỏ, ghi GATE_REJECT."""
+    from tubecli.core import niche as N
+
+    say = state["_say"]
+    cfg = _niche_cfg(state)
+    if not cfg.get("enabled", True):
+        say("niche", "running", "niche check is off for this agent")
+        return
+    ck = state.get("checkpoint") or {}
+    if ck.get("script") and not (state.get("feedback") or []):
+        say("niche", "running", "the script is already written — it is checked after the script step")
+        return
+    corpus = state.get("corpus") or []
+    if any(c.get("source") in ("pasted", "youtube") for c in corpus) or state.get("youtube_sources"):
+        say("niche", "running", "content given for this video — the script is checked after it is written")
+        return
+    judged = [c for c in corpus if c.get("content")]
+    kept, rejects, unavailable = [], [], 0
+    for i, c in enumerate(judged, 1):
+        if state["_cancelled"]():
+            raise _cancel_exc()
+        say("niche", "running", f"checking source {i}/{len(judged)}")
+        r = N.niche_gate(state["agent"], f"{c.get('title') or ''}\n{str(c.get('content') or '')[:3000]}",
+                         kind="source", cfg=cfg)
+        if r["pass"]:
+            kept.append(c)
+            continue
+        unavailable += 1 if r.get("unavailable") else 0
+        line = f"GATE_REJECT: {(c.get('title') or c.get('url') or '?')[:90]} — {r['reason'] or 'off the niche'}"
+        rejects.append(line)
+        _task_event(state.get("task_id"), line)
+    state["corpus"] = kept + [c for c in corpus if not c.get("content")]
+    keep_ids = {id(c) for c in kept}
+    state["videos"] = [v for v in (state.get("videos") or []) if id(v) in keep_ids or not v.get("content")]
+    state["gate_rejects"] = rejects
+    _task_meta(state.get("task_id"), gate_rejects=rejects[:30] or None, niche_sources=len(kept))
+    say("niche", "running", f"{len(kept)} of {len(judged)} sources fit the niche")
+    if len(kept) < NICHE_MIN_SOURCES:
+        if judged and unavailable == len(judged) - len(kept) and unavailable:
+            raise NicheHold(f"⚠ OFF-NICHE CHECK UNAVAILABLE — the niche check could not reach its AI model "
+                            f"({len(kept)} of {len(judged)} sources confirmed)", rejects[0] if rejects else "",
+                            unavailable=True)
+        raise NicheHold(f"⚠ OFF-NICHE SOURCES — only {len(kept)} of {len(judged)} sources fit the niche "
+                        f"(at least {NICHE_MIN_SOURCES} needed)",
+                        "Nothing was written from off-niche material.")
+
+
+def _step_fit(state: Dict, options: Dict) -> None:
+    """Tiêu đề + kịch bản qua bộ lọc ngách. Dưới ngưỡng → NicheHold (dừng ở review, không dựng, không đăng)."""
+    from tubecli.core import niche as N
+
+    say = state["_say"]
+    cfg = _niche_cfg(state)
+    if not cfg.get("enabled", True):
+        say("fit", "running", "niche check is off for this agent")
+        return
+    ck = state.get("checkpoint") or {}
+    if state.get("stage") == "render" and isinstance(ck.get("niche_check"), dict):
+        done = ck["niche_check"]
+        say("fit", "running", f"checked when the script was written (score {done.get('score')}/10)")
+        return
+    script = str(state.get("script") or "").strip()
+    if not script:
+        say("fit", "running", "no script to check")
+        return
+    title = str(state.get("title") or "")
+    r = N.niche_gate(state["agent"], f"TITLE: {title}\n{script}", kind="title and script", cfg=cfg)
+    _checkpoint_merge(state, {"niche_check": {"score": r["score"], "pass": r["pass"], "reason": r["reason"]}})
+    _task_meta(state.get("task_id"), niche_score=r["score"] if r["score"] is not None else None,
+               niche_reason=r["reason"][:200] or None)
+    score = "?" if r["score"] is None else r["score"]
+    if not r["pass"]:
+        raise NicheHold(f"⚠ OFF-NICHE (score {score}/10) — {title}"[:200], r["reason"],
+                        unavailable=bool(r.get("unavailable")))
+    say("fit", "running", f"score {score}/10 (needs {cfg['min_niche_score']})")
+
+
+def _held_result(state: Dict, hold: "NicheHold") -> str:
+    """Kết quả task bị dừng vì lạc ngách — dòng đầu bắt đầu bằng «⚠ OFF-NICHE…»."""
+    cfg = state.get("niche_cfg") or {}
+    lines = [hold.headline, ""]
+    if hold.reason:
+        lines.append(f"- **Why**: {hold.reason}")
+    if cfg:
+        lines.append(f"- **Niche**: {str(cfg.get('niche_description') or '')[:200]} · minimum score "
+                     f"{cfg.get('min_niche_score')}/10")
+    rej = state.get("gate_rejects") or []
+    if rej:
+        lines.append(f"- **Rejected sources** ({len(rej)}):")
+        lines += [f"  - {r}" for r in rej[:10]]
+    lines.append("- **Nothing was rendered or published.** Fix the agent's niche settings or its sources, then Retry "
+                 "— or Accept if this video belongs on the channel after all.")
+    for w in state.get("warnings") or []:
+        lines.append(f"- ⚠️ {w}")
+    return "\n".join(lines)
+
+
+def _defer_for_ai(state: Dict, label: str, err: "AIUnavailable") -> None:
+    """Hẹn chạy lại task (meta.retry_at) rồi ném TaskDeferred — task về hàng đợi chứ không hỏng. Quá max_retries lần
+    chờ thì để lỗi đi tiếp (task hỏng, có nút Retry)."""
+    from tubecli.core import llm_errors as LE
+    from tubecli.extensions.codex.manager import TaskDeferred, codex_manager
+
+    task_id = str(state.get("task_id") or "")
+    task = codex_manager.get_task(task_id) if task_id else None
+    if not task:
+        return
+    meta = task.get("meta") if isinstance(task.get("meta"), dict) else {}
+    defers = int(meta.get("ai_defers") or 0) + 1
+    limit = int(task.get("max_retries") or 3)
+    kinds = ", ".join(dict.fromkeys(err.kinds)) or "unavailable"
+    if defers > limit:
+        raise RuntimeError(f"The AI stayed unavailable after {limit} waits ({kinds}): {str(err)[:300]}")
+    now = time.time()
+    waits = [LE.cooling_until(LE.provider_of(t.split("|")[-1], t.split("|")[0] if "|" in t else "")) for t in err.tried]
+    until = max(now + 10 * 60, min([w for w in waits if w > now] or [now + 30 * 60]))
+    _task_meta(task_id, retry_at=round(until, 1), ai_defers=defers, fallback_used=bool(err.tried[1:]) or None,
+               fallback_reason=f"{kinds}: {str(err)[:160]}")
+    when = time.strftime("%H:%M %d/%m", time.localtime(until))
+    raise TaskDeferred(f"the AI is unavailable at «{label}» ({kinds}; tried {', '.join(err.tried)[:200]}) — this task "
+                       f"tries again at {when} (wait {defers}/{limit}). Nothing unrelated was written.")
 
 
 def _step_script(state: Dict, options: Dict) -> None:
@@ -8359,7 +8641,9 @@ _HANDLERS: Dict[str, Callable[[Dict, Dict], None]] = {
     "gather": _step_gather,
     "transcripts": _step_transcripts,
     "crawl": _step_crawl,
+    "niche": _step_niche,
     "script": _step_script,
+    "fit": _step_fit,
     "studio": _step_studio,
     "images": _step_images,
     "tts": _step_tts,
@@ -8486,7 +8770,16 @@ def _run_steps(steps, state: Dict, options: Dict, say, cancelled,
         except Exception as e:
             if _is_cancel(e):
                 raise
-            if type(e).__name__ != "LanePaused" and _looks_like_quota(e) and not optional:
+            if isinstance(e, NicheHold):
+                say(sid, "error", e.headline[:300])
+                raise
+            if isinstance(e, AIUnavailable):
+                try:
+                    _defer_for_ai(state, label, e)
+                except Exception as deferred:      # noqa: BLE001 — TaskDeferred đi lên worker
+                    say(sid, "error", str(deferred)[:300])
+                    raise
+            if type(e).__name__ not in ("LanePaused", "TaskDeferred") and _looks_like_quota(e) and not optional:
                 # Bước bắt buộc hỏng vì HẾT QUOTA (viết kịch bản, storyboard, giọng, 0 ảnh…): tạm dừng làn thay cho
                 # đánh hỏng — video kế trong hàng đợi chạy vào cũng hỏng y như vậy. Task không thuộc làn → lỗi thường.
                 try:
@@ -8662,6 +8955,9 @@ def _prepare(payload: Dict[str, Any], report, is_cancelled, needs: tuple) -> Dic
     }
     # Hộp Retry: model viết / giọng chọn cho riêng lượt này (retry_with) — model vẽ đọc ở _step_images.
     state["agent"] = _apply_retry_overrides(payload, agent, options, state)
+    # Model dự phòng mà _ask_model dùng trong lượt này (luồng worker chạy một lượt một lúc).
+    state["fallbacks"] = []
+    _FALLBACK_LOG.rows = state["fallbacks"]
     # Which wizard preset this run follows: the run's option → the render
     # payload (create_render_task copies it from the plan) → the checkpoint →
     # the agent's setting. The checkpoint outranks the agent so a render keeps
@@ -8721,6 +9017,20 @@ def _prepare(payload: Dict[str, Any], report, is_cancelled, needs: tuple) -> Dic
     return {"options": options, "state": state, "say": say, "cancelled": cancelled}
 
 
+def _note_fallbacks(state: Dict) -> None:
+    """Lượt có dùng model dự phòng → meta.fallback_used + lý do, và một dòng cảnh báo trên kết quả."""
+    rows = state.get("fallbacks") or []
+    if not rows:
+        return
+    last = rows[-1]
+    _task_meta(state.get("task_id"), fallback_used=True,
+               fallback_reason=f"{last.get('why')}: {last.get('from')} → {last.get('to')}"[:200])
+    note = (f"The agent's model was unavailable ({last.get('why')}), so the script was written with "
+            f"{last.get('to')} instead of {last.get('from')}.")
+    if note not in (state.get("warnings") or []):
+        state.setdefault("warnings", []).append(note)
+
+
 def run_plan(payload: Dict[str, Any],
              report: Optional[Callable[..., None]] = None,
              is_cancelled: Optional[Callable[[], bool]] = None) -> str:
@@ -8739,11 +9049,16 @@ def run_plan(payload: Dict[str, Any],
     outcome, error_text = "completed", ""
     try:
         _run_steps(PLAN_STEPS, state, options, say, cancelled, notes, skipped_jobs)
+    except NicheHold as hold:
+        outcome, error_text = "held", hold.headline
+        _skip_window_after_hold(state, options, hold)
+        return _held_result(state, hold)
     except Exception as e:
         outcome = "failed" if _is_cancel(e) else "error"
         error_text = str(e)[:500]
         raise
     finally:
+        _note_fallbacks(state)
         _bulletin(state, outcome, time.time() - started, error_text, stage="plan")
     return _plan_result(state, options, notes, skipped_jobs)
 
@@ -8780,8 +9095,12 @@ def run_render(payload: Dict[str, Any],
     skipped_jobs: List[str] = []
     started = time.time()
     outcome, error_text = "completed", ""
+    state["stage"] = "render"
     try:
         _run_steps(RENDER_STEPS, state, options, say, cancelled, notes, skipped_jobs)
+    except NicheHold as hold:
+        outcome, error_text = "held", hold.headline
+        return _held_result(state, hold)
     except Exception as e:
         outcome = "failed" if _is_cancel(e) else "error"
         error_text = str(e)[:500]
@@ -8827,11 +9146,16 @@ def run_auto(payload: Dict[str, Any],
         # lượt chạy sau ⇒ cùng một corpus đẻ video lặp tới khi cạn trần ngày.
         if options.get("autopublish") and not options.get("publish") and state.get("video_path"):
             _commit_autopublish(state, options)
+    except NicheHold as hold:
+        outcome, error_text = "held", hold.headline
+        _skip_window_after_hold(state, options, hold)
+        return _held_result(state, hold)
     except Exception as e:
         outcome = "failed" if _is_cancel(e) else "error"
         error_text = str(e)[:500]
         raise
     finally:
+        _note_fallbacks(state)
         _bulletin(state, outcome, time.time() - started, error_text, stage="auto")
     return _render_result(state, options, notes, skipped_jobs, time.time() - started)
 

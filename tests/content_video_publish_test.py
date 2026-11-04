@@ -51,6 +51,7 @@ except AttributeError:
 
 import tubecli.config as CFG                                  # noqa: E402
 from tubecli.extensions.content_video import pipeline as P     # noqa: E402
+P._niche_cfg = lambda state: {"enabled": False}   # bộ lọc ngách có test riêng (niche_gate_test.py) — LLM giả ở đây trả kịch bản, không phải điểm
 # Bước dựng có gọi _put (lấp prompt/vỏ rỗng). KHÔNG giả lập là test gửi PUT THẬT
 # tới máy chủ đang chạy và đè shot có cùng id — đã đè shot #1, #2 của tập 9 ngày 11/9/2026.
 P._put = lambda path, payload=None, timeout=60, **k: {}

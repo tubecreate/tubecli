@@ -37,6 +37,7 @@ print("A manager    : set_plan writes task.plan | on_accept fires (task, actor) 
 
 # ── B. pipeline: scenes parser ─────────────────────────────────────────
 from tubecli.extensions.content_video import pipeline as P
+P._niche_cfg = lambda state: {"enabled": False}   # bộ lọc ngách có test riêng (niche_gate_test.py) — LLM giả ở đây trả kịch bản, không phải điểm
 # Bước dựng có gọi _put (lấp prompt/vỏ rỗng). KHÔNG giả lập là test gửi PUT THẬT
 # tới máy chủ đang chạy và đè shot có cùng id — đã đè shot #1, #2 của tập 9 ngày 11/9/2026.
 P._put = lambda path, payload=None, timeout=60, **k: {}
@@ -98,7 +99,7 @@ assert "Not ready for rendering" in out and "Cloudflare" in out, "image warning 
 assert plans and plans[0][0] == "t1" and plans[0][1][0]["description"] == "TITLE — Ba tin nong"
 assert plans[0][1][1]["description"].startswith("SHOW: city at dawn — Mo dau"), plans[0][1]
 assert ck and ck[-1]["script"].startswith("[SHOW: city at dawn]") and ck[-1]["title"] == "Ba tin nong"
-assert [r[0] for r in reports if r[1] == "success"] == ["capabilities", "gather", "transcripts", "crawl", "script"]
+assert [r[0] for r in reports if r[1] == "success"] == ["capabilities", "gather", "transcripts", "crawl", "niche", "script", "fit"]
 assert "reviewer asked" not in prompts[-1]
 print("C run_plan   : result short (no script) + image warning | plan on board | script checkpointed | 5/5 steps")
 
@@ -193,7 +194,7 @@ out3 = P.run_render({"kind": P.KIND_RENDER, "task_id": "r1", "agent_id": "a1", "
 assert out3.startswith("## ✅") and "episode_34_pipeline_export.mp4" in out3 and "Accept" in out3
 # «thumbnail» luôn chạy (6/10/2026): viết prompt ảnh đại diện cho nút copy trên thẻ — model giả không trả JSON nên
 # prompt không có, bước vẫn xong và KHÔNG gắn ⚠️ cho video.
-assert [r[0] for r in reports if r[1] == "success"] == ["capabilities", "studio", "images", "tts", "render", "thumbnail"]
+assert [r[0] for r in reports if r[1] == "success"] == ["capabilities", "fit", "studio", "images", "tts", "render", "thumbnail"]
 ep_payload = next(p for path, p in posts if path.endswith("/episodes"))
 assert ep_payload["script_content"] == "[SHOW: x]\ny" and ep_payload["title"] == "T"
 try:

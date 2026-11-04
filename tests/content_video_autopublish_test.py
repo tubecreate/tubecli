@@ -61,6 +61,7 @@ from tubecli.core import scraped_store as SS  # noqa: E402
 from tubecli.core import agent as AG  # noqa: E402
 from tubecli.extensions.content_video import autopublish as A  # noqa: E402
 from tubecli.extensions.content_video import pipeline as P  # noqa: E402
+P._niche_cfg = lambda state: {"enabled": False}   # bộ lọc ngách có test riêng (niche_gate_test.py) — LLM giả ở đây trả kịch bản, không phải điểm
 
 failures = []
 checks = 0
@@ -430,7 +431,7 @@ check("G không dựng luồng nền nào", "Thread(" not in _src)
 check("G chỉ dùng create_auto_task", "create_auto_task" in _src and "create_plan_task" not in _src)
 _pl = _inspect.getsource(P)
 check("G pipeline có KIND_AUTO chạy trọn dãy bước",
-      'KIND_AUTO = "content_video.auto"' in _pl and "AUTO_STEPS = PLAN_STEPS + RENDER_STEPS[1:]" in _pl
+      'KIND_AUTO = "content_video.auto"' in _pl and "AUTO_STEPS = PLAN_STEPS + [s for s in RENDER_STEPS[1:] if s[0] != \"fit\"]" in _pl
       and "_run_steps(AUTO_STEPS" in _pl, "")
 check("G run_kind điều phối KIND_AUTO", "if kind == KIND_AUTO:" in _pl and "return run_auto(" in _pl)
 check("G create_auto_task xếp task kind auto, approval_required=False",

@@ -2341,6 +2341,7 @@ class AgentCreateRequest(PublishSettingsBase):
     auto_video: Optional[bool] = False
     youtube_subs_per_run: Optional[int] = Field(2, ge=0, le=5)
     research_prompt: Optional[str] = Field("", max_length=4000)
+    niche: Optional[Dict[str, Any]] = None        # core/niche.py — ngách của agent
     # Đăng YouTube hẹn giờ (10/10/2026): xem core/agent.py PUBLISH_DEFAULTS.
     publish_profile: Optional[str] = Field("", max_length=200)
     publish_when: Optional[str] = "now"
@@ -2429,6 +2430,7 @@ class AgentUpdateRequest(PublishSettingsBase):
     auto_video: Optional[bool] = None
     youtube_subs_per_run: Optional[int] = Field(None, ge=0, le=5)
     research_prompt: Optional[str] = Field(None, max_length=4000)
+    niche: Optional[Dict[str, Any]] = None        # core/niche.py — ngách của agent
     publish_profile: Optional[str] = Field(None, max_length=200)
     publish_when: Optional[str] = None
     publish_slots: Optional[str] = Field(None, max_length=400)

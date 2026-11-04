@@ -18,6 +18,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from tubecli.extensions.content_video import pipeline as P
+P._niche_cfg = lambda state: {"enabled": False}   # bộ lọc ngách có test riêng (niche_gate_test.py) — LLM giả ở đây trả kịch bản, không phải điểm
 # Bước dựng có gọi _put (lấp prompt/vỏ rỗng). KHÔNG giả lập là test gửi PUT THẬT
 # tới máy chủ đang chạy và đè shot có cùng id — đã đè shot #1, #2 của tập 9 ngày 11/9/2026.
 P._put = lambda path, payload=None, timeout=60, **k: {}
@@ -27,7 +28,7 @@ P._put = lambda path, payload=None, timeout=60, **k: {}
 # bước thứ 10 là "publish" — đăng thẳng lên YouTube, mặc định TẮT.
 rows = P.plan({})
 # + bước "drive" (lưu lên Google Drive, 15/9/2026) đứng cuối, cũng mặc định TẮT → 12.
-assert len(rows) == len(P.PLAN_STEPS) + len(P.RENDER_STEPS) - 1 == 12, rows
+assert len(rows) == len(P.STEPS) == len(P.PLAN_STEPS) + len(P.RENDER_STEPS) - 2 == 15, rows
 pub = next(r for r in rows if r["step"] == "publish")
 assert pub["optional"] and pub["enabled"] is False and pub["job"] == "publish", pub
 assert next(r for r in P.plan({"publish": True}) if r["step"] == "publish")["enabled"], "publish=True phải bật"
