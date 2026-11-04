@@ -3,6 +3,7 @@ Agent Model and Manager
 Manages AI agents with personas, routines, and skill assignments.
 """
 import json
+import os
 import datetime
 import re
 from typing import Dict, List, Optional, Any
@@ -174,6 +175,11 @@ def granted_auth_creds(system_prompt: Any) -> List[str]:
     return out
 
 
+def _niche_defaults():
+    from tubecli.core import niche as _niche
+    return _niche.coerce(None)
+
+
 class Agent:
     """An AI agent with identity, skills, and behavioral configuration."""
 
@@ -303,6 +309,8 @@ class Agent:
         schedule_next_run: str = None,
         schedule_last_run: str = None,
         schedule_runs_today: int = 0,
+        # Ngách của agent (core/niche.py, 4/11/2026): ngôn ngữ, mô tả, phải liên quan, từ cấm, điểm tối thiểu…
+        niche: Dict[str, Any] = None,
         **kwargs,
     ):
         self.id = id or str(_uuid7())
@@ -405,6 +413,8 @@ class Agent:
 
         # AI Arena chess stats (ELO, W/L/D, learned principles) — optional.
         self.chess_stats = kwargs.get("chess_stats", {}) or {}
+        from tubecli.core import niche as _niche
+        self.niche = _niche.coerce(niche)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -492,6 +502,8 @@ class Agent:
                 "max_runs": getattr(self, "schedule_max_runs", 10),
             },
             "chess_stats": getattr(self, "chess_stats", {}),
+            # Luôn có khoá (kể cả agent cũ): cloud dò «máy biết ngách chưa» bằng sự có mặt của khoá này.
+            "niche": getattr(self, "niche", None) or _niche_defaults(),
         }
 
     @classmethod
@@ -552,11 +564,14 @@ class AgentManager:
     def _save(self):
         try:
             self.agents_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.agents_file, "w", encoding="utf-8") as f:
+            # Ghi tệp tạm rồi đổi tên (4/11/2026): ghi đè thẳng mà máy tắt / tràn đĩa giữa chừng là mất agents.json.
+            tmp = str(self.agents_file) + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(
                     [a.to_dict() for a in self.agents.values()],
                     f, indent=2, ensure_ascii=False,
                 )
+            os.replace(tmp, str(self.agents_file))
         except Exception as e:
             print(f"[AgentManager] Error saving agents: {e}")
 
@@ -578,6 +593,9 @@ class AgentManager:
         # được publish_max_per_day=2.5 / publish_privacy="banana" vào dây chuyền
         # tự đăng — hỏng âm thầm tới tận lần khởi động sau.
         updates = clean_media_fields(coerce_publish_fields(updates))
+        if "niche" in updates:
+            from tubecli.core import niche as _niche
+            updates["niche"] = _niche.coerce(updates["niche"])
         for k, v in updates.items():
             if hasattr(agent, k):
                 if k in ("routine", "persona") and isinstance(v, dict):

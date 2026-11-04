@@ -41,6 +41,9 @@ EVENTS_DIR = os.path.join(CODEX_DATA_DIR, "events")
 # Làn tạm dừng (hết quota): chuỗi mở đầu lỗi mà worker ghi cho LanePaused — worker chỉ chuyển lỗi thành chuỗi
 # "<TênLỗi>: <nội dung>", nên report_failure nhận ra theo đúng chuỗi này.
 LANE_PAUSED_PREFIX = "LanePaused: "
+# AI không dùng được (hết lượt / hết tiền / 5xx / trả rỗng — đã thử model dự phòng): task về HÀNG ĐỢI với giờ chạy lại
+# (meta.retry_at) thay vì hỏng; chỉ riêng task đó chờ, làn vẫn chạy video khác (4/11/2026).
+TASK_DEFERRED_PREFIX = "TaskDeferred: "
 
 
 def _lane_pauses_file() -> str:
@@ -83,6 +86,19 @@ TRANSITIONS: Dict[str, set] = {
 }
 
 ACTIVE_STATES = {PENDING_APPROVAL, BACKLOG, QUEUED, RUNNING, REVIEW}
+
+
+def _retry_at(task: Dict[str, Any]) -> float:
+    """meta.retry_at (epoch) của task, 0 khi không hẹn."""
+    try:
+        return float(((task.get("meta") or {}) if isinstance(task.get("meta"), dict) else {}).get("retry_at") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+class TaskDeferred(Exception):
+    """Bước cần AI mà mọi model dùng được đều đang lỗi tạm thời: pipeline đã ghi meta.retry_at rồi ném lỗi này — task
+    quay lại BACKLOG, _release_backlog chỉ thả nó khi tới giờ; chạy tiếp từ checkpoint."""
 
 
 class LanePaused(Exception):
@@ -172,7 +188,10 @@ META_KEYS = ("stage", "kind", "language", "target_language", "text_model", "imag
              "source", "parent_id", "parent_seq",
              # tập Content Studio của task video (11/10/2026): bảng việc hỏi /api/v1/studio/episodes/{id}/live để vẽ
              # lưới ảnh / clip từng cảnh ngay trong bước đang chạy
-             "episode_id", "drama_id")
+             "episode_id", "drama_id",
+             # bộ lọc ngách + dự phòng AI (core/niche.py, core/llm_errors.py — 4/11/2026)
+             "niche_score", "niche_reason", "niche_sources", "gate_rejects", "keyword_source", "niche_warnings",
+             "fallback_used", "fallback_reason", "retry_at", "ai_defers")
 _COUNTER_RE = re.compile(r"(\d+)\s*(?:-\s*(\d+))?\s*(?:/|\bof\b)\s*(\d+)", re.I)
 
 
@@ -1040,6 +1059,9 @@ class CodexManager:
                 "started_at": "",
                 "finished_at": "",
                 "retry_count": int(task.get("retry_count") or 0) + 1,
+                # Bấm Retry = chạy NGAY: bỏ giờ hẹn của lượt chờ AI (TaskDeferred) và đếm lại số lần chờ.
+                "meta": {k: v for k, v in ((task.get("meta") or {}) if isinstance(task.get("meta"), dict) else {}).items()
+                         if k not in ("retry_at", "ai_defers")},
             },
         )
         return updated
@@ -1278,10 +1300,13 @@ class CodexManager:
         """
         busy = {t.get("lane") or "" for t in self._tasks.values() if t.get("status") in LANE_BUSY}
         released = []
+        now = time.time()
         for t in sorted((t for t in self._tasks.values() if t.get("status") == BACKLOG),
                         key=_backlog_key):
             lane = t.get("lane") or ""
             if lane in busy or self._lane_paused(lane):
+                continue
+            if _retry_at(t) > now:          # hẹn chạy lại vì AI tạm hỏng — chưa tới giờ thì nhường task khác
                 continue
             busy.add(lane)
             t["status"] = QUEUED
@@ -1518,6 +1543,14 @@ class CodexManager:
                                        updates={"error": why, "paused_at": _now()})
             self.append_event(task_id, "log", f"⏸ {why[:2000]}", actor="worker")
             self.post_to_chat(updated, "⏸", why)
+            return updated
+        if str(error or "").startswith(TASK_DEFERRED_PREFIX) and task and task.get("status") == RUNNING:
+            # AI tạm không dùng được: KHÔNG đánh hỏng — về hàng đợi, chạy lại lúc meta.retry_at (pipeline đã ghi).
+            why = str(error)[len(TASK_DEFERRED_PREFIX):]
+            updated = self._transition(task_id, BACKLOG, "worker", message=f"Waiting for the AI, back in the queue: "
+                                       f"{why[:200]}", updates={"error": why, "paused_at": _now()})
+            self.append_event(task_id, "log", f"⏳ {why[:2000]}", actor="worker")
+            self.post_to_chat(updated, "⏳", why)
             return updated
         updated, changed = self._settle(
             task_id, FAILED, "worker",

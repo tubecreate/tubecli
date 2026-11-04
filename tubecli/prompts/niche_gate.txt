@@ -1,0 +1,20 @@
+You check whether a piece of content belongs to ONE YouTube channel's niche. Be strict: a loose or
+metaphorical link is not enough, and an off-niche topic dressed in niche words ("what the Bible says
+about the stock market") is OFF the niche.
+
+CHANNEL NICHE: {{niche}}
+MUST RELATE TO: {{must_relate_to}}
+AUDIENCE LANGUAGE: {{language}}
+
+CONTENT TYPE: {{kind}}
+CONTENT:
+<<<
+{{text}}
+>>>
+
+Question: how clearly is this content about the MUST RELATE TO list, for this channel's audience?
+Score 0-10: 0 = unrelated, 4 = only a passing mention, 7 = clearly on the niche, 10 = squarely the
+channel's core subject.
+
+Answer with ONLY one JSON object, no other text:
+{"score": <integer 0-10>, "reason": "<at most 20 words, in English>"}
