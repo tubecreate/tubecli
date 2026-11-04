@@ -307,6 +307,10 @@ class VideosRequest(BaseModel):
     continue_from: bool = False
     timeout: Optional[int] = None
     wait: Optional[bool] = True        # False = trả mã việc ngay, hỏi GET /v1/videos/jobs/{id} (tunnel Cloudflare cắt HTTP > 100 s)
+    # Lưu clip thành FILE trên máy chủ thay vì chỉ trả base64 (4/11/2026): bên gọi qua MCP/HTTP không ghi được base64
+    # ra đĩa, còn file tạm bị xoá ngay sau khi trả. Tên file trần (vd "b10_bong.mp4") → data/videos/muse/<tên>.
+    output_path: str = ""
+    include_b64: Optional[bool] = None   # None = có b64 khi KHÔNG lưu file (giữ hành vi cũ)
 
     class Config:
         extra = "allow"
@@ -324,12 +328,39 @@ def _prune_jobs() -> None:
         _VIDEO_JOBS.pop(k, None)
 
 
-def _clip_payload(clip: dict) -> dict:
-    with open(clip["path"], "rb") as f:
-        data = f.read()
-    return {"created": int(time.time()),
-            "data": [{"b64_json": base64.b64encode(data).decode("ascii"), "thread_id": clip.get("thread_id", ""),
-                      "width": clip.get("width"), "height": clip.get("height"), "duration": clip.get("duration")}]}
+def _save_target(name: str) -> str:
+    """Tên file trần → <DATA_DIR>/videos/muse/<tên>.mp4 (không cho thoát khỏi thư mục đó)."""
+    name = os.path.basename(str(name or "").strip()) if name else ""
+    if not name:
+        return ""
+    if not name.lower().endswith(".mp4"):
+        name += ".mp4"
+    try:
+        from tubecli.config import DATA_DIR
+        base = os.path.join(str(DATA_DIR), "videos", "muse")
+    except Exception:      # noqa: BLE001
+        base = os.path.join(os.path.expanduser("~"), "tubecli_muse_videos")
+    os.makedirs(base, exist_ok=True)
+    return os.path.join(base, name)
+
+
+def _clip_payload(clip: dict, output_path: str = "", include_b64=None) -> dict:
+    item = {"thread_id": clip.get("thread_id", ""), "width": clip.get("width"), "height": clip.get("height"),
+            "duration": clip.get("duration")}
+    dst = _save_target(output_path)
+    if dst:
+        import shutil
+        shutil.copyfile(clip["path"], dst)
+        item["path"] = dst
+        poster = clip.get("poster")
+        if poster and os.path.isfile(str(poster)):
+            pdst = os.path.splitext(dst)[0] + os.path.splitext(str(poster))[1]
+            shutil.copyfile(str(poster), pdst)
+            item["poster"] = pdst
+    if include_b64 or (include_b64 is None and not dst):
+        with open(clip["path"], "rb") as f:
+            item["b64_json"] = base64.b64encode(f.read()).decode("ascii")
+    return {"created": int(time.time()), "data": [item]}
 
 
 def _cleanup_clip(refs: List[str], tmp: str) -> None:
@@ -341,13 +372,14 @@ def _cleanup_clip(refs: List[str], tmp: str) -> None:
         pass
 
 
-def _job_run(job_id: str, prompt: str, tmp: str, refs: List[str], ar: str, cont: bool, tid: str, timeout: int) -> None:
+def _job_run(job_id: str, prompt: str, tmp: str, refs: List[str], ar: str, cont: bool, tid: str, timeout: int,
+             output_path: str = "", include_b64=None) -> None:
     job = _VIDEO_JOBS.get(job_id)
     if job is None:
         return
     try:
         clip = muse.generate_video_clip(prompt, tmp, refs, ar, cont, tid, timeout)
-        job.update(status="done", result=_clip_payload(clip))
+        job.update(status="done", result=_clip_payload(clip, output_path, include_b64))
     except muse.MuseError as e:
         job.update(status="error", error=e)
     except Exception as e:      # noqa: BLE001
@@ -374,11 +406,12 @@ async def api_videos(req: VideosRequest):
         _prune_jobs()
         job_id = uuid.uuid4().hex[:12]
         _VIDEO_JOBS[job_id] = {"status": "running", "created": time.time()}
-        threading.Thread(target=_job_run, args=(job_id,) + args, daemon=True, name=f"muse-job-{job_id}").start()
+        threading.Thread(target=_job_run, args=(job_id,) + args + (req.output_path or "", req.include_b64), daemon=True,
+                         name=f"muse-job-{job_id}").start()
         return {"id": job_id, "status": "running"}
     try:
         clip = await asyncio.to_thread(muse.generate_video_clip, *args)
-        return _clip_payload(clip)
+        return _clip_payload(clip, req.output_path or "", req.include_b64)
     except muse.MuseError as e:
         return _error(e)
     finally:
