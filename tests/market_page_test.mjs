@@ -196,5 +196,35 @@ const upBody = up ? JSON.parse(up.opts.body) : {};
 check('G4 bấm Cập nhật → lệnh cài force_update=true, item_data mang phiên bản mới (lõi ghi vào sổ)',
   upBody.force_update === true && JSON.parse(upBody.item_data).version === '2026.10.15.1429', up && up.opts.body);
 
+// ── H. Chợ nằm trong khung của cloud (khác tên miền) — user 4/11/2026 ─────────────────────────────────────────
+// Đọc BẤT KỲ thuộc tính nào của window.parent khác tên miền đều ném SecurityError → trước đây «Install error» sau khi
+// mẫu đã cài xong.
+const crossOrigin = new Proxy({}, { get() { throw new Error("Failed to read a named property 'loadDynamicExtensionsToSidebar' from 'Window': Blocked a frame with origin \"https://box.example\" from accessing a cross-origin frame."); } });
+check('H1 sameOriginParent: khác tên miền → null, không ném', (() => { ctx.parent = crossOrigin; try { return run('sameOriginParent()') === null; } catch { return false; } })());
+const sameHost = { location: { href: 'https://box.example/' }, loaded: 0, loadDynamicExtensionsToSidebar() { this.loaded++; } };
+ctx.parent = sameHost;
+check('H2 sameOriginParent: cùng tên miền → trả cửa sổ cha', run('sameOriginParent()') === sameHost);
+ctx.parent = null;
+check('H3 không có cửa sổ cha → null', run('sameOriginParent()') === null);
+const IS = SRC.slice(SRC.indexOf('async function installItem'));
+check('H4 installItem không còn đọc thẳng window.parent.<hàm> (chỉ qua sameOriginParent)',
+  !/window\.parent\.(loadDynamicExtensionsToSidebar|navigateTo|location)/.test(IS.slice(0, IS.indexOf('\nasync function ', 30))));
+ctx.parent = crossOrigin;
+route = (url, opts) => {
+  if (url.endsWith('/api/v1/market/items/tplFree001')) return { status: 200, body: { status: 'success', item: TPL } };
+  if (url.endsWith('/install') && opts.method === 'POST') return { status: 200, body: { status: 'success', type: 'template', message: 'Template installed', open: 'content_studio' } };
+  return { status: 200, body: { status: 'success' } };
+};
+toast().textContent = ''; toast().innerHTML = '';
+await run(`installItem('tplFree001', 'Paper Brief', 'template')`);
+await flush();
+const tt = String(toast().textContent || toast().innerHTML || '');
+check('H5 cài trong khung cloud: báo «Template installed», KHÔNG «Install error»', /Template installed/.test(tt) && !/Install error/.test(tt), tt);
+ctx.parent = sameHost;
+await run(`installItem('tplFree001', 'Paper Brief', 'template')`);
+await flush();
+check('H6 cùng tên miền: vẫn làm mới thanh bên của dashboard', sameHost.loaded === 1, String(sameHost.loaded));
+ctx.parent = null;
+
 console.log(`\n${pass}/${pass + fail} PASS`);
 process.exit(fail ? 1 : 0);

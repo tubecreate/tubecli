@@ -939,6 +939,20 @@ function askLoginThenInstall(publicId, itemName, category, forceUpdate) {
     showToast(T('auth.login_to_install') || 'Sign in to the Market to install templates — your Cloud account works.', 'error');
 }
 
+// Cửa sổ cha CÙNG tên miền (dashboard của máy nhúng Chợ), hoặc null. Trong Flow, Chợ nằm trong khung của
+// cloud.tubecreate.com: chỉ ĐỌC một thuộc tính của window.parent đã ném SecurityError — «Install error: Failed to read
+// a named property 'loadDynamicExtensionsToSidebar' from 'Window'» hiện ra SAU khi mẫu đã cài xong (user 4/11/2026).
+function sameOriginParent() {
+    try {
+        const p = window.parent;
+        if (!p || p === window) return null;
+        void p.location.href;          // khác tên miền → ném tại đây
+        return p;
+    } catch (e) {
+        return null;
+    }
+}
+
 async function installItem(publicId, itemName, category, forceUpdate = false) {
     if (category === 'template' && !isLoggedIn()) {
         askLoginThenInstall(publicId, itemName, category, forceUpdate);
@@ -1026,8 +1040,9 @@ async function installItem(publicId, itemName, category, forceUpdate = false) {
             const extTabId = 'ext-' + extSlug;
 
             // Refresh sidebar to show the new extension
-            if (window.parent && typeof window.parent.loadDynamicExtensionsToSidebar === 'function') {
-                try { await window.parent.loadDynamicExtensionsToSidebar(); } catch(e) {}
+            const host = sameOriginParent();
+            if (host && typeof host.loadDynamicExtensionsToSidebar === 'function') {
+                try { await host.loadDynamicExtensionsToSidebar(); } catch(e) {}
             } else if (typeof loadDynamicExtensionsToSidebar === 'function') {
                 try { await loadDynamicExtensionsToSidebar(); } catch(e) {}
             }
@@ -1049,13 +1064,19 @@ async function installItem(publicId, itemName, category, forceUpdate = false) {
                     btn.disabled = false;
                     btn.onclick = () => {
                         closeDetailModal();
-                        if (window.parent && typeof window.parent.navigateTo === 'function') {
-                            window.parent.navigateTo(extTabId);
+                        const host = sameOriginParent();
+                        if (host && typeof host.navigateTo === 'function') {
+                            host.navigateTo(extTabId);
                         } else if (typeof navigateTo === 'function') {
                             navigateTo(extTabId);
+                        } else if (host) {
+                            host.location.hash = '#/' + extTabId;
+                        } else if (window.parent && window.parent !== window) {
+                            // Khung của trang khác (Flow trên cloud.tubecreate.com): không điều khiển được trang ngoài
+                            // → mở dashboard của máy này ở tab mới, đúng extension vừa cài.
+                            window.open(location.origin + '/#/' + extTabId, '_blank', 'noopener');
                         } else {
-                            if (window.parent) window.parent.location.hash = '#/' + extTabId;
-                            else window.location.hash = '#/' + extTabId;
+                            window.location.hash = '#/' + extTabId;
                         }
                     };
                 }
