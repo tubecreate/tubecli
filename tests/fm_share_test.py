@@ -124,9 +124,9 @@ for it in items:
     if it["token"] == ttok:
         it["expires"] = time.time() - 10
 R._save_shares(items)
-check(c.get("/s/" + ttok).status_code == 404 and c.get("/s/" + ttok + "/download").status_code == 404, "hết hạn → 404 cả trang lẫn tải")
+check(c.get("/s/" + ttok).status_code == 410 and c.get("/s/" + ttok + "/download").status_code == 410, "hết hạn → 410 Gone cả trang lẫn tải (5/11/2026)")
 r = c.delete(P + "/share/" + vtok)
-check(r.status_code == 200 and r.json()["removed"] is True and c.get("/s/" + vtok + "/raw").status_code == 404, "thu hồi → link chết ngay")
+check(r.status_code == 200 and r.json()["removed"] is True and c.get("/s/" + vtok + "/raw").status_code == 410, "thu hồi → link chết ngay (410 Gone)")
 os.remove(png)
 check(c.get("/s/" + tok).status_code == 404, "file bị xoá → 404")
 check(c.get("/s/khong-co-token").status_code == 404 and c.get("/s/../etc").status_code in (404, 400), "token lạ / lách đường dẫn → 404")

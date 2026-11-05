@@ -144,6 +144,17 @@ except `drive_download`'s `dest_dir`, which must be inside the sandbox.
 - Always notify the user before deleting
 - After any Drive action, repeat the returned link and account email verbatim
 
+## Public links made by Claude (/s/<token>)
+Links that Claude creates through the claude.ai connector (`share_file`, `share_files` in codex_gpt/tools.py) are stored in
+the same `shares.json` with `via: "claude"` and the connection id (`grant`), so they appear in the Shares tab and the revoke
+button works on them. Rules live in `tubecli/core/public_share.py`:
+- images/videos only (`SHAREABLE_TYPES`), extension AND magic bytes; re-checked before every `/s/<token>`, `/raw`, `/download`
+- files inside the data folder only; sensitive folders/names refused (`BLOCKED_SEGMENTS`, `BLOCKED_NAME_PARTS`)
+- default 30 minutes (1–1440); expired / revoked → 410 Gone (tombstones in `shares_gone.json`, 7 days)
+- 200 links per hour per connection (`share_rate.json`); log in `share_log.jsonl`
+- the owner unticking "Allow public share links" makes the cloud call `shares/revoke` → all live links of that connection die
+Links the owner makes in File Manager are not affected by these rules.
+
 ## Workflow Node
 Use the `file_manager` node in the workflow builder:
 - Input: `command` (text command), `path`, `content`, `destination`

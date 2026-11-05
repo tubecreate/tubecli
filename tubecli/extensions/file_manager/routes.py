@@ -49,7 +49,7 @@ import logging
 import os
 import re
 import stat
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Query, Request, UploadFile, File, Form, Body
@@ -697,7 +697,17 @@ def _share_view(it: Dict[str, Any]) -> Dict[str, Any]:
     return {"token": it["token"], "name": it.get("name") or os.path.basename(path), "path": path,
             "url_path": "/s/" + it["token"], "created": it.get("created"), "expires": it.get("expires"),
             "downloads": int(it.get("downloads") or 0), "exists": os.path.isfile(path), "size": size,
-            "alive": _share_alive(it)}
+            "alive": _share_alive(it), "via": it.get("via") or "", "grant": it.get("grant")}
+
+
+def _ps_new():
+    """core/public_share bản 5/11/2026+ (link Claude, 410, bia mộ). None trên lõi CŨ nhận file này qua hot-patch của cloud
+    (public/patch/fm) — khi đó mọi route chia sẻ giữ đúng hành vi cũ thay vì lỗi 500."""
+    try:
+        from tubecli.core import public_share as _ps
+    except Exception:      # noqa: BLE001
+        return None
+    return _ps if hasattr(_ps, "serve_check") else None
 
 
 def _find_share(token: str) -> Optional[Dict[str, Any]]:
@@ -729,10 +739,13 @@ async def create_share(body: Dict[str, Any] = Body(default={})):
     days = max(0, min(days, 365))
     key = os.path.normcase(os.path.normpath(path))
     items = _load_shares()
-    existing = [it for it in items if os.path.normcase(os.path.normpath(it["path"])) == key]
+    # Link Claude tạo (via="claude", core/public_share.py) sống riêng: không trả lại, không xoá khi chủ tạo link của mình.
+    def mine(it):
+        return it.get("via") != "claude" and os.path.normcase(os.path.normpath(it["path"])) == key
+    existing = [it for it in items if mine(it)]
     if existing and not (body or {}).get("renew"):
         return {"success": True, "share": _share_view(existing[0]), "created": False}
-    items = [it for it in items if os.path.normcase(os.path.normpath(it["path"])) != key]
+    items = [it for it in items if not mine(it)]
     now = time.time()
     it = {"token": secrets.token_urlsafe(18), "path": os.path.normpath(path),
           "name": str((body or {}).get("name") or "").strip()[:120] or os.path.basename(path),
@@ -747,18 +760,25 @@ async def get_share(path: str = Query(...)):
     """Link công khai của một file (null nếu chưa chia sẻ)."""
     key = os.path.normcase(os.path.normpath(str(path or "")))
     for it in _load_shares():
-        if os.path.normcase(os.path.normpath(it["path"])) == key:
+        if it.get("via") != "claude" and os.path.normcase(os.path.normpath(it["path"])) == key:
             return {"success": True, "share": _share_view(it)}
     return {"success": True, "share": None}
 
 
 @_shared.get("/shares")
 async def list_shares():
+    _ps = _ps_new()
+    if _ps:
+        _ps.sweep_links()
     return {"success": True, "shares": [_share_view(it) for it in _load_shares()]}
 
 
 @_shared.delete("/share/{token}")
 async def revoke_share(token: str):
+    # Thu hồi = xoá bản ghi + để bia mộ (link trả 410 Gone thay vì 404) — core/public_share.revoke.
+    _ps = _ps_new()
+    if _ps:
+        return {"success": True, "removed": _ps.revoke([token], "revoked", by="file_manager") > 0}
     items = _load_shares()
     kept = [it for it in items if it.get("token") != token]
     if len(kept) != len(items):
@@ -842,12 +862,45 @@ _SHARE_HEADERS = {"Cache-Control": "private, no-store", "X-Robots-Tag": "noindex
                   "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer"}
 
 
+def _share_status(token: str) -> Tuple[Optional[Dict[str, Any]], int]:
+    """(bản ghi, 200) khi phục vụ được; (None, 410) khi link đã hết hạn / bị thu hồi / file đổi loại; (None, 404)
+    khi không biết token hay file không còn. Link Claude tạo được kiểm LẠI loại file mỗi lần (core/public_share)."""
+    import time
+    _ps = _ps_new()
+    it = _find_share(token)
+    if it is None:
+        return None, (410 if _ps and _ps.gone_reason(token) else 404)
+    exp = it.get("expires")
+    if exp and float(exp) < time.time():
+        return None, 410
+    if not os.path.isfile(str(it.get("path") or "")):
+        return None, 404
+    if _ps and _ps.serve_check(it):
+        return None, 410
+    return it, 200
+
+
+def _share_gone(code: int):
+    raise HTTPException(status_code=code, detail="Link đã hết hạn hoặc bị thu hồi." if code == 410
+                        else "Link không tồn tại hoặc đã hết hạn.")
+
+
+def _share_log(it: Dict[str, Any], event: str, request: Request) -> None:
+    """Link Claude tạo: ghi mỗi lần tải (giờ, kết nối, file, IP). Video tua (Range giữa file) không ghi thêm dòng."""
+    _ps = _ps_new()
+    if not _ps or not _ps.is_claude(it):
+        return
+    rng = (request.headers.get("range") or "").replace(" ", "").lower()
+    if rng and not rng.startswith("bytes=0-"):
+        return
+    _ps.log_event(event, token=it["token"], grant=it.get("grant"), file=it.get("path"), ip=_ps.client_ip(request))
+
+
 @router_public.get("/s/{token}")
 async def public_share_page(token: str, request: Request):
     from starlette.responses import HTMLResponse
-    it = _find_share(token)
-    alive = it is not None and _share_alive(it)
-    return HTMLResponse(_share_page(it, request), status_code=200 if alive else 404, headers=dict(_SHARE_HEADERS))
+    it, code = _share_status(token)
+    return HTMLResponse(_share_page(it, request), status_code=code, headers=dict(_SHARE_HEADERS))
 
 
 def _share_filename(name: str, path: str) -> str:
@@ -885,24 +938,31 @@ def _public_file(it: Dict[str, Any], inline: bool) -> FileResponse:
         media_type = mt
     else:
         headers["Content-Disposition"] = _inline_disposition(name).replace("inline", "attachment", 1)
-        media_type = "application/octet-stream"
+        # Link Claude tạo chỉ là ảnh/video đã kiểm magic bytes → trả đúng loại (kèm nosniff + attachment).
+        media_type = it.get("mime") if it.get("via") == "claude" and it.get("mime") else "application/octet-stream"
     return FileResponse(resolved, media_type=media_type, stat_result=st, headers=headers)
 
 
 @router_public.api_route("/s/{token}/raw", methods=["GET", "HEAD"])
 async def public_share_raw(token: str, request: Request):
     """Xem tại chỗ (ảnh/video/âm thanh/PDF, có Range); định dạng khác thì tải về."""
-    it = _find_share(token)
-    if it is None or not _share_alive(it):
-        raise HTTPException(status_code=404, detail="Link không tồn tại hoặc đã hết hạn.")
+    it, code = _share_status(token)
+    if it is None:
+        _share_gone(code)
+    if request.method == "GET":
+        _share_log(it, "view", request)
     return _public_file(it, inline=True)
 
 
-@router_public.get("/s/{token}/download")
-async def public_share_download(token: str):
-    it = _find_share(token)
-    if it is None or not _share_alive(it):
-        raise HTTPException(status_code=404, detail="Link không tồn tại hoặc đã hết hạn.")
+@router_public.api_route("/s/{token}/download", methods=["GET", "HEAD"])
+async def public_share_download(token: str, request: Request):
+    """Tải về (attachment, có Range) — không cần đăng nhập, cookie hay header."""
+    it, code = _share_status(token)
+    if it is None:
+        _share_gone(code)
+    if request.method != "GET":
+        return _public_file(it, inline=False)
+    _share_log(it, "download", request)
     items = _load_shares()
     for x in items:
         if x.get("token") == it["token"]:

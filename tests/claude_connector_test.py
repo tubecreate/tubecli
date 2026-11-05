@@ -176,7 +176,7 @@ check("A13 /api/v1/public/mcp miễn phiên đăng nhập (chìa khoá là chữ
 # ── B. tools/list ────────────────────────────────────────────────────────────
 r, _ = post_mcp(LIST_W)
 tw = {t["name"]: t for t in r.json()["result"]["tools"]}
-check("B1 đủ quyền: 27 công cụ (bộ của Codex + 4 share_* cần quyền «share», 4/11/2026)", len(tw) == len(T.TOOLS) == 27, sorted(tw))
+check("B1 đủ quyền: 28 công cụ (bộ của Codex + 5 share_* cần quyền «share», 5/11/2026)", len(tw) == len(T.TOOLS) == 28, sorted(tw))
 check("B2 destructiveHint cho browser_close / market_install / town_agent_offer, không cho board_create",
       all(tw[n]["annotations"]["destructiveHint"] for n in ("browser_close", "market_install", "town_agent_offer"))
       and tw["board_create"]["annotations"]["destructiveHint"] is False, tw["board_create"]["annotations"])

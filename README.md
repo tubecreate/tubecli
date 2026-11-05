@@ -378,6 +378,13 @@ Yes, and this is a deliberate differentiator. MIT permits multi-tenant deploymen
 ### Does TubeCLI support MCP?
 Partially. The repo ships an MCP **server** (`tubecli/extensions/codex_gpt/mcp_relay.py`, registered as `tubecli` in the Codex CLI's `config.toml`) that exposes the Task Board, browser profiles, extensions and the API to Codex. There is no generic MCP client, so TubeCLI cannot yet consume third-party MCP servers; if that is a requirement, use n8n, Dify, CrewAI or LangGraph instead.
 
+### Can Claude share files from my server?
+Yes, when you allow it. Connect claude.ai to TubeCLI Cloud (Connectors), then tick **Allow public share links** for that connection. Ticking the box is your consent in advance: Claude's `share_file` / `share_files` make a link at once, with no per-link approval. Each link gives a page, a raw URL and a direct download URL that work with a plain HTTP GET (no sign-in; Range supported) and stop after 30 minutes unless Claude asks for a different expiry (1–1440 minutes).
+- Only images (`.png .jpg .jpeg .webp .gif`) and videos (`.mp4 .webm .mov`) inside the TubeCLI data folder can be shared. The file's content is checked as well as its extension, and checked again every time the link is opened.
+- Browser profiles, sessions, cookies, keys and `.env` files are refused, and so are paths that leave the data folder (`..`, symlinks).
+- A connection can make at most 200 links an hour. Every link created or downloaded is logged in `data/file_manager/share_log.jsonl` (time, connection, file, IP).
+- Expired or revoked links answer `410 Gone`. Unticking the box, disconnecting Claude or turning Claude off on the server revokes that connection's live links at once. You can also revoke any link in File Manager › Shares.
+
 ### Can TubeCLI translate and burn subtitles?
 Extraction and translation are the mature part: three interchangeable engines (local Whisper, Gemini, YouTube CC) exporting SRT/JSON/VTT/ASS, with translation as a separate step so you can review the text before it is burned anywhere. Finished TubeCLI videos can be cloned into another language. Burn-in and hardsub removal (ffmpeg delogo/blur/pixel/fill with OpenCV region detection) are implemented and reviewable but should be treated as experimental.
 
