@@ -30,8 +30,9 @@ logger = logging.getLogger("ClaudeConnector")
 SETTING = "claude_connector"          # global_settings.json — True = chủ cho Claude điều khiển máy này
 AGENT = "claude_connector"            # X-TubeCLI-Agent + created_by của việc Claude tạo
 LEVELS = ("read", "write")
-# Quyền THÊM chủ cấp cho từng kết nối trên TubeCLI Cloud › Connectors (cloud gửi kèm «perms»). «share» = chia sẻ file
-# kết quả bằng link công khai (codex_gpt/tools.py SHARE_*). Lạ thì bỏ.
+# Quyền THÊM chủ cấp cho từng kết nối trên TubeCLI Cloud › Connectors (cloud gửi kèm «perms»). «share» = chia sẻ ảnh/
+# video bằng link công khai (codex_gpt/tools.py share_*, core/public_share.py) — bật ô = đồng ý TRƯỚC cho mọi link của
+# kết nối đó (5/11/2026: không còn link duyệt từng link). Lạ thì bỏ.
 PERMS = ("share",)
 MAX_BODY = 256 * 1024                 # board_create nhận goal tới 20 000 ký tự, browser_type 5 000
 
@@ -91,7 +92,7 @@ async def _yes(*_a, **_k):
     return True, "", ""
 
 
-async def call(name: str, args: Any, level: str, approved: bool, app, perms: Any = ()) -> Dict[str, Any]:
+async def call(name: str, args: Any, level: str, approved: bool, app, perms: Any = (), grant: Any = None) -> Dict[str, Any]:
     """{"result": <MCP tools/call result>} hoặc {"needs_approval": {tool, summary}}."""
     from tubecli.extensions.codex_gpt import tools as T
 
@@ -118,11 +119,39 @@ async def call(name: str, args: Any, level: str, approved: bool, app, perms: Any
         return {"result": T.text_result(str(e), error=True)}
     except ImportError as e:
         return {"result": T.text_result(f"This TubeCLI does not have that feature enabled ({e.name or e})", error=True)}
-    return {"result": await T.call_tool(tool.name, args, app, _yes, agent=AGENT, perms=perms)}
+    return {"result": await T.call_tool(tool.name, args, app, _yes, agent=AGENT, perms=perms, grant=grant)}
+
+
+def _grant_of(payload: Dict[str, Any]) -> Any:
+    """Mã kết nối cloud gửi kèm (số / chuỗi ngắn) — None khi cloud cũ không gửi."""
+    g = payload.get("grant")
+    if isinstance(g, bool) or g in (None, ""):
+        return None
+    if isinstance(g, int):
+        return g
+    g = str(g).strip()
+    return g[:40] if re.fullmatch(r"[A-Za-z0-9_-]{1,40}", g) else None
+
+
+def _drop_links_without_perm(grant: Any, perms) -> None:
+    """Lưới an toàn: lời gọi tới mà KHÔNG còn quyền «share» ⇒ link đang sống của kết nối đó chết ngay (đề phòng lệnh
+    shares/revoke của cloud không tới được máy lúc chủ tắt ô)."""
+    if grant is None or "share" in perms:
+        return
+    try:
+        from tubecli.core import public_share as PS
+
+        n = PS.revoke_grant(grant, "connection_off")
+        if n:
+            logger.info("claude connector %s: share permission gone — revoked %d link(s)", grant, n)
+    except Exception as e:      # noqa: BLE001
+        logger.warning("revoke links of connection %s failed: %s", grant, e)
 
 
 async def handle(payload: Any, app) -> Tuple[int, Dict[str, Any]]:
-    """Một lời gọi cloud đã ký: {"rpc": {method, params}, "level": "read"|"write", "approved": bool}."""
+    """Một lời gọi cloud đã ký: {"rpc": {method, params}, "level": "read"|"write", "approved": bool, "perms": [..],
+    "grant": <mã kết nối>}. Thêm method «shares/revoke»: cloud gọi khi chủ tắt «Allow public share links» hay ngắt kết
+    nối — giết mọi link công khai đang sống của kết nối đó."""
     if not enabled():
         return 403, {"ok": False, "code": "connector_off"}
     if not isinstance(payload, dict) or not isinstance(payload.get("rpc"), dict):
@@ -140,7 +169,16 @@ async def handle(payload: Any, app) -> Tuple[int, Dict[str, Any]]:
     if method == "tools/call":
         raw = payload.get("perms")
         perms = tuple(p for p in (raw if isinstance(raw, list) else []) if p in PERMS)
+        grant = _grant_of(payload)
+        _drop_links_without_perm(grant, perms)
         out = await call(params.get("name"), params.get("arguments"), level, payload.get("approved") is True, app,
-                         perms=perms)
+                         perms=perms, grant=grant)
         return 200, {"ok": True, **out}
+    if method == "shares/revoke":
+        grant = _grant_of(payload)
+        if grant is None:
+            return 400, {"ok": False, "code": "bad_grant"}
+        from tubecli.core import public_share as PS
+
+        return 200, {"ok": True, "result": {"revoked": PS.revoke_grant(grant, str(params.get("reason") or "connection_off")[:40])}}
     return 400, {"ok": False, "code": "bad_method"}
