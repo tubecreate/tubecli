@@ -2,7 +2,7 @@
 
 Notable changes to TubeCLI. Versions match `tubecli/__init__.py`.
 
-## Unreleased
+## 2026.08.09.228 — 2026-11-05
 
 ### Public share links made by Claude (claude.ai connector)
 - **No per-link approval.** Ticking "Allow public share links" for a connection in TubeCLI Cloud › Connectors now means
