@@ -17,12 +17,19 @@ const check = (n, ok, d = '') => { if (ok) { pass++; console.log(`[PASS] ${n}`);
 const open = fs.readFileSync(path.join(BROWSER, 'open.js'), 'utf8').replace(/\r\n/g, '\n');
 check('open.js nạp tab_janitor', open.includes("import { trimTabs, closeExtraTabs, MAX_AGENT_TABS } from './actions/tab_janitor.js';"));
 const tm = open.slice(open.indexOf("context.on('page', async (newPage) => {"));
-check('tab mới trong lượt agent → trimTabs giữ tab vừa chuyển sang', tm.slice(0, 1200).includes('if (!isManual) {')
-  && tm.slice(0, 1200).includes('await trimTabs(context, newPage, MAX_AGENT_TABS)'));
+check('tab mới trong lượt agent HOẶC trình duyệt ẩn → trimTabs giữ tab vừa chuyển sang',
+  tm.slice(0, 1400).includes('if (!isManual || isHeadless) {')
+  && tm.slice(0, 1400).includes('await trimTabs(context, newPage, MAX_AGENT_TABS)'));
+check('isHeadless lấy từ cờ --headless', open.includes("const isHeadless = args['headless'] || false;"));
 const fin = open.slice(open.indexOf("console.log('Closing browser in 5 seconds...');"));
 check('chạy xong (không phải mở tay) → closeExtraTabs TRƯỚC khi đóng context',
   fin.indexOf('await closeExtraTabs(context, page)') > 0 && fin.indexOf('await closeExtraTabs(context, page)') < fin.indexOf('await context.close()'));
-check('MAX_AGENT_TABS = 4', M.MAX_AGENT_TABS === 4);
+// Đóng có trần: close() treo không được giữ trình duyệt sống, và không được thử lại khi cái cũ còn sống.
+check('đóng cuối lượt có trần CLOSE_DEADLINE_MS, quá hạn thì process.exit (không thử lại)',
+  /const CLOSE_DEADLINE_MS = \d+;/.test(fin) && fin.indexOf('Promise.race([shutdown') > 0
+  && fin.indexOf('process.exit(success ? 0 : 1);') > fin.indexOf('Promise.race([shutdown'));
+// 5/11/2026: «cho tối đa load 2 tab cùng lúc… đối với tự động và trình duyệt ẩn» (trước là 4).
+check('MAX_AGENT_TABS = 2', M.MAX_AGENT_TABS === 2);
 
 const require = createRequire(pathToFileURL(path.join(BROWSER, 'package.json')).href);
 const { chromium } = require('playwright');
@@ -57,10 +64,19 @@ try {
     return r.length === 1 && r[0] === b;
   })());
   check('dưới ngưỡng → không đóng gì', (await M.trimTabs(ctx, null, 4)) === 0);
+  check('trần mặc định: tab thứ 3 mở ra → đóng tab cũ nhất, còn 2 (tab nhà + tab việc kiểu Muse ẩn)', await (async () => {
+    const r0 = ctx.pages().filter((p) => !p.isClosed());
+    const work = await ctx.newPage(); const extra = await ctx.newPage();
+    const n3 = await M.trimTabs(ctx, extra);
+    const r = ctx.pages().filter((p) => !p.isClosed());
+    return r0.length === 1 && n3 === 1 && r.length === 2 && r0[0].isClosed() && !work.isClosed() && !extra.isClosed();
+  })());
+  check('Muse ẩn đúng 2 tab (nhà + việc) → không đóng gì', (await M.trimTabs(ctx, ctx.pages()[1])) === 0);
   await ctx.close();
   check('context đã đóng → không ném lỗi', (await M.trimTabs(ctx, null, 1)) === 0);
 } finally {
-  await browser.close();
+  // browser.close() có lúc treo trên Windows (đúng cái open.js giờ phải có trần) — test không được treo theo.
+  await Promise.race([browser.close().catch(() => {}), new Promise((r) => setTimeout(r, 10000))]);
 }
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
