@@ -205,6 +205,16 @@
             <div class="cx-field-meta" id="cx-v-count" aria-live="polite"></div>
           </div>
 
+          <!-- File giọng kèm bài (5/11/2026): người dùng đã thu / làm giọng đọc ĐÚNG bài dán ở trên → tải lên, pipeline đọc
+               nguyên văn và cắt file theo cảnh thay cho TTS (options.voice_file). Không khớp bài thì dùng giọng của mẫu. -->
+          <div class="cx-field" id="cx-v-voice-wrap">
+            <label for="cx-v-voice" data-i18n="codex.field_video_voice_file">Your voice file (optional)</label>
+            <input type="file" id="cx-v-voice" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.opus,.flac,.webm"
+                   onchange="CODEX.onVideoVoiceFile()">
+            <div class="cx-field-meta" id="cx-v-voice-meta" aria-live="polite"
+                 data-i18n="codex.field_video_voice_file_hint">Reads the content above word for word: the file is cut scene by scene instead of text-to-speech. If it does not match the text, the template's voice is used.</div>
+          </div>
+
           <!-- Dán nhiều link, mỗi dòng một cái: mỗi link một video. Chỉ hiện khi thật sự có ≥2 dòng link. -->
           <label class="cx-check hidden" id="cx-v-split-wrap">
             <input type="checkbox" id="cx-v-split" checked onchange="CODEX.onVideoSplit()">

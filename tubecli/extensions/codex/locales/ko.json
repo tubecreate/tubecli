@@ -490,5 +490,12 @@
   "codex.field_video_dub": "Muse로 내레이션 다시 녹음",
   "codex.field_video_dub_hint": "먼저 템플릿 음성으로 읽습니다. 그다음 Muse가 아래에 설명한 목소리로 대본 전체를 한 번에 다시 읽고(자연스러운 쉼, 인용된 대사는 두 번째 목소리) 장면마다 템플릿 음성을 바꿉니다. Muse가 실패하면 템플릿 음성을 그대로 씁니다.",
   "codex.field_video_dub_voice": "Muse 목소리",
-  "codex.field_video_dub_voice_placeholder": "내레이터 설명: 성별, 따뜻함, 음높이, 속도, 쉼, 감정, 대사 목소리"
+  "codex.field_video_dub_voice_placeholder": "내레이터 설명: 성별, 따뜻함, 음높이, 속도, 쉼, 감정, 대사 목소리",
+  "codex.field_video_voice_file": "내 음성 파일 (선택)",
+  "codex.field_video_voice_file_hint": "위 내용을 그대로 읽은 음성입니다. 음성 합성 대신 파일을 장면별로 잘라 씁니다. 내용과 맞지 않으면 템플릿 음성을 사용합니다.",
+  "codex.cv_voice_uploading": "{name} 업로드 중…",
+  "codex.cv_voice_ready": "{name} · {dur} — 원문 그대로 읽으며 음성 합성은 쓰지 않습니다",
+  "codex.toast_voice_upload_failed": "음성 파일을 업로드하지 못했습니다: {msg}",
+  "codex.toast_voice_wait": "음성 파일을 업로드하는 중입니다. 잠시 기다려 주세요.",
+  "codex.toast_voice_one_video": "음성 파일 하나에는 글 하나만 맞습니다. 링크 여러 개가 아니라 그 글을 붙여 넣으세요."
 }

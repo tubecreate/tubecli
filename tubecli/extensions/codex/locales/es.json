@@ -490,5 +490,12 @@
   "codex.field_video_dub": "Volver a doblar la narración con Muse",
   "codex.field_video_dub_hint": "Primero lee la voz de la plantilla. Después Muse vuelve a leer todo el guion de una sola vez con la voz descrita abajo —pausas naturales, una segunda voz para las frases citadas— y sustituye la voz de la plantilla escena por escena. Si Muse falla, se queda la voz de la plantilla.",
   "codex.field_video_dub_voice": "Voz para Muse",
-  "codex.field_video_dub_voice_placeholder": "Describe al narrador: género, calidez, tono, ritmo, pausas, emoción, voces para las frases citadas"
+  "codex.field_video_dub_voice_placeholder": "Describe al narrador: género, calidez, tono, ritmo, pausas, emoción, voces para las frases citadas",
+  "codex.field_video_voice_file": "Tu archivo de voz (opcional)",
+  "codex.field_video_voice_file_hint": "Lee el contenido de arriba palabra por palabra: el archivo se corta escena por escena en lugar de usar voz sintética. Si no coincide con el texto, se usa la voz de la plantilla.",
+  "codex.cv_voice_uploading": "Subiendo {name}…",
+  "codex.cv_voice_ready": "{name} · {dur} — el guion se lee palabra por palabra, sin voz sintética",
+  "codex.toast_voice_upload_failed": "No se pudo subir el archivo de voz: {msg}",
+  "codex.toast_voice_wait": "El archivo de voz aún se está subiendo; espera un momento.",
+  "codex.toast_voice_one_video": "Un archivo de voz va con un solo texto: pega ese texto, no varios enlaces."
 }

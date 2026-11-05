@@ -490,5 +490,12 @@
   "codex.field_video_dub": "Anlatımı Muse ile yeniden seslendir",
   "codex.field_video_dub_hint": "Önce şablonun sesi okur. Ardından Muse tüm metni aşağıda tarif edilen sesle tek seferde yeniden okur — doğal duraklamalar, tırnak içindeki repliklere ikinci bir ses — ve şablonun sesini sahne sahne değiştirir. Muse başarısız olursa şablonun sesi kalır.",
   "codex.field_video_dub_voice": "Muse için ses",
-  "codex.field_video_dub_voice_placeholder": "Anlatıcıyı tarif edin: cinsiyet, sıcaklık, ses perdesi, hız, duraklamalar, duygu, replik sesleri"
+  "codex.field_video_dub_voice_placeholder": "Anlatıcıyı tarif edin: cinsiyet, sıcaklık, ses perdesi, hız, duraklamalar, duygu, replik sesleri",
+  "codex.field_video_voice_file": "Ses dosyanız (isteğe bağlı)",
+  "codex.field_video_voice_file_hint": "Yukarıdaki içeriği kelimesi kelimesine okur: metin okuma yerine dosya sahne sahne kesilir. Metinle eşleşmezse şablonun sesi kullanılır.",
+  "codex.cv_voice_uploading": "{name} yükleniyor…",
+  "codex.cv_voice_ready": "{name} · {dur} — metin kelimesi kelimesine okunur, metin okuma yok",
+  "codex.toast_voice_upload_failed": "Ses dosyası yüklenemedi: {msg}",
+  "codex.toast_voice_wait": "Ses dosyası hâlâ yükleniyor — biraz bekleyin.",
+  "codex.toast_voice_one_video": "Bir ses dosyası tek bir metinle gider — birkaç bağlantı değil, o metni yapıştırın."
 }
