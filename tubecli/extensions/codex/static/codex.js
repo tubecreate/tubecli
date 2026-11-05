@@ -2032,6 +2032,7 @@ const CODEX = (() => {
     $('cx-plan-btn').classList.remove('hidden');
     $('cx-created-desc').textContent = t('codex.created_desc');
     $('cx-v-content').value = '';
+    resetVoiceFile();
     $('cx-v-split').checked = true;     // nhiều link = nhiều video; ô này chỉ hiện khi dán ≥2 dòng link
     $('cx-v-title').value = '';
     $('cx-v-review').checked = lsGet(CV_REVIEW_KEY) !== '0';
@@ -2175,6 +2176,62 @@ const CODEX = (() => {
     if (dub) lsSet(CV_DUB_KEY, dub.checked ? '1' : '0');
     const dubVoice = $('cx-v-dub-voice');
     if (dubVoice) lsSet(CV_DUB_VOICE_KEY, (dubVoice.value || '').trim().slice(0, CV_DUB_VOICE_MAX));
+  }
+
+  // ── File giọng kèm bài (5/11/2026) ─────────────────────────────────────────────
+  /** Bỏ file đã chọn (mở lại form / tải lỗi). */
+  function resetVoiceFile() {
+    state.voiceFile = null;
+    state.voiceUploading = false;
+    const inp = $('cx-v-voice');
+    if (inp) inp.value = '';
+    renderVoiceMeta();
+  }
+
+  function renderVoiceMeta(name) {
+    const meta = $('cx-v-voice-meta');
+    if (!meta) return;
+    const v = state.voiceFile;
+    if (state.voiceUploading) meta.textContent = t('codex.cv_voice_uploading', { name: name || '' });
+    else if (v) {
+      const sec = Math.round(v.seconds || 0);
+      meta.textContent = t('codex.cv_voice_ready', { name: v.name, dur: Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0') });
+    } else meta.textContent = t('codex.field_video_voice_file_hint');
+    const dub = $('cx-v-dub');
+    if (dub) {
+      // File giọng thay cho mọi giọng khác — tắt lồng giọng Muse cho khỏi hiểu nhầm
+      dub.disabled = !!v;
+      if (v) { dub.checked = false; onVideoDub(); }
+    }
+  }
+
+  /** Chọn file → tải lên ngay (POST /api/v1/content-video/voice-file); lời chuyển sang NGUYÊN VĂN. */
+  async function onVideoVoiceFile() {
+    const inp = $('cx-v-voice');
+    const file = inp && inp.files && inp.files[0];
+    state.voiceFile = null;
+    if (!file) { renderVoiceMeta(); return; }
+    state.voiceUploading = true;
+    renderVoiceMeta(file.name);
+    try {
+      const fd = new FormData();
+      fd.append('file', file, file.name);
+      const resp = await fetch('/api/v1/content-video/voice-file', { method: 'POST', body: fd });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok || !data.path) throw new Error((data && data.detail) || ('HTTP ' + resp.status));
+      state.voiceFile = { path: data.path, name: data.name || file.name, seconds: data.seconds || 0 };
+      const sel = $('cx-v-script');
+      if (sel && Array.from(sel.options || []).some(o => o.value === 'verbatim')) {
+        sel.value = 'verbatim';
+        onVideoScript();
+      }
+    } catch (e) {
+      toast(t('codex.toast_voice_upload_failed', { msg: e.message || String(e) }), 'error');
+      if (inp) inp.value = '';
+    } finally {
+      state.voiceUploading = false;
+      renderVoiceMeta();
+    }
   }
 
   /** Ô mô tả giọng chỉ hiện khi bật lồng giọng Muse. */
@@ -3201,6 +3258,10 @@ const CODEX = (() => {
       $('cx-v-content').focus();
       return;
     }
+    if (state.voiceUploading) {
+      toast(t('codex.toast_voice_wait'), 'error');
+      return;
+    }
     if (!preset) {
       toast(t(state.presets === false ? 'codex.cv_studio_missing' : 'codex.toast_video_template_required'), 'error');
       $('cx-v-preset').focus();
@@ -3227,6 +3288,11 @@ const CODEX = (() => {
     // Mỗi dòng một link → mỗi link một video. Cả loạt vào HÀNG ĐỢI: chạy lần lượt, không dựng song song.
     const links = (($('cx-v-split') || {}).checked === false) ? [] : cvLinkLines(content);
     const batch = links.length >= 2 ? links : [content];
+    if (state.voiceFile && batch.length > 1) {
+      // một file giọng đọc MỘT bài — không chia cho nhiều link
+      toast(t('codex.toast_voice_one_video'), 'error');
+      return;
+    }
     if (batch.length > 1) hold = true;
     // Bấm "Tạo video" khi làn video đang có task: hỏi trước. Hai lượt dựng song song chia nhau CPU/RAM/ffmpeg
     // và trên máy nhỏ thì cả hai chậm đi hoặc hết RAM (user 16/9/2026). Loạt nhiều link đã xếp hàng nên khỏi hỏi.
@@ -3282,6 +3348,17 @@ const CODEX = (() => {
       options.dub = true;
       const dubVoice = (($('cx-v-dub-voice') || {}).value || '').trim().slice(0, CV_DUB_VOICE_MAX);
       if (dubVoice) options.dub_voice = dubVoice;
+    }
+    // File giọng của người dùng: lời nguyên văn, pipeline cắt file theo cảnh thay cho TTS (server tự tắt TTS / bật bước dub).
+    if (state.voiceFile) {
+      options.voice_file = state.voiceFile.path;
+      options.script_mode = 'verbatim';
+      options.length_mode = 'content';
+      delete options.target_words;
+      delete options.dub;
+      delete options.dub_voice;
+      delete options.instructions;
+      delete options.content_dna;
     }
     // Watermark riêng cho task (14/10/2026); trống = watermark của mẫu.
     const wmText = (($('cx-v-watermark') || {}).value || '').trim().slice(0, 60);
@@ -3463,7 +3540,7 @@ const CODEX = (() => {
     onRetryDrive, onRetryDriveToken, retryReauth,
     confirmNote, confirmDelete, doDelete, copyResult, planTask,
     showThumbPrompt, rewriteThumbPrompt, copyThumbPrompt, setThumbStyle,
-    openNewTask, submitNewTask, queueVideo, setNewKind, onExtFiles, onExtField, saveExtTemplate, onVideoPreset, onVideoAgent, onVideoContent, onVideoLength, onVideoScript, onVideoKeepTheme, onVideoInstructions, onVideoDub, planFromModal, closeModal, onBackdrop,
+    openNewTask, submitNewTask, queueVideo, setNewKind, onExtFiles, onExtField, saveExtTemplate, onVideoPreset, onVideoAgent, onVideoContent, onVideoLength, onVideoScript, onVideoKeepTheme, onVideoInstructions, onVideoDub, planFromModal, onVideoVoiceFile, closeModal, onBackdrop,
     onVideoDrive, onVideoDriveToken, onVideoDriveShare, laneChoice, onVideoSplit, openDriveSync, startDriveSync, syncThenDelete, resumeLane,
     openClone, onCloneLang, startClone, openRetry, startRetry,
     onVideoYt, onVideoYtMethod, onVideoYtWhen,

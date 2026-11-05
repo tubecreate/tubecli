@@ -172,6 +172,10 @@ DEFAULTS: Dict[str, Any] = {
     # Lồng lại giọng bằng Muse (ô «Re-dub with Muse» của form Codex, 21/10/2026): giọng của MẪU vẫn đọc trước; bật thì
     # Muse đọc lại cả bài MỘT lượt theo dub_voice (mô tả giọng tự do) rồi cắt theo cảnh — xem _step_dub.
     "dub": False, "dub_voice": "",
+    # FILE GIỌNG CỦA NGƯỜI DÙNG kèm bài dán (form Codex, 5/11/2026 — user «logic nhập voice kèm text vào taskboard»): đường
+    # dẫn file đã tải lên (POST /api/v1/content-video/voice-file, nằm trong DATA_DIR). Có nó: lời = NGUYÊN VĂN bài dán,
+    # không đọc TTS; bước "dub" cắt file theo cảnh (narration_dub) — giọng không khớp bài thì lùi về giọng của mẫu.
+    "voice_file": "",
     # Prompt ảnh đại diện LUÔN viết (nút copy trên thẻ Codex + dòng trong Sheet); False = bỏ hẳn. thumbnail_engine
     # "image" = ảnh vẽ một lượt bằng model ảnh từ prompt đó, ảnh hook làm tham chiếu (thumbnail_image_model
     # "nhà|model", trống = Muse rồi gpt-image-2); khác = Thumbnail Studio; TRỐNG = model ảnh, trừ khi có
@@ -4862,9 +4866,46 @@ def _audio_check(state: Dict) -> None:
 # template». Giọng của MẪU vẫn đọc trước ở bước tts (thời lượng + dự phòng); task bật «dub» thì Muse đọc CẢ bài MỘT lượt
 # theo mô tả giọng của task (mỗi chat Muse một giọng ⇒ không đọc theo cảnh được), narration_dub cắt theo cảnh + mốc chữ cho
 # phụ đề, rồi thay đường giọng của từng cảnh. Bước MỀM: hỏng ở đâu cũng giữ giọng mẫu và dựng tiếp.
+def voice_file_path(options: Dict) -> str:
+    """Đường dẫn file giọng của người dùng nếu hợp lệ (có thật, nằm trong DATA_DIR); "" nếu không có / không dùng được."""
+    raw = str((options or {}).get("voice_file") or "").strip()
+    if not raw:
+        return ""
+    try:
+        from tubecli.config import DATA_DIR
+        root = os.path.abspath(str(DATA_DIR))
+        path = os.path.abspath(raw)
+        if os.path.commonpath([path, root]) != root or not os.path.isfile(path):
+            return ""
+    except (ValueError, OSError):
+        return ""
+    return path
+
+
+def apply_voice_file(options: Dict) -> None:
+    """Có file giọng (và có bài dán): lời đọc NGUYÊN VĂN bài, tắt TTS (cả luồng đọc trước), bật bước dub để cắt file theo
+    cảnh. File không hợp lệ → bỏ, chạy như thường (giọng của mẫu) và ghi chú để báo."""
+    if not str(options.get("voice_file") or "").strip():
+        return
+    path = voice_file_path(options)
+    if not path or not str(options.get("source_text") or "").strip():
+        options["_voice_file_dropped"] = str(options.get("voice_file") or "")
+        options["voice_file"] = ""
+        return
+    options["voice_file"] = path
+    options["script_mode"] = "verbatim"
+    options["length_mode"] = "content"
+    options.pop("target_words", None)
+    options["tts"] = False
+    options["dub"] = True
+
+
 def _step_dub(state: Dict, options: Dict) -> None:
     import hashlib
     say = state["_say"]
+    if options.get("voice_file"):
+        _dub_user_file(state, options)
+        return
     ep_id = int(state["episode_id"])
     shots = sorted(_storyboards(ep_id), key=lambda s: int(s.get("storyboard_number") or 0))
     voiced = [s for s in shots if str(s.get("narration_text") or "").strip()]
@@ -4913,6 +4954,72 @@ def _step_dub(state: Dict, options: Dict) -> None:
     _audio_check(state)
     how = "subtitles follow the new voice" if ck.get("engine") == "whisper" else "subtitles are estimated"
     say("dub", "running", f"{len(files)} scene(s) re-voiced by Muse ({changed} updated) — {how}")
+
+
+def _dub_user_file(state: Dict, options: Dict) -> None:
+    """Giọng = FILE của người dùng (options.voice_file): cắt theo cảnh bằng narration_dub.split_by_paragraph (Whisper so
+    TỪNG KÝ TỰ với lời từng cảnh, neo chỗ cắt vào khoảng lặng; mốc chữ cho phụ đề). Tập 888 (5/11/2026): bài 4.153 ký tự
+    phồn thể, file 13:10 → Whisper khớp 0,913, 79 đoạn phủ 0–790,6 s. Hỏng (file không đọc được, giọng không theo bài) →
+    đọc bằng giọng của MẪU như thường + cảnh báo, không để video câm."""
+    import hashlib
+    say = state["_say"]
+    path = voice_file_path(options)
+    ep_id = int(state["episode_id"])
+    shots = sorted(_storyboards(ep_id), key=lambda s: int(s.get("storyboard_number") or 0))
+    voiced = [s for s in shots if str(s.get("narration_text") or "").strip()]
+    if not voiced:
+        say("dub", "running", "no narration to voice")
+        return
+    paragraphs = [" ".join(str(s.get("narration_text") or "").split()) for s in voiced]
+    name = os.path.basename(path or str(options.get("voice_file") or ""))
+    try:
+        if not path:
+            raise ValueError("the voice file is missing on this machine")
+        st = os.stat(path)
+        key = hashlib.sha1(json.dumps([path, st.st_size, int(st.st_mtime), [[s.get("id"), p] for s, p in
+                                                                          zip(voiced, paragraphs)]],
+                                      ensure_ascii=False).encode("utf-8")).hexdigest()
+        from tubecli.config import DATA_DIR
+        out_dir = os.path.join(str(DATA_DIR), "content_video", "audio", f"ep{ep_id}_user")
+        ck = dict((state.get("checkpoint") or {}).get("dub") or {})
+        files = list(ck.get("files") or []) if ck.get("key") == key else []
+        if not (len(files) == len(voiced) and all(f and os.path.isfile(f) for f in files)):
+            from tubecli.extensions.content_video import narration_dub as _nd
+            say("dub", "running", f"listening to your voice file {name} and cutting it into {len(voiced)} scene(s) — "
+                                  "about half the file's length")
+            if state["_cancelled"]():
+                raise _cancel_exc()
+            info = _nd.split_by_paragraph(path, paragraphs, out_dir, language=str(state.get("language") or ""),
+                                          names=[f"shot{int(s.get('storyboard_number') or i + 1):03d}"
+                                                 for i, s in enumerate(voiced)])
+            files = [str(f.get("path") or "") for f in info["files"]]
+            if len(files) != len(voiced) or not all(files):
+                raise ValueError("some scenes of the script were not found in the voice file")
+            ck = {"key": key, "files": files, "full": path, "engine": info.get("engine"), "match": info.get("match"),
+                  "voice": "user file"}
+            _checkpoint_merge(state, {"dub": ck})
+    except Exception as e:      # noqa: BLE001 — lùi về giọng của mẫu
+        if _is_cancel(e):
+            raise
+        say("dub", "running", f"your voice file could not be used ({str(e)[:160]}) — reading with the template's voice")
+        state.setdefault("warnings", []).append(
+            f"Your voice file {name} was not used: {str(e)[:200]}. The video uses the template's voice instead.")
+        _step_tts(state, {**options, "voice_file": "", "tts": True})
+        return
+    changed = 0
+    for s, f in zip(voiced, files):
+        cur = str(s.get("tts_audio_url") or "")
+        if os.path.normcase(os.path.normpath(cur or ".")) != os.path.normcase(os.path.normpath(f)):
+            _put(f"/api/v1/studio/storyboards/{s['id']}", {"tts_audio_url": f})
+            changed += 1
+    state["tts_voice_used"] = f"your voice file · {name}"
+    state["tts_summary"] = f"{len(files)} voiced (your file)"
+    _task_meta(state.get("task_id"), voice={"engine": "file", "id": "user-file", "name": name[:80]})
+    _audio_check(state)
+    m = ck.get("match")
+    how = (f"subtitles follow your voice (Whisper match {float(m):.0%})" if ck.get("engine") == "whisper" and m
+           else "cut at the pauses; subtitles are estimated")
+    say("dub", "running", f"{len(files)} scene(s) voiced from your file ({changed} updated) — {how}")
 
 
 # Dựng video: trần tuyệt đối tối thiểu 4 giờ, và ít nhất 20 lần thời lượng
@@ -8774,6 +8881,12 @@ def describe_plan(options: Dict[str, Any]) -> str:
                          "of the source is reused" + ("; its theme and references are kept"
                                                       if _truthy(options.get("keep_theme"), True)
                                                       else "; its tradition and names are left out"))
+    if options.get("voice_file"):
+        lines.append(f"- Voice: your file {os.path.basename(str(options['voice_file']))} — the script is read word for "
+                     "word, the file is cut scene by scene (no text-to-speech)")
+    elif options.get("_voice_file_dropped"):
+        lines.append("- Voice: the uploaded voice file was not found (or there is no pasted text) — the template's "
+                     "voice reads the script")
     if str(options.get("instructions") or "").strip():
         note = " ".join(str(options["instructions"]).split())
         lines.append(f"- Extra instructions: {note[:160]}{'…' if len(note) > 160 else ''}")
@@ -8970,6 +9083,7 @@ def purge_task_files(task: Dict[str, Any]) -> Dict[str, Any]:
 def _prepare(payload: Dict[str, Any], report, is_cancelled, needs: tuple) -> Dict[str, Any]:
     """Shared setup for both stages: options, agent, callbacks, state."""
     options: Dict[str, Any] = {**DEFAULTS, **(payload.get("options") or {})}
+    apply_voice_file(options)
     if payload.get("sources") and not options.get("sources"):
         options["sources"] = list(payload["sources"])
     if payload.get("high_water_prev"):

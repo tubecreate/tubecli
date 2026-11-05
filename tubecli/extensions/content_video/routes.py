@@ -132,6 +132,14 @@ async def run_route(req: RunRequest, request: Request):
     options = dict(req.options or {})
     if content:
         options["source_text"] = content
+    if str(options.get("voice_file") or "").strip():
+        # File giọng kèm bài (5/11/2026): chuẩn hoá NGAY để kế hoạch trên thẻ ghi đúng (nguyên văn, không TTS); file không
+        # có / không có bài dán → báo lỗi luôn thay vì để task chạy bằng giọng mẫu mà người dùng tưởng là giọng của mình.
+        from tubecli.extensions.content_video.pipeline import apply_voice_file
+        apply_voice_file(options)
+        if not options.get("voice_file"):
+            raise HTTPException(400, "The voice file needs the text it reads: paste that text as the content "
+                                     "(and upload the file again if it is gone).")
     # Người bấm "Tạo video" trong cửa sổ Codex CHÍNH LÀ lời duyệt để bắt đầu:
     # cổng duyệt-trước-khi-chạy chỉ bắt họ bấm thêm lần nữa cho cùng một ý. Cổng
     # có nghĩa là cổng SAU kịch bản (review=True). Lời gọi từ skill/brain thì
@@ -167,6 +175,61 @@ async def run_route(req: RunRequest, request: Request):
         except Exception:
             out["position"] = 0
     return out
+
+
+# ── File giọng của người dùng (form Codex, 5/11/2026) ──────────────────────────────────────
+VOICE_EXTS = (".mp3", ".wav", ".m4a", ".aac", ".ogg", ".opus", ".flac", ".webm")
+VOICE_MAX_BYTES = 500 * 1024 * 1024
+
+
+def voice_upload_dir() -> str:
+    import os
+    from tubecli.config import DATA_DIR
+    return os.path.join(str(DATA_DIR), "content_video", "voice_uploads")
+
+
+@router.post("/voice-file")
+async def upload_voice_file(request: Request):
+    """Tải lên MỘT file giọng đọc cả bài (multipart, trường `file`). Trả {path, name, seconds} — form Codex gửi `path` làm
+    options.voice_file; pipeline cắt file theo cảnh thay cho TTS. Chỉ nhận file tiếng ffprobe đọc được."""
+    import os
+    import uuid
+    _deny_guests(request)
+    form = await request.form()
+    up = form.get("file")
+    if up is None or not hasattr(up, "read"):
+        raise HTTPException(400, "Send the voice file in the `file` field.")
+    name = os.path.basename(str(getattr(up, "filename", "") or "voice"))[:120]
+    ext = os.path.splitext(name)[1].lower()
+    if ext not in VOICE_EXTS:
+        raise HTTPException(400, f"Unsupported audio type {ext or '(none)'} — use {', '.join(VOICE_EXTS)}.")
+    os.makedirs(voice_upload_dir(), exist_ok=True)
+    path = os.path.join(voice_upload_dir(), f"{uuid.uuid4().hex[:12]}{ext}")
+    size = 0
+    try:
+        with open(path, "wb") as f:
+            while True:
+                chunk = await up.read(1 << 20)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > VOICE_MAX_BYTES:
+                    raise HTTPException(413, f"The voice file is larger than {VOICE_MAX_BYTES // (1024 * 1024)} MB.")
+                f.write(chunk)
+        try:
+            from tubecli.extensions.video_studio.ffmpeg_utils import media_duration
+            seconds = float(await asyncio.to_thread(media_duration, path) or 0)
+        except Exception:      # noqa: BLE001
+            seconds = 0.0
+        if seconds <= 0:
+            raise HTTPException(400, "This file has no readable audio.")
+    except BaseException:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        raise
+    return {"path": path, "name": name, "seconds": round(seconds, 2), "bytes": size}
 
 
 # ── Đồng bộ một task ĐÃ XONG lên Google Drive (nút trên thẻ Codex, 16/9/2026) ──────────
