@@ -2,6 +2,19 @@
 
 Notable changes to TubeCLI. Versions match `tubecli/__init__.py`.
 
+## 2026.08.09.229 — 2026-11-05
+
+### Browser: fewer processes and RAM per run
+- **At most 2 tabs** in agent runs and in hidden (headless) browsers such as hidden Muse sessions; the limit was
+  4 tabs and applied only to agent runs. When a third tab opens, the oldest tab closes; the tab in use is never
+  closed. Browsers you open yourself with a window are not touched. On real news sites each ad frame from another
+  domain runs in its own renderer process: 4 tabs measured 25–41 renderer processes and 1.4–2.5 GB. A hidden Muse
+  session needs exactly 2 tabs (the Muse home tab and the working tab) while `muse_lanes` is 1.
+- **Closing has a deadline.** At the end of an agent run, closing the browser now waits at most 30 seconds. If it
+  hangs, the run exits and Playwright kills the browser tree, instead of leaving the browser running until the
+  session timeout. A run that was about to retry no longer opens a second browser on the same profile while the old
+  one is still alive.
+
 ## 2026.08.09.228 — 2026-11-05
 
 ### Public share links made by Claude (claude.ai connector)
