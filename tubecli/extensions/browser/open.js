@@ -1337,12 +1337,13 @@ async function main() {
         console.log('[TabManager] New tab detected! Switching focus...');
         page = newPage; // Update the main page reference
         console.log(`[TabManager] Now on: ${page.url()}`);
-        // Lượt agent: giữ tối đa MAX_AGENT_TABS tab, đóng tab cũ nhất (không đóng tab vừa chuyển sang) — 30/10/2026,
-        // hồ sơ testphienbansharr149 từng dồn 202 tab ≈ 200 tiến trình. Người dùng tự mở thì không đụng.
-        if (!isManual) {
+        // Lượt agent VÀ trình duyệt ẩn: giữ tối đa MAX_AGENT_TABS tab, đóng tab cũ nhất (không đóng tab vừa chuyển
+        // sang) — 30/10/2026 hồ sơ testphienbansharr149 từng dồn 202 tab ≈ 200 tiến trình; 5/11/2026 thêm phiên ẩn
+        // (Muse ẩn mở tab qua CDP, cũng nhận sự kiện này). Người dùng tự mở có cửa sổ thì không đụng.
+        if (!isManual || isHeadless) {
           try {
             const n = await trimTabs(context, newPage, MAX_AGENT_TABS);
-            if (n) console.log(`[TabManager] Closed ${n} old tab(s) — keeping at most ${MAX_AGENT_TABS} during an agent run`);
+            if (n) console.log(`[TabManager] Closed ${n} old tab(s) — keeping at most ${MAX_AGENT_TABS} (agent run / hidden browser)`);
           } catch (e) { /* đang tắt trình duyệt */ }
         }
       });
@@ -2305,18 +2306,38 @@ async function main() {
       // Skip auto-close in manual mode — manual mode handles its own exit
       if (!isManual) {
         console.log('Closing browser in 5 seconds...');
-        if (page && !page.isClosed()) {
-          await page.waitForTimeout(5000);
-        }
-        // Chạy xong: đóng mọi tab thừa, chỉ giữ một (user 30/10/2026: «cho agent tự đóng khi chạy xong»).
-        if (typeof context !== 'undefined' && context) {
-          try {
-            const n = await closeExtraTabs(context, page);
-            if (n) console.log(`[TabManager] Run finished — closed ${n} extra tab(s)`);
-          } catch (e) { /* trình duyệt đã tắt */ }
-        }
-        if (typeof context !== 'undefined') {
-          try { await context.close(); } catch (e) {}
+        // Đóng CÓ TRẦN (5/11/2026): lượt testshardx 17:08 in dòng trên rồi đứng tới khi watchdog giết («timeout_kill_failed»)
+        // — page/context.close() của Playwright có lúc treo hẳn trên Windows (tests/browser_tab_janitor_test.js cũng treo
+        // ở browser.close()). Trình duyệt treo vẫn chiếm RAM + chỗ chạy. Quá CLOSE_DEADLINE_MS thì bỏ chờ và thoát:
+        // bộ thoát của Playwright (processLauncher, taskkill /T /F) giết cây trình duyệt — đã thử ShardX thật 5/11/2026,
+        // process.exit khi chưa close() → 0 tiến trình còn sống (Win32_Process vẫn LIỆT KÊ vài cái đã chết vì còn
+        // handle mở; phải xem HasExited, đừng đếm thô).
+        const CLOSE_DEADLINE_MS = 30000;
+        const shutdown = (async () => {
+          if (page && !page.isClosed()) {
+            await page.waitForTimeout(5000).catch(() => {});
+          }
+          // Chạy xong: đóng mọi tab thừa, chỉ giữ một (user 30/10/2026: «cho agent tự đóng khi chạy xong»).
+          if (typeof context !== 'undefined' && context) {
+            try {
+              const n = await closeExtraTabs(context, page);
+              if (n) console.log(`[TabManager] Run finished — closed ${n} extra tab(s)`);
+            } catch (e) { /* trình duyệt đã tắt */ }
+          }
+          if (typeof context !== 'undefined') {
+            try { await context.close(); } catch (e) {}
+          }
+          return true;
+        })();
+        let closeTimer;
+        const done = await Promise.race([shutdown,
+          new Promise((r) => { closeTimer = setTimeout(() => r(false), CLOSE_DEADLINE_MS); })]);
+        clearTimeout(closeTimer);
+        if (!done) {
+          // Thoát NGAY, kể cả khi vòng ngoài định thử lại: thử lại lúc trình duyệt cũ còn sống = hai trình duyệt trên
+          // cùng hồ sơ (đúng kiểu «nhân nhiều trình duyệt»).
+          console.warn(`[Close] Browser did not close within ${CLOSE_DEADLINE_MS / 1000}s — exiting; Playwright kills the browser tree on exit.`);
+          process.exit(success ? 0 : 1);
         }
       }
     }

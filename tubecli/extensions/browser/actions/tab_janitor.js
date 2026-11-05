@@ -7,9 +7,14 @@
 //   trimTabs(context, keep, max): còn quá `max` tab thì đóng tab CŨ NHẤT trước, không bao giờ đóng `keep`
 //     (tab agent đang làm việc). Gọi mỗi lần có tab mới trong lượt agent.
 //   closeExtraTabs(context, keep): chạy xong — chỉ giữ một tab.
-// Chỉ dùng cho lượt agent (open.js: !isManual). Người dùng tự mở trình duyệt thì không đụng tới tab của họ.
+// Dùng cho lượt agent (open.js: !isManual) và trình duyệt ẩn (--headless, vd. Muse ẩn). Người dùng tự mở trình duyệt
+// có cửa sổ thì không đụng tới tab của họ.
+//
+// 2 tab (user 5/11/2026: «cho tối đa load 2 tab cùng lúc… đối với tự động và trình duyệt ẩn»; trước là 4). Đo ShardX
+// thật, hồ sơ tạm, 4 tab báo (cbsnews, apnews, marktechpost, theverge): 25–41 renderer, 1,4–2,5 GB — mỗi iframe quảng
+// cáo khác tên miền là một tiến trình. Muse ẩn cần đúng 2: tab nhà muse.ai + tab việc của lượt (muse_lanes = 1).
 
-export const MAX_AGENT_TABS = 4;
+export const MAX_AGENT_TABS = 2;
 
 function openPages(context) {
     try {
