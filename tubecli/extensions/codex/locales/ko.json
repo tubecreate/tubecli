@@ -497,5 +497,8 @@
   "codex.cv_voice_ready": "{name} · {dur} — 원문 그대로; CapCut / Edge 임시 음성을 내 파일로 바꿉니다",
   "codex.toast_voice_upload_failed": "음성 파일을 업로드하지 못했습니다: {msg}",
   "codex.toast_voice_wait": "음성 파일을 업로드하는 중입니다. 잠시 기다려 주세요.",
-  "codex.toast_voice_one_video": "음성 파일 하나에는 글 하나만 맞습니다. 링크 여러 개가 아니라 그 글을 붙여 넣으세요."
+  "codex.toast_voice_one_video": "음성 파일 하나에는 글 하나만 맞습니다. 링크 여러 개가 아니라 그 글을 붙여 넣으세요.",
+  "codex.ext_images_from_template": "템플릿에 포함: {name}",
+  "codex.ext_images_remove": "이 이미지 제거",
+  "codex.ext_images_max": "최대 {n}장 — 초과한 이미지는 추가되지 않았습니다."
 }

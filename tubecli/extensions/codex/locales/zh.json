@@ -497,5 +497,8 @@
   "codex.cv_voice_ready": "{name} · {dur} — 逐字朗读；你的文件会替换 CapCut / Edge 临时配音",
   "codex.toast_voice_upload_failed": "无法上传配音文件：{msg}",
   "codex.toast_voice_wait": "配音文件仍在上传，请稍候。",
-  "codex.toast_voice_one_video": "一个配音文件只对应一篇文字——请粘贴那一篇，而不是多个链接。"
+  "codex.toast_voice_one_video": "一个配音文件只对应一篇文字——请粘贴那一篇，而不是多个链接。",
+  "codex.ext_images_from_template": "模板自带：{name}",
+  "codex.ext_images_remove": "移除这张图片",
+  "codex.ext_images_max": "最多 {n} 张——多出的未添加。"
 }

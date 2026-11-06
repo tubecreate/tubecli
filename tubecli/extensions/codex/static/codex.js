@@ -2370,6 +2370,9 @@ const CODEX = (() => {
       <div class="cx-x-tpl"><button type="button" class="cx-btn cx-btn-ghost cx-btn-sm" onclick="CODEX.saveExtTemplate()">
         <span class="material-symbols-outlined" aria-hidden="true">bookmark_add</span>${esc(t('codex.ext_tpl_save'))}</button></div>` : '');
     for (const f of fields.filter(x => x.type === 'select' && x.options_url)) await loadExtOptions(ext, f);
+    const tpl = ext.template_field && $(extFieldId(ext.template_field));
+    const tplOpt = tpl && (state.extOpts[ext.template_field] || []).find(o => o && typeof o === 'object' && String(o.value) === tpl.value);
+    if (tplOpt && tplOpt.fills) applyExtImageFills(tplOpt.fills);
   }
 
   // select có options_url: hỏi máy chủ rồi điền; giá trị đã nhớ được chọn lại nếu còn (`pick` = chọn giá trị này).
@@ -2399,8 +2402,25 @@ const CODEX = (() => {
     if (opt && opt.fills && typeof opt.fills === 'object') applyExtFills(opt.fills);
   }
 
+  /** Ảnh CÓ SẴN của mẫu (6/11/2026, user «đưa sẵn các nhân vật có trong template mẫu, người dùng tự xoá hoặc thêm»):
+      fills.<ô ảnh> = [{url, filepath, name}] → thay ảnh của mẫu trước, GIỮ file người dùng tự thêm. */
+  function applyExtImageFills(fills) {
+    const kind = state.extKind;
+    for (const f of (kind && kind.fields || []).filter(x => x.type === 'images')) {
+      const v = fills[f.key];
+      if (!Array.isArray(v)) continue;
+      const max = parseInt(f.max, 10) || 4;
+      const own = (state.extFiles[f.key] || []).filter(x => !(x && x.preset));
+      const preset = v.filter(x => x && (x.url || x.filepath)).map(x => ({ url: x.url || '', filepath: x.filepath || '',
+        name: x.name || '', preset: true }));
+      state.extFiles[f.key] = preset.concat(own).slice(0, max);
+      renderExtImages(f.key);
+    }
+  }
+
   function applyExtFills(fills) {
     const kind = state.extKind;
+    applyExtImageFills(fills);
     for (const [k, v] of Object.entries(fills)) {
       const el = $(extFieldId(k));
       if (!el || el.type === 'file') continue;
@@ -2444,11 +2464,37 @@ const CODEX = (() => {
     const files = Array.from(input.files || []);
     const f = (state.extKind && state.extKind.fields || []).find(x => x.key === key) || {};
     const max = parseInt(f.max, 10) || 4;
-    state.extFiles[key] = files.slice(0, max);
+    const have = state.extFiles[key] || [];
+    // CỘNG vào ảnh đang có (ảnh của mẫu + lần chọn trước); cùng tên + cỡ thì không thêm đôi
+    const fresh = files.filter(x => !have.some(h => h instanceof File && h.name === x.name && h.size === x.size));
+    if (have.length + fresh.length > max) toast(t('codex.ext_images_max', { n: max }), 'error');
+    state.extFiles[key] = have.concat(fresh).slice(0, max);
+    input.value = '';          // chọn lại đúng file vừa xoá vẫn được
+    renderExtImages(key);
+  }
+
+  function renderExtImages(key) {
     const box = $(extFieldId(key) + '-p');
     if (!box) return;
-    box.innerHTML = state.extFiles[key].map(file => `<img src="${URL.createObjectURL(file)}" alt="">`).join('')
-      + `<span class="cx-field-meta">${esc(t('codex.ext_images_count', { n: state.extFiles[key].length }))}</span>`;
+    const list = state.extFiles[key] || [];
+    if (!list.length) {
+      box.innerHTML = `<span class="cx-field-meta">${esc(t('codex.ext_images_pick'))}</span>`;
+      return;
+    }
+    box.innerHTML = list.map((x, i) => {
+      const src = x instanceof File ? URL.createObjectURL(x) : (x.url || '');
+      const title = x.preset ? t('codex.ext_images_from_template', { name: x.name || '' }) : (x.name || '');
+      return `<span class="cx-x-thumb${x.preset ? ' is-preset' : ''}" title="${esc(title)}"><img src="${esc(src)}" alt="">`
+        + `<button type="button" class="cx-x-thumb-del" aria-label="${esc(t('codex.ext_images_remove'))}"`
+        + ` onclick="CODEX.removeExtImage('${esc(key)}', ${i})">×</button></span>`;
+    }).join('') + `<span class="cx-field-meta">${esc(t('codex.ext_images_count', { n: list.length }))}</span>`;
+  }
+
+  function removeExtImage(key, i) {
+    const list = (state.extFiles[key] || []).slice();
+    list.splice(i, 1);
+    state.extFiles[key] = list;
+    renderExtImages(key);
   }
 
   async function uploadExtImage(url, file) {
@@ -2486,11 +2532,15 @@ const CODEX = (() => {
     try {
       // Ảnh tải lên TRƯỚC (từng tấm, có đếm), rồi mới gửi yêu cầu — máy chủ nhận đường dẫn, không nhận file.
       const imgFields = (ext.fields || []).filter(f => f.type === 'images');
-      const total = imgFields.reduce((n, f) => n + (payload[f.key] || []).length, 0);
+      const total = imgFields.reduce((n, f) => n + (payload[f.key] || []).filter(x => !(x && x.preset)).length, 0);
       let done = 0;
       for (const f of imgFields) {
         const out = [];
         for (const file of payload[f.key] || []) {
+          if (file && file.preset) {      // ảnh của mẫu: đã nằm trên máy chủ — gửi nguyên đường dẫn
+            out.push({ url: file.url || '', filepath: file.filepath || '', name: file.name || '' });
+            continue;
+          }
           label.textContent = t('codex.ext_uploading', { n: done + 1, total: total });
           out.push(await uploadExtImage(ext.upload_url, file));
           done++;
@@ -3540,7 +3590,7 @@ const CODEX = (() => {
     onRetryDrive, onRetryDriveToken, retryReauth,
     confirmNote, confirmDelete, doDelete, copyResult, planTask,
     showThumbPrompt, rewriteThumbPrompt, copyThumbPrompt, setThumbStyle,
-    openNewTask, submitNewTask, queueVideo, setNewKind, onExtFiles, onExtField, saveExtTemplate, onVideoPreset, onVideoAgent, onVideoContent, onVideoLength, onVideoScript, onVideoKeepTheme, onVideoInstructions, onVideoDub, planFromModal, onVideoVoiceFile, closeModal, onBackdrop,
+    openNewTask, submitNewTask, queueVideo, setNewKind, onExtFiles, onExtField, saveExtTemplate, onVideoPreset, onVideoAgent, onVideoContent, onVideoLength, onVideoScript, onVideoKeepTheme, onVideoInstructions, onVideoDub, planFromModal, onVideoVoiceFile, removeExtImage, closeModal, onBackdrop,
     onVideoDrive, onVideoDriveToken, onVideoDriveShare, laneChoice, onVideoSplit, openDriveSync, startDriveSync, syncThenDelete, resumeLane,
     openClone, onCloneLang, startClone, openRetry, startRetry,
     onVideoYt, onVideoYtMethod, onVideoYtWhen,

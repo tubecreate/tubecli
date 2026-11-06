@@ -497,5 +497,8 @@
   "codex.cv_voice_ready": "{name} · {dur} — 原文どおり。CapCut / Edge の仮の音声をあなたのファイルに差し替えます",
   "codex.toast_voice_upload_failed": "音声ファイルをアップロードできませんでした: {msg}",
   "codex.toast_voice_wait": "音声ファイルをアップロード中です。少しお待ちください。",
-  "codex.toast_voice_one_video": "音声ファイル1つにつき文章は1つです。複数のリンクではなく、その文章を貼り付けてください。"
+  "codex.toast_voice_one_video": "音声ファイル1つにつき文章は1つです。複数のリンクではなく、その文章を貼り付けてください。",
+  "codex.ext_images_from_template": "テンプレートから: {name}",
+  "codex.ext_images_remove": "この画像を外す",
+  "codex.ext_images_max": "最大 {n} 枚です。超えた分は追加していません。"
 }

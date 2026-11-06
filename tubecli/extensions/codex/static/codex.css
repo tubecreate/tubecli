@@ -870,6 +870,12 @@ a.cx-btn { text-decoration: none; }   /* nút là link (Xem live → tab mới) 
 /* Form loại việc của extension (codex.js renderExtForm): ảnh đã chọn cho trường kiểu images */
 .cx-x-previews { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
 .cx-x-previews img { width: 56px; height: 56px; object-fit: cover; border-radius: 6px; border: 1px solid rgba(128,128,128,.35); }
+/* Ảnh có sẵn của mẫu + ảnh tự thêm: mỗi ảnh một nút xoá (6/11/2026) */
+.cx-x-thumb { position: relative; display: inline-flex; }
+.cx-x-thumb.is-preset img { border-color: #5276EB; }
+.cx-x-thumb-del { position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 50%; border: 0;
+  background: rgba(15,23,42,.85); color: #fff; font-size: 14px; line-height: 20px; padding: 0; cursor: pointer; }
+.cx-x-thumb-del:hover, .cx-x-thumb-del:focus-visible { background: #ef4444; }
 .cx-req { color: #f87171; }
 /* «Lưu thành mẫu» của form loại việc do extension khai (kho mẫu chung, 3/10/2026) */
 .cx-x-tpl { display: flex; justify-content: flex-end; margin-top: 4px; }

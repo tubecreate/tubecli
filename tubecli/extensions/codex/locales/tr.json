@@ -497,5 +497,8 @@
   "codex.cv_voice_ready": "{name} · {dur} — kelimesi kelimesine; dosyanız geçici CapCut / Edge sesinin yerine geçer",
   "codex.toast_voice_upload_failed": "Ses dosyası yüklenemedi: {msg}",
   "codex.toast_voice_wait": "Ses dosyası hâlâ yükleniyor — biraz bekleyin.",
-  "codex.toast_voice_one_video": "Bir ses dosyası tek bir metinle gider — birkaç bağlantı değil, o metni yapıştırın."
+  "codex.toast_voice_one_video": "Bir ses dosyası tek bir metinle gider — birkaç bağlantı değil, o metni yapıştırın.",
+  "codex.ext_images_from_template": "Şablondan: {name}",
+  "codex.ext_images_remove": "Bu görseli kaldır",
+  "codex.ext_images_max": "En fazla {n} görsel — fazlası eklenmedi."
 }

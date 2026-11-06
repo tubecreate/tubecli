@@ -497,5 +497,8 @@
   "codex.cv_voice_ready": "{name} · {dur} — đọc nguyên văn; file của bạn thay giọng tạm CapCut / Edge",
   "codex.toast_voice_upload_failed": "Không tải được file giọng: {msg}",
   "codex.toast_voice_wait": "File giọng đang tải lên — chờ một chút.",
-  "codex.toast_voice_one_video": "Một file giọng đi với một bài — chỉ dán đúng bài đó, không dán nhiều link."
+  "codex.toast_voice_one_video": "Một file giọng đi với một bài — chỉ dán đúng bài đó, không dán nhiều link.",
+  "codex.ext_images_from_template": "Có sẵn trong mẫu: {name}",
+  "codex.ext_images_remove": "Xoá ảnh này",
+  "codex.ext_images_max": "Tối đa {n} ảnh — các ảnh thừa không được thêm."
 }
