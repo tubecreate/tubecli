@@ -2729,6 +2729,10 @@ def _step_studio(state: Dict, options: Dict) -> None:
                 agent_meta["tts_voice"] = a_voice or _edge_voice(lang_code)
                 agent_meta["tts_engine"] = "edge"
         agent_meta.update(_scene_media_meta(options))
+        cast = task_cast(options)
+        if cast is not None:
+            # Dàn nhân vật người dùng chỉnh trong form (6/11/2026) — ghi ĐÈ dàn của mẫu (rỗng = không dàn cố định)
+            agent_meta["cast"] = cast
         body = {
             "title": title, "style": options.get("style") or DEFAULTS["style"],
             "language": lang_code,
@@ -4880,6 +4884,23 @@ def _audio_check(state: Dict) -> None:
 # template». Giọng của MẪU vẫn đọc trước ở bước tts (thời lượng + dự phòng); task bật «dub» thì Muse đọc CẢ bài MỘT lượt
 # theo mô tả giọng của task (mỗi chat Muse một giọng ⇒ không đọc theo cảnh được), narration_dub cắt theo cảnh + mốc chữ cho
 # phụ đề, rồi thay đường giọng của từng cảnh. Bước MỀM: hỏng ở đâu cũng giữ giọng mẫu và dựng tiếp.
+VOICE_FILE_LABEL = "Swap in your voice file"
+
+
+def task_cast(options: Dict) -> Optional[List[str]]:
+    """Dàn nhân vật của TASK (form Codex, 6/11/2026): options.cast = [slug…] ghi đè wizCast của mẫu khi tạo phim — Studio
+    tìm từng người trong kho nhân vật đúng style của mẫu, canon lấy sheet làm ảnh tham chiếu (mã CHAR-xx). None = theo mẫu."""
+    raw = (options or {}).get("cast")
+    if not isinstance(raw, list):
+        return None
+    out: List[str] = []
+    for x in raw:
+        s = " ".join(str(x or "").split())[:80]
+        if s and s not in out:
+            out.append(s)
+    return out[:8]
+
+
 def voice_file_path(options: Dict) -> str:
     """Đường dẫn file giọng của người dùng nếu hợp lệ (có thật, nằm trong DATA_DIR); "" nếu không có / không dùng được."""
     raw = str((options or {}).get("voice_file") or "").strip()
@@ -5006,13 +5027,30 @@ def _dub_user_file(state: Dict, options: Dict) -> None:
         files = list(ck.get("files") or []) if ck.get("key") == key else []
         if not (len(files) == len(voiced) and all(f and os.path.isfile(f) for f in files)):
             from tubecli.extensions.content_video import narration_dub as _nd
-            say("dub", "running", f"listening to your voice file {name} and cutting it into {len(voiced)} scene(s) — "
-                                  "about half the file's length")
+            # thời lượng GIỌNG TẠM từng cảnh (CapCut / Edge vừa đọc) — chỗ cắt dự đoán khi máy không có Whisper
+            guides = []
+            for s in voiced:
+                f0 = _shot_audio_file(str(s.get("tts_audio_url") or ""))
+                guides.append(media_seconds(f0) if f0 and os.path.isfile(f0) else 0.0)
+            say("dub", "running", f"listening to your voice file {name} to find where each of the {len(voiced)} "
+                                  "scenes starts", 0)
+            last = {"t": 0.0, "at": 0.0}
+
+            def heard(sec: float, total: float) -> None:
+                # «đã nghe m:ss / M:SS» — tối đa mỗi 10 s một dòng (huỷ được kiểm trước / sau khi nghe)
+                now = time.time()
+                if now - last["at"] < 10 and sec < total:
+                    return
+                last.update(t=sec, at=now)
+                pct = max(0.0, min(0.99, sec / total)) if total else 0.0
+                say("dub", "running", f"listening to your voice file: {clock(sec)} / {clock(total)} heard", pct)
+
             if state["_cancelled"]():
                 raise _cancel_exc()
             info = _nd.split_by_paragraph(path, paragraphs, out_dir, language=str(state.get("language") or ""),
                                           names=[f"shot{int(s.get('storyboard_number') or i + 1):03d}"
-                                                 for i, s in enumerate(voiced)])
+                                                 for i, s in enumerate(voiced)],
+                                          guides=guides, progress=heard)
             files = [str(f.get("path") or "") for f in info["files"]]
             if len(files) != len(voiced) or not all(files):
                 raise ValueError("some scenes of the script were not found in the voice file")
@@ -5040,6 +5078,7 @@ def _dub_user_file(state: Dict, options: Dict) -> None:
     _audio_check(state)
     m = ck.get("match")
     how = (f"subtitles follow your voice (Whisper match {float(m):.0%})" if ck.get("engine") == "whisper" and m
+           else "cut by the temporary voice's timing at the pauses; subtitles are estimated" if ck.get("engine") == "guide"
            else "cut at the pauses; subtitles are estimated")
     say("dub", "running", f"{len(files)} scene(s) voiced from your file ({changed} updated) — {how}")
 
@@ -8903,6 +8942,8 @@ def describe_plan(options: Dict[str, Any]) -> str:
                          "of the source is reused" + ("; its theme and references are kept"
                                                       if _truthy(options.get("keep_theme"), True)
                                                       else "; its tradition and names are left out"))
+    if task_cast(options) is not None:
+        lines.append("- Characters: " + (", ".join(task_cast(options)) or "none") + " (chosen for this task)")
     if options.get("voice_file"):
         lines.append(f"- Voice: your file {os.path.basename(str(options['voice_file']))} — the script is read word for "
                      "word; CapCut (or Edge) reads a temporary voice for timing, then your file replaces it scene by "
@@ -9135,8 +9176,11 @@ def _prepare(payload: Dict[str, Any], report, is_cancelled, needs: tuple) -> Dic
     def say(step: str, status: str, message: str = "", progress: Optional[float] = None) -> None:
         if not report:
             return
+        label = LABELS.get(step, step)
+        if step == "dub" and options.get("_voice_mode"):
+            label = VOICE_FILE_LABEL          # không phải Muse: thay giọng tạm bằng file của người dùng
         try:
-            report(step, status, message, LABELS.get(step, step), progress)
+            report(step, status, message, label, progress)
         except TypeError:
             try:
                 report(step, status, message)

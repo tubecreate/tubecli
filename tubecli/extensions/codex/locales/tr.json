@@ -500,5 +500,12 @@
   "codex.toast_voice_one_video": "Bir ses dosyası tek bir metinle gider — birkaç bağlantı değil, o metni yapıştırın.",
   "codex.ext_images_from_template": "Şablondan: {name}",
   "codex.ext_images_remove": "Bu görseli kaldır",
-  "codex.ext_images_max": "En fazla {n} görsel — fazlası eklenmedi."
+  "codex.ext_images_max": "En fazla {n} görsel — fazlası eklenmedi.",
+  "codex.field_video_cast": "Karakterler",
+  "codex.field_video_cast_hint": "Şablonun karakterleri her resimde aynı yüz ve kıyafetle kalır. Bu videoya gerekmeyenleri kaldırın ya da kütüphaneden veya bir fotoğraftan ekleyin.",
+  "codex.cv_cast_upload": "Fotoğraftan yeni",
+  "codex.cv_cast_add": "+ Kütüphaneden karakter ekle",
+  "codex.cv_cast_none": "Sabit karakter yok — resimler senaryoyu izler.",
+  "codex.cv_cast_name": "Yeni karakterin adı",
+  "codex.cv_cast_added": "{name} karakter kütüphanesine eklendi"
 }

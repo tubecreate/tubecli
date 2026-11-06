@@ -500,5 +500,12 @@
   "codex.toast_voice_one_video": "音声ファイル1つにつき文章は1つです。複数のリンクではなく、その文章を貼り付けてください。",
   "codex.ext_images_from_template": "テンプレートから: {name}",
   "codex.ext_images_remove": "この画像を外す",
-  "codex.ext_images_max": "最大 {n} 枚です。超えた分は追加していません。"
+  "codex.ext_images_max": "最大 {n} 枚です。超えた分は追加していません。",
+  "codex.field_video_cast": "キャラクター",
+  "codex.field_video_cast_hint": "テンプレートのキャラクターはどの絵でも同じ顔と服装になります。この動画に要らない人は外し、ライブラリや写真から追加できます。",
+  "codex.cv_cast_upload": "写真から追加",
+  "codex.cv_cast_add": "+ ライブラリから追加",
+  "codex.cv_cast_none": "固定キャラクターなし（絵は台本どおり）。",
+  "codex.cv_cast_name": "新しいキャラクターの名前",
+  "codex.cv_cast_added": "{name} をキャラクターライブラリに追加しました"
 }

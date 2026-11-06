@@ -500,5 +500,12 @@
   "codex.toast_voice_one_video": "A voice file goes with one text — paste that one text, not several links.",
   "codex.ext_images_from_template": "From the template: {name}",
   "codex.ext_images_remove": "Remove this image",
-  "codex.ext_images_max": "Up to {n} images — the extra ones were not added."
+  "codex.ext_images_max": "Up to {n} images — the extra ones were not added.",
+  "codex.field_video_cast": "Characters",
+  "codex.field_video_cast_hint": "The template's characters keep the same face and outfit in every picture. Remove the ones this video does not need, or add one from the library or from a photo.",
+  "codex.cv_cast_upload": "New from a photo",
+  "codex.cv_cast_add": "+ Add a character from the library",
+  "codex.cv_cast_none": "No fixed characters — the pictures follow the script.",
+  "codex.cv_cast_name": "Name of the new character",
+  "codex.cv_cast_added": "{name} added to the character library"
 }

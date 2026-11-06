@@ -500,5 +500,12 @@
   "codex.toast_voice_one_video": "Một file giọng đi với một bài — chỉ dán đúng bài đó, không dán nhiều link.",
   "codex.ext_images_from_template": "Có sẵn trong mẫu: {name}",
   "codex.ext_images_remove": "Xoá ảnh này",
-  "codex.ext_images_max": "Tối đa {n} ảnh — các ảnh thừa không được thêm."
+  "codex.ext_images_max": "Tối đa {n} ảnh — các ảnh thừa không được thêm.",
+  "codex.field_video_cast": "Nhân vật",
+  "codex.field_video_cast_hint": "Nhân vật của mẫu giữ nguyên mặt và trang phục trong mọi tranh. Xoá người video này không cần, hoặc thêm từ kho hay từ ảnh.",
+  "codex.cv_cast_upload": "Thêm từ ảnh",
+  "codex.cv_cast_add": "+ Thêm nhân vật từ kho",
+  "codex.cv_cast_none": "Không có nhân vật cố định — tranh vẽ theo kịch bản.",
+  "codex.cv_cast_name": "Tên nhân vật mới",
+  "codex.cv_cast_added": "Đã thêm {name} vào kho nhân vật"
 }
