@@ -81,8 +81,12 @@ SHOTS = [{"id": 11, "storyboard_number": 1, "narration_text": "第一段。", "t
 puts, splits, tts_calls, metas, says = [], [], [], [], []
 
 
-def fake_split(src, paragraphs, out_dir, ffmpeg="", language="", names=None, transcribe=None, duration=None):
+split_kw = []
+
+
+def fake_split(src, paragraphs, out_dir, ffmpeg="", language="", names=None, transcribe=None, duration=None, **kw):
     splits.append((src, list(paragraphs), language, list(names or [])))
+    split_kw.append(kw)
     os.makedirs(out_dir, exist_ok=True)
     files = []
     for n in names:
@@ -114,7 +118,7 @@ except Exception:      # noqa: BLE001
 
 def new_state():
     st = {"episode_id": 888, "language": "zh-TW", "task_id": "t1", "checkpoint": {},
-          "_say": lambda step, status, msg="": says.append(msg), "_cancelled": lambda: False}
+          "_say": lambda step, status, msg="", *a: says.append(msg), "_cancelled": lambda: False}
 
     def merge(state, patch):
         state["checkpoint"].update(patch)
@@ -122,10 +126,31 @@ def new_state():
     return st
 
 
+import shutil  # noqa: E402
+import subprocess  # noqa: E402
+
+FF = shutil.which("ffmpeg") or "ffmpeg"
+
+
+def tone(path, seconds):
+    subprocess.run([FF, "-v", "error", "-y", "-f", "lavfi", "-i", f"sine=frequency=440:duration={seconds}", "-ac", "1", path],
+                   check=True)
+    return path
+
+
+# giọng TẠM (CapCut / Edge) của từng cảnh — bước dub đọc thời lượng của nó làm chỗ cắt dự đoán
+SHOTS[0]["tts_audio_url"] = tone(os.path.join(TMP, "temp1.mp3"), 2.5)
+SHOTS[2]["tts_audio_url"] = tone(os.path.join(TMP, "temp3.mp3"), 4.0)
 ND.split_by_paragraph = fake_split
 st = new_state()
 P._step_dub(st, o)
 ok(len(splits) == 1 and splits[0][0] == os.path.abspath(wav), "the user's file is cut (not Muse)", splits)
+g = (split_kw[-1] if split_kw else {}).get("guides") or []
+ok(len(g) == 2 and abs(g[0] - 2.5) < 0.15 and abs(g[1] - 4.0) < 0.15, "the temporary voice's durations go to the cutter", g)
+prog = (split_kw[-1] if split_kw else {}).get("progress")
+if callable(prog):
+    prog(65.0, 785.0)
+ok(any("1:05 / 13:05 heard" in m for m in says), "progress line: «m:ss / M:SS heard»", says[-3:])
 ok(splits and splits[0][1] == ["第一段。", "第二段。"] and splits[0][3] == ["shot001", "shot003"],
    "only scenes with narration, named by shot number", splits)
 ok(splits and splits[0][2] == "zh-TW", "the script language goes to the cutter")
@@ -180,6 +205,93 @@ ok(P._tts_engine(stv, o) == "edge" and stv.get("tts_batch_engine") == "edge", "n
 P.installed_extensions = lambda: {"capcut_tts": False, "tts_vibevoice": True}
 ok(P._tts_engine({}, {**o, "tts_engine": "everai"}) == "edge", "voice mode ignores the template's paid / desktop engines")
 P.installed_extensions, P._capcut_account = _real_inst, _real_acct
+
+# ── B2b. dàn nhân vật của task (form «Characters») ─────────────────────────────────────────────────────────────────
+ok(P.task_cast({}) is None and P.task_cast({"cast": "maren"}) is None, "no list → follow the template's cast")
+ok(P.task_cast({"cast": ["maren", " maren ", "", "kael"]}) == ["maren", "kael"], "cast cleaned, de-duplicated")
+ok(P.task_cast({"cast": []}) == [], "empty list = no fixed characters (overrides the template)")
+_src = open(P.__file__, encoding="utf-8").read()
+ok('agent_meta["cast"] = cast' in _src and 'label = VOICE_FILE_LABEL' in _src,
+   "studio step writes the task cast; the dub step is labelled as a voice-file swap")
+ok(P.VOICE_FILE_LABEL == "Swap in your voice file", "label text")
+
+# ── B3. narration_dub: Whisper nhanh + báo tiến độ; không Whisper → cắt theo giọng tạm ──────────────────────────────
+import importlib.util as _ilu  # noqa: E402
+import types  # noqa: E402
+
+_spec = _ilu.spec_from_file_location("nd_fresh", os.path.join(ROOT, "tubecli", "extensions", "content_video", "narration_dub.py"))
+NDF = _ilu.module_from_spec(_spec)
+_spec.loader.exec_module(NDF)
+ok(NDF.WHISPER_MODEL == "base" and NDF.WHISPER_BEAM == 1, "cutting uses Whisper base / beam 1 (≈7× faster than small/5)")
+
+seen_model = {}
+
+
+class _W:
+    def __init__(self, word, start, end):
+        self.word, self.start, self.end = word, start, end
+
+
+class _Seg:
+    def __init__(self, end, words):
+        self.end, self.words = end, words
+
+
+class FakeModel:
+    def __init__(self, size, **kw):
+        seen_model["size"] = size
+
+    def transcribe(self, path, **kw):
+        seen_model.update(kw)
+        return iter([_Seg(3.0, [_W("第一", 0.5, 1.5)]), _Seg(7.5, [_W("段", 4.0, 5.0)])]), None
+
+
+sys.modules["faster_whisper"] = types.SimpleNamespace(WhisperModel=FakeModel)
+heard_at = []
+got = NDF.whisper_chars("x.wav", "zh-TW", progress=heard_at.append)
+ok(got and got[0] == "第一段" and heard_at == [3.0, 7.5], "progress after each Whisper segment", (got, heard_at))
+ok(seen_model.get("size") == "base" and seen_model.get("beam_size") == 1 and seen_model.get("language") == "zh",
+   "model base, beam 1, language zh", seen_model)
+def _broken_progress(t):
+    raise RuntimeError("board offline")
+
+
+NDF.whisper_chars("x.wav", "zh", progress=_broken_progress)
+ok(True, "a broken progress callback does not stop the listening")
+del sys.modules["faster_whisper"]
+
+# không Whisper + giọng tạm: file tổng hợp 5 đoạn (tiếng bíp, nghỉ 0,25 s giữa câu, 0,7 s giữa đoạn)
+LENS = [[1.2, 1.6], [2.0], [0.9, 1.1, 1.3], [2.4], [1.5, 1.0]]
+parts, t, truth_cuts = [], 0.0, []
+for pi, sents in enumerate(LENS):
+    for si, L in enumerate(sents):
+        parts.append(("sine", L)); t += L
+        if si < len(sents) - 1:
+            parts.append(("sil", 0.25)); t += 0.25
+    if pi < len(LENS) - 1:
+        parts.append(("sil", 0.7)); truth_cuts.append(t + 0.35); t += 0.7
+inputs, filt = [], []
+for k, (kind, L) in enumerate(parts):
+    inputs += ["-f", "lavfi", "-t", f"{L}", "-i", ("sine=frequency=330:sample_rate=24000" if kind == "sine"
+                                                     else "anullsrc=r=24000:cl=mono")]
+    filt.append(f"[{k}:a]")
+user_wav = os.path.join(TMP, "user_voice.wav")
+subprocess.run([FF, "-v", "error", "-y", *inputs, "-filter_complex", "".join(filt) + f"concat=n={len(parts)}:v=0:a=1[a]",
+                "-map", "[a]", "-ac", "1", user_wav], check=True)
+# giọng tạm đọc chậm hơn 12 % và lệch từng đoạn (0,8–1,2×) — như CapCut so với người thật
+spoken = [sum(s) + 0.25 * (len(s) - 1) for s in LENS]
+guides = [d * f * 1.12 for d, f in zip(spoken, (1.2, 0.85, 1.1, 0.8, 1.0))]
+paras = ["一二。三四。", "五六七。", "八。九。十。", "十一十二。", "十三。十四。"]
+info = NDF.split_by_paragraph(user_wav, paras, os.path.join(TMP, "guide_out"), ffmpeg=FF, language="zh",
+                              transcribe=lambda p, l: None, guides=guides)
+cuts = [f["start"] for f in info["files"][1:]]
+err = [abs(a - b) for a, b in zip(cuts, truth_cuts)]
+ok(info["engine"] == "guide" and max(err) < 0.3, "no Whisper → cut by the temporary voice + pauses", (info["engine"], cuts,
+                                                                                                         truth_cuts))
+ok(all(os.path.isfile(f["path"]) for f in info["files"]), "one file per scene")
+info2 = NDF.split_by_paragraph(user_wav, paras, os.path.join(TMP, "guide_out2"), ffmpeg=FF, language="zh",
+                               transcribe=lambda p, l: None)
+ok(info2["engine"] == "silence", "no Whisper and no temporary voice → the old pause-only cut")
 
 # ── C. route ───────────────────────────────────────────────────────────────────────────────────────────────────────
 try:

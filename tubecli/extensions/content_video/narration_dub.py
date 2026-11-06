@@ -55,17 +55,24 @@ def silences(path: str, ffmpeg: str, noise: str = "-35dB", min_dur: float = 0.2)
     return list(zip(st, en))
 
 
-def whisper_chars(path: str, language: str = "") -> Optional[Tuple[str, List[float]]]:
-    """(ký tự chuẩn hoá Whisper nghe được, giờ giữa của từng ký tự); None khi máy không có faster_whisper."""
+def whisper_chars(path: str, language: str = "", progress: Optional[Callable[[float], Any]] = None,
+                  model_size: str = "", beam: int = 0) -> Optional[Tuple[str, List[float]]]:
+    """(ký tự chuẩn hoá Whisper nghe được, giờ giữa của từng ký tự); None khi máy không có faster_whisper.
+    progress(giây đã nghe) gọi sau mỗi đoạn Whisper trả về — bảng việc hiện «đã nghe m:ss / M:SS»."""
     try:
         from faster_whisper import WhisperModel
     except Exception:       # noqa: BLE001
         return None
-    model = WhisperModel("small", device="cpu", compute_type="int8")
+    model = WhisperModel(model_size or WHISPER_MODEL, device="cpu", compute_type="int8")
     lang = str(language or "").split("-")[0].lower() or None
-    segs, _ = model.transcribe(path, language=lang, word_timestamps=True, beam_size=5, vad_filter=False)
+    segs, _ = model.transcribe(path, language=lang, word_timestamps=True, beam_size=beam or WHISPER_BEAM, vad_filter=False)
     chars, times = [], []
     for sg in segs:
+        if progress is not None:
+            try:
+                progress(float(sg.end or 0))
+            except Exception:      # noqa: BLE001 — báo tiến độ hỏng không được làm hỏng lượt nghe
+                pass
         for w in sg.words or []:
             k = "".join(_keep(c) for c in w.word)
             for j, c in enumerate(k):
@@ -165,6 +172,78 @@ def _cut_between(a: float, b: float, sil: List[Tuple[float, float]]) -> float:
     return best[1] if best else (a + b) / 2
 
 
+# Đường KHÔNG Whisper có giọng tạm (dò 6/11/2026 trên tập 888, chuẩn = chỗ cắt Whisper): −30 dB/0,15 s thấy 72/78 chỗ cắt
+# thật; w_abs 0,1 · w_len 1,0 · lặng ≥ 0,12 s · cửa sổ ±5 s → lệch TB 0,50 s, 15/78 chỗ > 1 s (chia thẳng theo tỉ lệ: 1,75 s).
+# Kém Whisper xa ⇒ chỉ là đường lùi khi máy không có faster_whisper.
+GUIDE_WINDOW = 5.0
+GUIDE_MIN_SIL = 0.12
+GUIDE_NOISE, GUIDE_SIL_DUR = "-30dB", 0.15
+# Whisper cho việc CẮT: base + beam 1 (36 s / 13′ trên máy dev, khớp 0,86, chỗ cắt lệch ≤ 0,21 s so với small/beam 5 — chữ
+# cuối câu còn được ghim vào khoảng lặng thật bằng _anchor). small/beam 5 cũ: ~250 s, 23′ khi máy bận.
+WHISPER_MODEL, WHISPER_BEAM = "base", 1
+
+
+def _cuts_by_guide(guides: List[float], total: float, sil: List[Tuple[float, float]], w_abs: float = 0.1,
+                   w_len: float = 1.0, min_sil: Optional[float] = None, window: Optional[float] = None) -> Optional[List[float]]:
+    """Chỗ cắt theo THỜI LƯỢNG GIỌNG TẠM từng cảnh (CapCut / Edge đã đọc đúng lời ấy) — không cần Whisper (6/11/2026).
+
+    Đo tập 888: tổng giọng tạm Edge 13,5′ vs file người dùng 12,3′, từng cảnh 0,71–1,05× ⇒ chia thẳng theo tỉ lệ lệch tới 5,2 s.
+    Nên: co giãn cho tổng = độ dài file, rồi quy hoạch động chọn một khoảng lặng cho mỗi chỗ cắt (trong ±GUIDE_WINDOW): chi
+    phí = lệch độ dài ĐOẠN so với giọng tạm (sai số không cộng dồn) + 0,3 × lệch vị trí tuyệt đối − thưởng khoảng lặng dài
+    (cuối câu nghỉ lâu hơn dấu phẩy). Trả [0, c1, …, total] hoặc None khi không đủ khoảng lặng."""
+    n = len(guides)
+    if n <= 1:
+        return [0.0, total]
+    g = [max(0.05, float(x or 0)) for x in guides]
+    scale = total / sum(g)
+    g = [x * scale for x in g]
+    expect, acc = [], 0.0
+    for x in g[:-1]:
+        acc += x
+        expect.append(acc)
+    min_sil = GUIDE_MIN_SIL if min_sil is None else min_sil
+    window = GUIDE_WINDOW if window is None else window
+    cand = sorted(((s + e) / 2, e - s) for s, e in sil if e - s >= min_sil and 0.2 < (s + e) / 2 < total - 0.2)
+    if len(cand) < n - 1:
+        return None
+    INF = float("inf")
+    win = [[j for j, (m, _) in enumerate(cand) if abs(m - expect[p]) <= window] for p in range(n - 1)]
+    if any(not w for w in win):
+        return None
+
+    def local(p: int, j: int) -> float:
+        m, L = cand[j]
+        return w_abs * abs(m - expect[p]) - w_len * min(L, 1.2)
+
+    dp: List[Dict[int, float]] = [dict() for _ in range(n - 1)]
+    back: List[Dict[int, int]] = [dict() for _ in range(n - 1)]
+    for j in win[0]:
+        dp[0][j] = abs(cand[j][0] - g[0]) + local(0, j)
+    for p in range(1, n - 1):
+        for j in win[p]:
+            best, arg = INF, -1
+            for jp, v in dp[p - 1].items():
+                if jp >= j or cand[j][0] - cand[jp][0] < 0.3:
+                    continue
+                c = v + abs((cand[j][0] - cand[jp][0]) - g[p])
+                if c < best:
+                    best, arg = c, jp
+            if arg >= 0:
+                dp[p][j], back[p][j] = best + local(p, j), arg
+    last = {j: v + abs((total - cand[j][0]) - g[-1]) for j, v in dp[n - 2].items()}
+    if not last:
+        return None
+    j = min(last, key=last.get)
+    picks = []
+    for p in range(n - 2, -1, -1):
+        picks.append(j)
+        j = back[p].get(j, -1)
+    picks.reverse()
+    if any(x < 0 for x in picks):
+        return None
+    return [0.0] + [cand[j][0] for j in picks] + [total]
+
+
 def _cuts_by_silence(lengths: List[int], total: float, sil: List[Tuple[float, float]]) -> Optional[List[float]]:
     """Không có Whisper: N−1 chỗ cắt = khoảng lặng ≥ PARA_SIL theo thứ tự, gần vị trí ước theo số ký tự (quy hoạch động)."""
     n = len(lengths)
@@ -209,9 +288,12 @@ def _cuts_by_silence(lengths: List[int], total: float, sil: List[Tuple[float, fl
 
 def split_by_paragraph(src: str, paragraphs: List[str], out_dir: str, ffmpeg: str = "", language: str = "",
                        names: Optional[List[str]] = None, transcribe: Optional[Callable] = None,
-                       duration: Optional[Callable[[str], float]] = None) -> Dict[str, Any]:
+                       duration: Optional[Callable[[str], float]] = None, guides: Optional[List[float]] = None,
+                       progress: Optional[Callable[[float, float], Any]] = None) -> Dict[str, Any]:
     """Cắt `src` (đọc cả bài) thành một file mp3 cho mỗi đoạn (= cảnh) trong `out_dir`, kèm `<mp3>.words.json` khi có
-    Whisper. Trả {"files": [{"path", "start", "end", "seconds"}], "engine": "whisper"|"silence", "match", "anchors"}.
+    Whisper. Trả {"files": [{"path", "start", "end", "seconds"}], "engine": "whisper"|"guide"|"silence", "match", "anchors"}.
+    guides: thời lượng GIỌNG TẠM từng đoạn (CapCut / Edge) — máy không có Whisper thì cắt theo nó + khoảng lặng.
+    progress(giây đã nghe, tổng giây) khi Whisper đang nghe.
     Ném ValueError khi bản đọc không khớp kịch bản / không tìm được chỗ chuyển cảnh."""
     if not ffmpeg:
         from tubecli.extensions.video_studio.ffmpeg_utils import find_ffmpeg
@@ -225,7 +307,10 @@ def split_by_paragraph(src: str, paragraphs: List[str], out_dir: str, ffmpeg: st
     paras = [str(p or "") for p in paragraphs]
     norms = [norm_with_map(p) for p in paras]
     sil = silences(src, ffmpeg)
-    heard = (transcribe or whisper_chars)(src, language)
+    if transcribe is not None:
+        heard = transcribe(src, language)
+    else:
+        heard = whisper_chars(src, language, progress=(lambda t: progress(t, total)) if progress else None)
     info: Dict[str, Any] = {"engine": "silence", "match": None, "anchors": 0}
     t_of: List[float] = []
     first: Dict[int, int] = {}
@@ -257,6 +342,15 @@ def split_by_paragraph(src: str, paragraphs: List[str], out_dir: str, ffmpeg: st
         for a_p, b_p in zip(spoken[:-1], spoken[1:]):
             cuts.append(max(_cut_between(t_of[last[a_p]], t_of[first[b_p]], sil), cuts[-1] + 0.3))
         cuts.append(total)
+        bounds = {p: (cuts[k], cuts[k + 1]) for k, p in enumerate(spoken)}
+    elif guides and len(guides) == len(paras) and all(float(g or 0) > 0 for p, g in enumerate(guides) if norms[p][0]):
+        # không Whisper, có giọng tạm: độ dài từng đoạn theo giọng tạm + khoảng lặng −30 dB (xem GUIDE_*)
+        spoken = [p for p in range(len(paras)) if norms[p][0]]
+        cuts = _cuts_by_guide([float(guides[p]) for p in spoken], total,
+                              silences(src, ffmpeg, noise=GUIDE_NOISE, min_dur=GUIDE_SIL_DUR))
+        if not cuts:
+            raise ValueError("no clear pause near the expected scene changes — cannot split the voice-over by scene")
+        info["engine"] = "guide"
         bounds = {p: (cuts[k], cuts[k + 1]) for k, p in enumerate(spoken)}
     else:
         spoken = [p for p in range(len(paras)) if norms[p][0]]

@@ -500,5 +500,12 @@
   "codex.toast_voice_one_video": "一個配音檔只對應一篇文字——請貼上那一篇，而不是多個連結。",
   "codex.ext_images_from_template": "範本內建：{name}",
   "codex.ext_images_remove": "移除這張圖片",
-  "codex.ext_images_max": "最多 {n} 張——多出的未加入。"
+  "codex.ext_images_max": "最多 {n} 張——多出的未加入。",
+  "codex.field_video_cast": "角色",
+  "codex.field_video_cast_hint": "範本角色在每張圖裡保持同樣的長相和服裝。刪掉這支影片不需要的，或從角色庫、照片新增。",
+  "codex.cv_cast_upload": "從照片新建",
+  "codex.cv_cast_add": "+ 從角色庫新增",
+  "codex.cv_cast_none": "沒有固定角色——畫面依腳本繪製。",
+  "codex.cv_cast_name": "新角色的名字",
+  "codex.cv_cast_added": "已將 {name} 加入角色庫"
 }

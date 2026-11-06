@@ -876,6 +876,14 @@ a.cx-btn { text-decoration: none; }   /* nút là link (Xem live → tab mới) 
 .cx-x-thumb-del { position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 50%; border: 0;
   background: rgba(15,23,42,.85); color: #fff; font-size: 14px; line-height: 20px; padding: 0; cursor: pointer; }
 .cx-x-thumb-del:hover, .cx-x-thumb-del:focus-visible { background: #ef4444; }
+/* Dàn nhân vật của mẫu trong form video (6/11/2026) */
+.cx-cast-item { flex-direction: column; align-items: center; gap: 2px; width: 64px; }
+.cx-cast-item em { font-style: normal; font-size: 11px; max-width: 64px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cx-cast-noimg { width: 56px; height: 56px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center;
+  border: 1px dashed rgba(128,128,128,.5); text-transform: uppercase; font-size: 13px; }
+.cx-cast-add { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+.cx-cast-add select { flex: 1 1 180px; min-width: 0; }
+.cx-cast-add .material-symbols-outlined { font-size: 1rem; margin-right: 4px; vertical-align: -3px; }
 .cx-req { color: #f87171; }
 /* «Lưu thành mẫu» của form loại việc do extension khai (kho mẫu chung, 3/10/2026) */
 .cx-x-tpl { display: flex; justify-content: flex-end; margin-top: 4px; }

@@ -500,5 +500,12 @@
   "codex.toast_voice_one_video": "Un archivo de voz va con un solo texto: pega ese texto, no varios enlaces.",
   "codex.ext_images_from_template": "De la plantilla: {name}",
   "codex.ext_images_remove": "Quitar esta imagen",
-  "codex.ext_images_max": "Hasta {n} imágenes — las demás no se añadieron."
+  "codex.ext_images_max": "Hasta {n} imágenes — las demás no se añadieron.",
+  "codex.field_video_cast": "Personajes",
+  "codex.field_video_cast_hint": "Los personajes de la plantilla mantienen la misma cara y ropa en cada imagen. Quita los que este vídeo no necesita o añade uno de la biblioteca o desde una foto.",
+  "codex.cv_cast_upload": "Nuevo desde una foto",
+  "codex.cv_cast_add": "+ Añadir un personaje de la biblioteca",
+  "codex.cv_cast_none": "Sin personajes fijos: las imágenes siguen el guion.",
+  "codex.cv_cast_name": "Nombre del nuevo personaje",
+  "codex.cv_cast_added": "{name} añadido a la biblioteca de personajes"
 }

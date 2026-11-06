@@ -2033,6 +2033,7 @@ const CODEX = (() => {
     $('cx-created-desc').textContent = t('codex.created_desc');
     $('cx-v-content').value = '';
     resetVoiceFile();
+    state.cvCast = null;          // mẫu chọn lại (renderVideoSummary) thì nạp lại dàn của mẫu
     $('cx-v-split').checked = true;     // nhiều link = nhiều video; ô này chỉ hiện khi dán ≥2 dòng link
     $('cx-v-title').value = '';
     $('cx-v-review').checked = lsGet(CV_REVIEW_KEY) !== '0';
@@ -2611,8 +2612,108 @@ const CODEX = (() => {
   }
 
   /** Thẻ tóm tắt mẫu: NGÔN NGỮ đứng đầu — đó là thứ AI sẽ viết lại theo. */
+  // ── Dàn nhân vật của mẫu (6/11/2026) ───────────────────────────────────────────
+  // state.cvCast = {preset, style, base:[slug] (dàn của mẫu), list:[{slug,name,sheet_url}], lib:[…kho style ấy]}
+  function castSlugs(raw) {
+    return String(raw || '').split(',').map(s => s.trim()).filter(Boolean);
+  }
+
+  async function loadVideoCast(name) {
+    const wrap = $('cx-v-cast-wrap');
+    if (!wrap) return;
+    const p = (name && state.presets) ? state.presets[name] : null;
+    if (!p) { state.cvCast = null; wrap.classList.add('hidden'); return; }
+    const style = String(p.wizStyle || '').trim();
+    const base = castSlugs(p.wizCast);
+    const cv = { preset: name, style: style, base: base, list: base.map(s => ({ slug: s, name: s, sheet_url: '' })), lib: [] };
+    state.cvCast = cv;
+    wrap.classList.toggle('hidden', !style);
+    renderVideoCast();
+    if (!style) return;
+    try {
+      const d = await request('/api/v1/characters?style=' + encodeURIComponent(style));
+      if (state.cvCast !== cv) return;          // đã đổi mẫu trong lúc chờ
+      cv.lib = (d && d.characters) || [];
+      cv.list = cv.list.map(x => cv.lib.find(c => c.slug === x.slug) || x);
+    } catch (e) { /* kho nhân vật chưa có: vẫn hiện dàn theo mã */ }
+    renderVideoCast();
+  }
+
+  function renderVideoCast() {
+    const cv = state.cvCast;
+    const box = $('cx-v-cast');
+    const pick = $('cx-v-cast-pick');
+    if (!cv || !box) return;
+    box.innerHTML = cv.list.length ? cv.list.map((c, i) => {
+      const img = c.sheet_url ? `<img src="${esc(c.sheet_url)}" alt="">` : `<span class="cx-cast-noimg">${esc((c.name || c.slug).slice(0, 2))}</span>`;
+      return `<span class="cx-x-thumb cx-cast-item${cv.base.includes(c.slug) ? ' is-preset' : ''}" title="${esc(c.name || c.slug)}">${img}`
+        + `<button type="button" class="cx-x-thumb-del" aria-label="${esc(t('codex.ext_images_remove'))}" onclick="CODEX.removeVideoCast(${i})">×</button>`
+        + `<em>${esc(c.name || c.slug)}</em></span>`;
+    }).join('') : `<span class="cx-field-meta">${esc(t('codex.cv_cast_none'))}</span>`;
+    if (pick) {
+      const rest = cv.lib.filter(c => !cv.list.some(x => x.slug === c.slug));
+      pick.innerHTML = `<option value="">${esc(t('codex.cv_cast_add'))}</option>`
+        + rest.map(c => `<option value="${esc(c.slug)}">${esc(c.name || c.slug)}</option>`).join('');
+      pick.disabled = !rest.length;
+    }
+  }
+
+  function removeVideoCast(i) {
+    const cv = state.cvCast;
+    if (!cv) return;
+    cv.list.splice(i, 1);
+    renderVideoCast();
+  }
+
+  function onVideoCastPick() {
+    const cv = state.cvCast;
+    const sel = $('cx-v-cast-pick');
+    const c = cv && cv.lib.find(x => x.slug === (sel && sel.value));
+    if (c && !cv.list.some(x => x.slug === c.slug)) cv.list.push(c);
+    renderVideoCast();
+  }
+
+  /** Ảnh mới → nhân vật mới trong kho ĐÚNG style của mẫu (POST /api/v1/characters, sheet = ảnh này) → vào dàn. */
+  async function onVideoCastFile() {
+    const cv = state.cvCast;
+    const inp = $('cx-v-cast-file');
+    const file = inp && inp.files && inp.files[0];
+    if (inp) inp.value = '';
+    if (!cv || !file || !cv.style) return;
+    const name = (window.prompt(t('codex.cv_cast_name'), file.name.replace(/\.[^.]+$/, '')) || '').trim();
+    if (!name) return;
+    try {
+      const dataUrl = await new Promise((ok, bad) => {
+        const r = new FileReader();
+        r.onload = () => ok(r.result);
+        r.onerror = () => bad(r.error || new Error('read failed'));
+        r.readAsDataURL(file);
+      });
+      const d = await request('/api/v1/characters', { method: 'POST',
+        body: JSON.stringify({ style: cv.style, name: name, kind: 'person', sheet_data: dataUrl }) });
+      const c = d && d.character;
+      if (!c || !c.slug) throw new Error('no character returned');
+      cv.lib = cv.lib.filter(x => x.slug !== c.slug).concat([c]);
+      if (!cv.list.some(x => x.slug === c.slug)) cv.list.push(c);
+      renderVideoCast();
+      toast(t('codex.cv_cast_added', { name: c.name || name }), 'success');
+    } catch (e) {
+      toast(t('codex.toast_action_failed', { error: e.message }), 'error');
+    }
+  }
+
+  /** options.cast chỉ gửi khi người dùng ĐỔI dàn so với mẫu (không đổi = theo mẫu, mẫu sửa sau vẫn ăn). */
+  function videoCastOption() {
+    const cv = state.cvCast;
+    if (!cv || cv.preset !== (($('cx-v-preset') || {}).value || '')) return null;
+    const now = cv.list.map(x => x.slug);
+    return now.join(',') === cv.base.join(',') ? null : now;
+  }
+
   function renderVideoSummary() {
     renderVideoLength();          // nhãn "Theo mẫu · …" đổi theo mẫu đang chọn
+    const _cvName = ($('cx-v-preset') || {}).value || '';
+    if (!state.cvCast || state.cvCast.preset !== _cvName) loadVideoCast(_cvName);
     const box = $('cx-v-summary');
     const show = (warn, html) => { box.className = 'cx-tpl' + (warn ? ' warn' : ''); box.innerHTML = html; };
     if (state.presets === false) {
@@ -3399,6 +3500,9 @@ const CODEX = (() => {
       const dubVoice = (($('cx-v-dub-voice') || {}).value || '').trim().slice(0, CV_DUB_VOICE_MAX);
       if (dubVoice) options.dub_voice = dubVoice;
     }
+    // Dàn nhân vật người dùng đã chỉnh (xoá / thêm) — ghi đè dàn của mẫu cho task này.
+    const castOpt = videoCastOption();
+    if (castOpt) options.cast = castOpt;
     // File giọng của người dùng: lời nguyên văn; server cho CapCut (không có thì Edge) đọc giọng tạm rồi bước dub thay bằng file.
     if (state.voiceFile) {
       options.voice_file = state.voiceFile.path;
@@ -3590,7 +3694,7 @@ const CODEX = (() => {
     onRetryDrive, onRetryDriveToken, retryReauth,
     confirmNote, confirmDelete, doDelete, copyResult, planTask,
     showThumbPrompt, rewriteThumbPrompt, copyThumbPrompt, setThumbStyle,
-    openNewTask, submitNewTask, queueVideo, setNewKind, onExtFiles, onExtField, saveExtTemplate, onVideoPreset, onVideoAgent, onVideoContent, onVideoLength, onVideoScript, onVideoKeepTheme, onVideoInstructions, onVideoDub, planFromModal, onVideoVoiceFile, removeExtImage, closeModal, onBackdrop,
+    openNewTask, submitNewTask, queueVideo, setNewKind, onExtFiles, onExtField, saveExtTemplate, onVideoPreset, onVideoAgent, onVideoContent, onVideoLength, onVideoScript, onVideoKeepTheme, onVideoInstructions, onVideoDub, planFromModal, onVideoVoiceFile, removeExtImage, removeVideoCast, onVideoCastPick, onVideoCastFile, closeModal, onBackdrop,
     onVideoDrive, onVideoDriveToken, onVideoDriveShare, laneChoice, onVideoSplit, openDriveSync, startDriveSync, syncThenDelete, resumeLane,
     openClone, onCloneLang, startClone, openRetry, startRetry,
     onVideoYt, onVideoYtMethod, onVideoYtWhen,

@@ -500,5 +500,12 @@
   "codex.toast_voice_one_video": "음성 파일 하나에는 글 하나만 맞습니다. 링크 여러 개가 아니라 그 글을 붙여 넣으세요.",
   "codex.ext_images_from_template": "템플릿에 포함: {name}",
   "codex.ext_images_remove": "이 이미지 제거",
-  "codex.ext_images_max": "최대 {n}장 — 초과한 이미지는 추가되지 않았습니다."
+  "codex.ext_images_max": "최대 {n}장 — 초과한 이미지는 추가되지 않았습니다.",
+  "codex.field_video_cast": "캐릭터",
+  "codex.field_video_cast_hint": "템플릿 캐릭터는 모든 그림에서 같은 얼굴과 옷을 유지합니다. 이 영상에 필요 없는 캐릭터는 빼고, 라이브러리나 사진에서 추가하세요.",
+  "codex.cv_cast_upload": "사진으로 새로 만들기",
+  "codex.cv_cast_add": "+ 라이브러리에서 캐릭터 추가",
+  "codex.cv_cast_none": "고정 캐릭터 없음 — 그림은 대본을 따릅니다.",
+  "codex.cv_cast_name": "새 캐릭터 이름",
+  "codex.cv_cast_added": "{name}을(를) 캐릭터 라이브러리에 추가했습니다"
 }

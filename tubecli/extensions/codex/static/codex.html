@@ -236,6 +236,21 @@
           </div>
           <div class="cx-tpl hidden" id="cx-v-summary"></div>
 
+          <!-- Dàn nhân vật của mẫu (6/11/2026): hiện sẵn sheet của wizCast (kho nhân vật ĐÚNG style của mẫu), xoá ✕ / thêm từ kho
+               / tải ảnh mới (lưu vào kho style ấy) → options.cast ghi đè dàn của mẫu cho task này. -->
+          <div class="cx-field hidden" id="cx-v-cast-wrap">
+            <label data-i18n="codex.field_video_cast">Characters</label>
+            <div class="cx-x-previews" id="cx-v-cast"></div>
+            <div class="cx-cast-add">
+              <select id="cx-v-cast-pick" onchange="CODEX.onVideoCastPick()"></select>
+              <label class="cx-btn cx-btn-ghost cx-btn-sm" for="cx-v-cast-file">
+                <span class="material-symbols-outlined" aria-hidden="true">add_photo_alternate</span>
+                <span data-i18n="codex.cv_cast_upload">New from a photo</span></label>
+              <input type="file" id="cx-v-cast-file" accept="image/*" class="hidden" onchange="CODEX.onVideoCastFile()">
+            </div>
+            <div class="cx-field-meta" data-i18n="codex.field_video_cast_hint">The template's characters keep the same face and outfit in every picture. Remove the ones this video does not need, or add one from the library or from a photo.</div>
+          </div>
+
           <div class="cx-field-row">
             <div class="cx-field">
               <label for="cx-v-script" data-i18n="codex.field_video_script">Script</label>
