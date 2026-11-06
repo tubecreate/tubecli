@@ -133,9 +133,12 @@ async def run_route(req: RunRequest, request: Request):
     if content:
         options["source_text"] = content
     if str(options.get("voice_file") or "").strip():
-        # File giọng kèm bài (5/11/2026): chuẩn hoá NGAY để kế hoạch trên thẻ ghi đúng (nguyên văn, không TTS); file không
-        # có / không có bài dán → báo lỗi luôn thay vì để task chạy bằng giọng mẫu mà người dùng tưởng là giọng của mình.
+        # File giọng kèm bài (5/11/2026): chuẩn hoá NGAY để kế hoạch trên thẻ ghi đúng (nguyên văn, giọng tạm CapCut/Edge
+        # rồi thay bằng file); file không có / không có bài dán → báo lỗi luôn thay vì để task chạy bằng giọng khác mà người
+        # dùng tưởng là giọng của mình.
         from tubecli.extensions.content_video.pipeline import apply_voice_file
+        if not content:
+            raise HTTPException(400, "The voice file needs the text it reads: paste that text as the content.")
         apply_voice_file(options)
         if not options.get("voice_file"):
             raise HTTPException(400, "The voice file needs the text it reads: paste that text as the content "

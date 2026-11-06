@@ -492,9 +492,9 @@
   "codex.field_video_dub_voice": "Giọng cho Muse",
   "codex.field_video_dub_voice_placeholder": "Mô tả người đọc: nam/nữ, độ ấm, âm vực, tốc độ, khoảng lặng, cảm xúc, giọng cho câu thoại",
   "codex.field_video_voice_file": "File giọng của bạn (không bắt buộc)",
-  "codex.field_video_voice_file_hint": "Đọc đúng từng chữ nội dung ở trên: file được cắt theo từng cảnh thay cho giọng máy. Không khớp nội dung thì dùng giọng của mẫu.",
+  "codex.field_video_voice_file_hint": "Đọc đúng từng chữ nội dung ở trên: giọng tạm CapCut (hoặc Edge) đọc trước để có thời lượng, rồi file của bạn thay vào từng cảnh. File không khớp nội dung thì giữ giọng tạm.",
   "codex.cv_voice_uploading": "Đang tải {name} lên…",
-  "codex.cv_voice_ready": "{name} · {dur} — đọc nguyên văn, không dùng giọng máy",
+  "codex.cv_voice_ready": "{name} · {dur} — đọc nguyên văn; file của bạn thay giọng tạm CapCut / Edge",
   "codex.toast_voice_upload_failed": "Không tải được file giọng: {msg}",
   "codex.toast_voice_wait": "File giọng đang tải lên — chờ một chút.",
   "codex.toast_voice_one_video": "Một file giọng đi với một bài — chỉ dán đúng bài đó, không dán nhiều link."

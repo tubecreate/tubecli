@@ -492,9 +492,9 @@
   "codex.field_video_dub_voice": "Muse 목소리",
   "codex.field_video_dub_voice_placeholder": "내레이터 설명: 성별, 따뜻함, 음높이, 속도, 쉼, 감정, 대사 목소리",
   "codex.field_video_voice_file": "내 음성 파일 (선택)",
-  "codex.field_video_voice_file_hint": "위 내용을 그대로 읽은 음성입니다. 음성 합성 대신 파일을 장면별로 잘라 씁니다. 내용과 맞지 않으면 템플릿 음성을 사용합니다.",
+  "codex.field_video_voice_file_hint": "위 내용을 그대로 읽은 음성입니다. 먼저 CapCut(또는 Edge) 임시 음성으로 길이를 잡고, 장면별로 내 파일로 바꿉니다. 내용과 맞지 않으면 임시 음성을 유지합니다.",
   "codex.cv_voice_uploading": "{name} 업로드 중…",
-  "codex.cv_voice_ready": "{name} · {dur} — 원문 그대로 읽으며 음성 합성은 쓰지 않습니다",
+  "codex.cv_voice_ready": "{name} · {dur} — 원문 그대로; CapCut / Edge 임시 음성을 내 파일로 바꿉니다",
   "codex.toast_voice_upload_failed": "음성 파일을 업로드하지 못했습니다: {msg}",
   "codex.toast_voice_wait": "음성 파일을 업로드하는 중입니다. 잠시 기다려 주세요.",
   "codex.toast_voice_one_video": "음성 파일 하나에는 글 하나만 맞습니다. 링크 여러 개가 아니라 그 글을 붙여 넣으세요."

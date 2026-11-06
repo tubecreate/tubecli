@@ -174,8 +174,8 @@ DEFAULTS: Dict[str, Any] = {
     # Muse đọc lại cả bài MỘT lượt theo dub_voice (mô tả giọng tự do) rồi cắt theo cảnh — xem _step_dub.
     "dub": False, "dub_voice": "",
     # FILE GIỌNG CỦA NGƯỜI DÙNG kèm bài dán (form Codex, 5/11/2026 — user «logic nhập voice kèm text vào taskboard»): đường
-    # dẫn file đã tải lên (POST /api/v1/content-video/voice-file, nằm trong DATA_DIR). Có nó: lời = NGUYÊN VĂN bài dán,
-    # không đọc TTS; bước "dub" cắt file theo cảnh (narration_dub) — giọng không khớp bài thì lùi về giọng của mẫu.
+    # dẫn file đã tải lên (POST /api/v1/content-video/voice-file, nằm trong DATA_DIR). Có nó: lời = NGUYÊN VĂN bài dán;
+    # giọng TẠM đọc bằng CapCut (không có thì Edge — KHÔNG BAO GIỜ Muse), rồi bước "dub" thay bằng file cắt theo cảnh.
     "voice_file": "",
     # Prompt ảnh đại diện LUÔN viết (nút copy trên thẻ Codex + dòng trong Sheet); False = bỏ hẳn. thumbnail_engine
     # "image" = ảnh vẽ một lượt bằng model ảnh từ prompt đó, ảnh hook làm tham chiếu (thumbnail_image_model
@@ -4313,6 +4313,20 @@ def _tts_engine(state: Dict, options: Dict) -> str:
     Studio's batch-tts) or "capcut" (capcut_tts, per shot). "auto" prefers
     CapCut when it has an enabled account — the user picked those voices on
     purpose — and otherwise edge. Returns "" when nothing usable is there."""
+    if options.get("_voice_mode") or options.get("voice_file"):
+        # Task có FILE GIỌNG (6/11/2026, user «dùng capcut tạo tiếng rồi thay bằng file đúng… nếu capcut ko đc dùng edge»):
+        # giọng chỉ là TẠM để có thời lượng — CapCut (nhanh) nếu có tài khoản, không thì Edge; bỏ qua giọng của mẫu.
+        have = installed_extensions()
+        state.pop("capcut_speaker", None)
+        if have.get("capcut_tts"):
+            email = _capcut_account(str(options.get("capcut_email") or ""))
+            if email:
+                state["capcut_email"] = email
+                return "capcut"
+        if have.get("tts_vibevoice"):
+            state["tts_batch_engine"] = "edge"
+            return "edge"
+        return ""
     want, voice, email = _preset_voice(state, options)
     have = installed_extensions()
     edge_ok = bool(have.get("tts_vibevoice"))
@@ -5029,12 +5043,20 @@ def voice_file_path(options: Dict) -> str:
 
 
 def apply_voice_file(options: Dict) -> None:
-    """Có file giọng (và có bài dán): lời đọc NGUYÊN VĂN bài, tắt TTS (cả luồng đọc trước), bật bước dub để cắt file theo
-    cảnh. File không hợp lệ → bỏ, chạy như thường (giọng của mẫu) và ghi chú để báo."""
+    """Có file giọng: lời đọc NGUYÊN VĂN bài, giọng TẠM (CapCut, không có thì Edge — xem _tts_engine) đọc để có thời lượng,
+    bước dub thay bằng file cắt theo cảnh. Gọi ở /run (có bài dán — route tự báo 400 khi thiếu) VÀ ở _prepare của MỌI
+    chặng: chặng dựng không mang bài dán, nên KHÔNG đòi source_text ở đây (6/11/2026 #572: đòi nó ⇒ voice_file bị bỏ mà
+    dub=True còn ⇒ Muse đọc lại cả bài). `_voice_mode` giữ lại cả khi file mất: bước dub không bao giờ gọi Muse nữa."""
     if not str(options.get("voice_file") or "").strip():
         return
     path = voice_file_path(options)
-    if not path or not str(options.get("source_text") or "").strip():
+    options["_voice_mode"] = True
+    options["dub"] = True
+    options["dub_voice"] = ""
+    options["tts"] = True
+    options["tts_engine"] = "auto"
+    options["tts_voice"] = ""
+    if not path:
         options["_voice_file_dropped"] = str(options.get("voice_file") or "")
         options["voice_file"] = ""
         return
@@ -5042,14 +5064,13 @@ def apply_voice_file(options: Dict) -> None:
     options["script_mode"] = "verbatim"
     options["length_mode"] = "content"
     options.pop("target_words", None)
-    options["tts"] = False
-    options["dub"] = True
 
 
 def _step_dub(state: Dict, options: Dict) -> None:
     import hashlib
     say = state["_say"]
-    if options.get("voice_file"):
+    if options.get("voice_file") or options.get("_voice_mode"):
+        # Task có file giọng: chỉ thay bằng FILE — không bao giờ lồng bằng Muse (user 6/11/2026)
         _dub_user_file(state, options)
         return
     if _manga_mode(state):
@@ -5109,7 +5130,7 @@ def _dub_user_file(state: Dict, options: Dict) -> None:
     """Giọng = FILE của người dùng (options.voice_file): cắt theo cảnh bằng narration_dub.split_by_paragraph (Whisper so
     TỪNG KÝ TỰ với lời từng cảnh, neo chỗ cắt vào khoảng lặng; mốc chữ cho phụ đề). Tập 888 (5/11/2026): bài 4.153 ký tự
     phồn thể, file 13:10 → Whisper khớp 0,913, 79 đoạn phủ 0–790,6 s. Hỏng (file không đọc được, giọng không theo bài) →
-    đọc bằng giọng của MẪU như thường + cảnh báo, không để video câm."""
+    GIỮ giọng tạm CapCut / Edge của bước tts + cảnh báo; không bao giờ gọi Muse, không để video câm."""
     import hashlib
     say = state["_say"]
     path = voice_file_path(options)
@@ -5150,10 +5171,11 @@ def _dub_user_file(state: Dict, options: Dict) -> None:
     except Exception as e:      # noqa: BLE001 — lùi về giọng của mẫu
         if _is_cancel(e):
             raise
-        say("dub", "running", f"your voice file could not be used ({str(e)[:160]}) — reading with the template's voice")
+        # giọng TẠM (CapCut / Edge) đã đọc ở bước tts — giữ nó, báo rõ; không gọi Muse
+        tmp = str(state.get("tts_voice_used") or state.get("tts_engine") or "the temporary voice")
+        say("dub", "running", f"your voice file could not be used ({str(e)[:160]}) — keeping {tmp}")
         state.setdefault("warnings", []).append(
-            f"Your voice file {name} was not used: {str(e)[:200]}. The video uses the template's voice instead.")
-        _step_tts(state, {**options, "voice_file": "", "tts": True})
+            f"Your voice file {name} was not used: {str(e)[:200]}. The video keeps the temporary voice ({tmp}).")
         return
     changed = 0
     for s, f in zip(voiced, files):
@@ -9203,10 +9225,10 @@ def describe_plan(options: Dict[str, Any]) -> str:
                                                       else "; its tradition and names are left out"))
     if options.get("voice_file"):
         lines.append(f"- Voice: your file {os.path.basename(str(options['voice_file']))} — the script is read word for "
-                     "word, the file is cut scene by scene (no text-to-speech)")
+                     "word; CapCut (or Edge) reads a temporary voice for timing, then your file replaces it scene by "
+                     "scene (never Muse)")
     elif options.get("_voice_file_dropped"):
-        lines.append("- Voice: the uploaded voice file was not found (or there is no pasted text) — the template's "
-                     "voice reads the script")
+        lines.append("- Voice: the uploaded voice file was not found — a temporary CapCut / Edge voice reads the script")
     if str(options.get("instructions") or "").strip():
         note = " ".join(str(options["instructions"]).split())
         lines.append(f"- Extra instructions: {note[:160]}{'…' if len(note) > 160 else ''}")

@@ -492,9 +492,9 @@
   "codex.field_video_dub_voice": "Voz para Muse",
   "codex.field_video_dub_voice_placeholder": "Describe al narrador: género, calidez, tono, ritmo, pausas, emoción, voces para las frases citadas",
   "codex.field_video_voice_file": "Tu archivo de voz (opcional)",
-  "codex.field_video_voice_file_hint": "Lee el contenido de arriba palabra por palabra: el archivo se corta escena por escena en lugar de usar voz sintética. Si no coincide con el texto, se usa la voz de la plantilla.",
+  "codex.field_video_voice_file_hint": "Lee el contenido de arriba palabra por palabra: una voz temporal de CapCut (o Edge) marca los tiempos y luego tu archivo la reemplaza escena por escena. Si el archivo no coincide con el texto, se queda la voz temporal.",
   "codex.cv_voice_uploading": "Subiendo {name}…",
-  "codex.cv_voice_ready": "{name} · {dur} — el guion se lee palabra por palabra, sin voz sintética",
+  "codex.cv_voice_ready": "{name} · {dur} — palabra por palabra; tu archivo reemplaza la voz temporal de CapCut / Edge",
   "codex.toast_voice_upload_failed": "No se pudo subir el archivo de voz: {msg}",
   "codex.toast_voice_wait": "El archivo de voz aún se está subiendo; espera un momento.",
   "codex.toast_voice_one_video": "Un archivo de voz va con un solo texto: pega ese texto, no varios enlaces."

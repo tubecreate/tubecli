@@ -492,9 +492,9 @@
   "codex.field_video_dub_voice": "Museの声",
   "codex.field_video_dub_voice_placeholder": "ナレーターの説明：性別、温かさ、声の高さ、速さ、間、感情、台詞の声",
   "codex.field_video_voice_file": "あなたの音声ファイル（任意）",
-  "codex.field_video_voice_file_hint": "上の内容をそのまま読み上げた音声です。読み上げ合成の代わりに、ファイルをシーンごとに切り分けます。内容と一致しない場合はテンプレートの音声を使います。",
+  "codex.field_video_voice_file_hint": "上の内容をそのまま読み上げた音声です。まず CapCut（または Edge）の仮の音声で長さを決め、そのあとシーンごとにあなたのファイルに差し替えます。内容と一致しない場合は仮の音声のままです。",
   "codex.cv_voice_uploading": "{name} をアップロード中…",
-  "codex.cv_voice_ready": "{name} · {dur} — 原文どおりに読み上げ、合成音声は使いません",
+  "codex.cv_voice_ready": "{name} · {dur} — 原文どおり。CapCut / Edge の仮の音声をあなたのファイルに差し替えます",
   "codex.toast_voice_upload_failed": "音声ファイルをアップロードできませんでした: {msg}",
   "codex.toast_voice_wait": "音声ファイルをアップロード中です。少しお待ちください。",
   "codex.toast_voice_one_video": "音声ファイル1つにつき文章は1つです。複数のリンクではなく、その文章を貼り付けてください。"

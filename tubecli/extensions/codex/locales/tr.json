@@ -492,9 +492,9 @@
   "codex.field_video_dub_voice": "Muse için ses",
   "codex.field_video_dub_voice_placeholder": "Anlatıcıyı tarif edin: cinsiyet, sıcaklık, ses perdesi, hız, duraklamalar, duygu, replik sesleri",
   "codex.field_video_voice_file": "Ses dosyanız (isteğe bağlı)",
-  "codex.field_video_voice_file_hint": "Yukarıdaki içeriği kelimesi kelimesine okur: metin okuma yerine dosya sahne sahne kesilir. Metinle eşleşmezse şablonun sesi kullanılır.",
+  "codex.field_video_voice_file_hint": "Yukarıdaki içeriği kelimesi kelimesine okur: geçici bir CapCut (veya Edge) sesi zamanlamayı verir, ardından dosyanız sahne sahne onun yerine geçer. Dosya metinle eşleşmezse geçici ses kalır.",
   "codex.cv_voice_uploading": "{name} yükleniyor…",
-  "codex.cv_voice_ready": "{name} · {dur} — metin kelimesi kelimesine okunur, metin okuma yok",
+  "codex.cv_voice_ready": "{name} · {dur} — kelimesi kelimesine; dosyanız geçici CapCut / Edge sesinin yerine geçer",
   "codex.toast_voice_upload_failed": "Ses dosyası yüklenemedi: {msg}",
   "codex.toast_voice_wait": "Ses dosyası hâlâ yükleniyor — biraz bekleyin.",
   "codex.toast_voice_one_video": "Bir ses dosyası tek bir metinle gider — birkaç bağlantı değil, o metni yapıştırın."
