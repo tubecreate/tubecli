@@ -492,9 +492,9 @@
   "codex.field_video_dub_voice": "Voice for Muse",
   "codex.field_video_dub_voice_placeholder": "Describe the narrator: gender, warmth, pitch, pace, pauses, emotion, voices for quoted lines",
   "codex.field_video_voice_file": "Your voice file (optional)",
-  "codex.field_video_voice_file_hint": "Reads the content above word for word: the file is cut scene by scene instead of text-to-speech. If it does not match the text, the template's voice is used.",
+  "codex.field_video_voice_file_hint": "Reads the content above word for word: a temporary CapCut (or Edge) voice gives the timing, then your file replaces it scene by scene. If the file does not match the text, the temporary voice stays.",
   "codex.cv_voice_uploading": "Uploading {name}…",
-  "codex.cv_voice_ready": "{name} · {dur} — the script is read word for word, no text-to-speech",
+  "codex.cv_voice_ready": "{name} · {dur} — read word for word; your file replaces the temporary CapCut / Edge voice",
   "codex.toast_voice_upload_failed": "Could not upload the voice file: {msg}",
   "codex.toast_voice_wait": "The voice file is still uploading — wait a moment.",
   "codex.toast_voice_one_video": "A voice file goes with one text — paste that one text, not several links."

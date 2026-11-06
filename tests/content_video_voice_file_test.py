@@ -52,18 +52,22 @@ o = {**P.DEFAULTS, "voice_file": wav, "source_text": "第一段。第二段。",
      "length_mode": "minutes"}
 P.apply_voice_file(o)
 ok(o["voice_file"] == os.path.abspath(wav) and o["script_mode"] == "verbatim", "voice file → verbatim script", o)
-ok(o["tts"] is False and o["dub"] is True, "voice file → TTS off, dub step on", (o["tts"], o["dub"]))
+ok(o["tts"] is True and o["tts_engine"] == "auto" and o["dub"] is True and o.get("_voice_mode"),
+   "voice file → a temporary voice reads, then the dub step replaces it", (o["tts"], o["tts_engine"], o["dub"]))
 ok(o["length_mode"] == "content" and "target_words" not in o, "length = the pasted text's own length", o)
 
 o2 = {**P.DEFAULTS, "voice_file": outside, "source_text": "x"}
 P.apply_voice_file(o2)
-ok(o2["voice_file"] == "" and o2.get("_voice_file_dropped") and o2.get("tts", True) is True, "a file outside DATA_DIR is refused", o2)
+ok(o2["voice_file"] == "" and o2.get("_voice_file_dropped") and o2.get("_voice_mode"), "a file outside DATA_DIR is refused",
+   o2)
 o3 = {**P.DEFAULTS, "voice_file": os.path.join(up, "gone.wav"), "source_text": "x"}
 P.apply_voice_file(o3)
-ok(o3["voice_file"] == "" and o3.get("tts", True) is True, "a missing file is dropped")
-o4 = {**P.DEFAULTS, "voice_file": wav, "source_text": ""}
+ok(o3["voice_file"] == "" and o3.get("_voice_mode") and o3["dub"] is True, "a missing file is dropped, voice mode kept")
+# #572 (6/11/2026): chặng DỰNG không mang bài dán — voice_file phải còn nguyên
+o4 = {**P.DEFAULTS, "voice_file": wav, "script": "第一段。", "dub": True}
 P.apply_voice_file(o4)
-ok(o4["voice_file"] == "" and o4["script_mode"] == "rewrite", "no pasted text → the voice file is not used", o4)
+ok(o4["voice_file"] == os.path.abspath(wav) and o4["script_mode"] == "verbatim",
+   "render stage without the pasted text keeps the voice file", o4)
 o5 = {**P.DEFAULTS}
 P.apply_voice_file(o5)
 ok(o5 == {**P.DEFAULTS}, "no voice file → options untouched")
@@ -144,24 +148,38 @@ P._step_dub(st2, o)
 ok(not splits and not puts, "retry with the same file and script reuses the cut", (splits, puts))
 SHOTS[0]["tts_audio_url"] = SHOTS[2]["tts_audio_url"] = ""
 
-# Giọng không theo bài → giọng của mẫu + cảnh báo
+# Giọng không theo bài → GIỮ giọng tạm (CapCut / Edge đã đọc ở bước tts) + cảnh báo; không Muse, không đọc lại
 ND.split_by_paragraph = fail_split
 puts.clear(); tts_calls.clear()
 st3 = new_state()
+st3["tts_voice_used"] = "CapCut · 台灣男聲 · Chinese (Traditional)"
 P._step_dub(st3, o)
-ok(len(tts_calls) == 1 and tts_calls[0]["tts"] is True and not tts_calls[0]["voice_file"],
-   "a file that does not follow the script → the template's voice reads it", tts_calls)
-ok(any("abc123.wav was not used" in w for w in st3.get("warnings") or []), "and the task warns about it",
-   st3.get("warnings"))
+ok(not tts_calls, "a file that does not follow the script → no second TTS run", tts_calls)
+ok(any("abc123.wav was not used" in w and "CapCut" in w for w in st3.get("warnings") or []),
+   "the task warns and names the temporary voice it keeps", st3.get("warnings"))
 ok(not puts, "no scene is pointed at a broken cut", puts)
 
-# File biến mất sau khi tạo task → cũng lùi về giọng mẫu
+# File biến mất / bị bỏ ở chặng dựng (#572) → vẫn KHÔNG gọi Muse
 ND.split_by_paragraph = fake_split
 tts_calls.clear()
 st4 = new_state()
-P._step_dub(st4, {**o, "voice_file": os.path.join(up, "gone.wav")})
-ok(len(tts_calls) == 1 and st4.get("warnings"), "a file deleted before the run → template voice + warning",
+P._step_dub(st4, {**o, "voice_file": "", "_voice_mode": True})
+ok(not tts_calls and st4.get("warnings"), "voice mode without a usable file → keep the temporary voice + warning, no Muse",
    (tts_calls, st4.get("warnings")))
+
+# ── B2. giọng tạm: CapCut nếu có tài khoản, không thì Edge; bỏ qua giọng của mẫu ────────────────────────────────────
+_real_inst, _real_acct = P.installed_extensions, P._capcut_account
+P.installed_extensions = lambda: {"capcut_tts": True, "tts_vibevoice": True}
+P._capcut_account = lambda email="": "cap@example.com"
+stv = {"capcut_speaker": "vi_template_voice"}
+ok(P._tts_engine(stv, o) == "capcut" and stv.get("capcut_email") == "cap@example.com" and "capcut_speaker" not in stv,
+   "voice mode → CapCut, the template's speaker is dropped (picked by language)", stv)
+P._capcut_account = lambda email="": ""
+stv = {}
+ok(P._tts_engine(stv, o) == "edge" and stv.get("tts_batch_engine") == "edge", "no CapCut account → Edge", stv)
+P.installed_extensions = lambda: {"capcut_tts": False, "tts_vibevoice": True}
+ok(P._tts_engine({}, {**o, "tts_engine": "everai"}) == "edge", "voice mode ignores the template's paid / desktop engines")
+P.installed_extensions, P._capcut_account = _real_inst, _real_acct
 
 # ── C. route ───────────────────────────────────────────────────────────────────────────────────────────────────────
 try:
@@ -196,7 +214,7 @@ try:
     ok(r.status_code == 400 and not made, "/run with a voice file outside DATA_DIR → 400, no task", (r.status_code, r.text))
     r = c.post("/api/v1/content-video/run", json={"agent_id": "a1", "content": "第一段。", "options": {"voice_file": wav}})
     opts = made[-1][0][1] if made and len(made[-1][0]) > 1 else {}
-    ok(r.status_code == 200 and opts.get("script_mode") == "verbatim" and opts.get("tts") is False,
+    ok(r.status_code == 200 and opts.get("script_mode") == "verbatim" and opts.get("_voice_mode") and opts.get("dub"),
        "/run normalises the options before the task is made", (r.status_code, opts))
 except ImportError as e:
     ok(False, "fastapi test client available", e)

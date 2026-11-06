@@ -492,9 +492,9 @@
   "codex.field_video_dub_voice": "Muse 的声音",
   "codex.field_video_dub_voice_placeholder": "描述旁白：性别、温暖程度、音高、语速、停顿、情绪、台词的声音",
   "codex.field_video_voice_file": "你的配音文件（可选）",
-  "codex.field_video_voice_file_hint": "逐字朗读上面的内容：文件按场景切分，代替语音合成。若与文本不符，则使用模板的声音。",
+  "codex.field_video_voice_file_hint": "逐字朗读上面的内容：先用 CapCut（或 Edge）的临时配音确定时长，再按场景换成你的文件。若文件与文字不符，则保留临时配音。",
   "codex.cv_voice_uploading": "正在上传 {name}…",
-  "codex.cv_voice_ready": "{name} · {dur} — 逐字朗读，不使用语音合成",
+  "codex.cv_voice_ready": "{name} · {dur} — 逐字朗读；你的文件会替换 CapCut / Edge 临时配音",
   "codex.toast_voice_upload_failed": "无法上传配音文件：{msg}",
   "codex.toast_voice_wait": "配音文件仍在上传，请稍候。",
   "codex.toast_voice_one_video": "一个配音文件只对应一篇文字——请粘贴那一篇，而不是多个链接。"

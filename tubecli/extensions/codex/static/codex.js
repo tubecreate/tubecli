@@ -3349,7 +3349,7 @@ const CODEX = (() => {
       const dubVoice = (($('cx-v-dub-voice') || {}).value || '').trim().slice(0, CV_DUB_VOICE_MAX);
       if (dubVoice) options.dub_voice = dubVoice;
     }
-    // File giọng của người dùng: lời nguyên văn, pipeline cắt file theo cảnh thay cho TTS (server tự tắt TTS / bật bước dub).
+    // File giọng của người dùng: lời nguyên văn; server cho CapCut (không có thì Edge) đọc giọng tạm rồi bước dub thay bằng file.
     if (state.voiceFile) {
       options.voice_file = state.voiceFile.path;
       options.script_mode = 'verbatim';
