@@ -497,5 +497,8 @@
   "codex.cv_voice_ready": "{name} · {dur} — read word for word; your file replaces the temporary CapCut / Edge voice",
   "codex.toast_voice_upload_failed": "Could not upload the voice file: {msg}",
   "codex.toast_voice_wait": "The voice file is still uploading — wait a moment.",
-  "codex.toast_voice_one_video": "A voice file goes with one text — paste that one text, not several links."
+  "codex.toast_voice_one_video": "A voice file goes with one text — paste that one text, not several links.",
+  "codex.ext_images_from_template": "From the template: {name}",
+  "codex.ext_images_remove": "Remove this image",
+  "codex.ext_images_max": "Up to {n} images — the extra ones were not added."
 }

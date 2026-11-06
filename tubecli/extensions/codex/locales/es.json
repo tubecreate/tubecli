@@ -497,5 +497,8 @@
   "codex.cv_voice_ready": "{name} · {dur} — palabra por palabra; tu archivo reemplaza la voz temporal de CapCut / Edge",
   "codex.toast_voice_upload_failed": "No se pudo subir el archivo de voz: {msg}",
   "codex.toast_voice_wait": "El archivo de voz aún se está subiendo; espera un momento.",
-  "codex.toast_voice_one_video": "Un archivo de voz va con un solo texto: pega ese texto, no varios enlaces."
+  "codex.toast_voice_one_video": "Un archivo de voz va con un solo texto: pega ese texto, no varios enlaces.",
+  "codex.ext_images_from_template": "De la plantilla: {name}",
+  "codex.ext_images_remove": "Quitar esta imagen",
+  "codex.ext_images_max": "Hasta {n} imágenes — las demás no se añadieron."
 }

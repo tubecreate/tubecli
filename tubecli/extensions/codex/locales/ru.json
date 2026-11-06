@@ -497,5 +497,8 @@
   "codex.cv_voice_ready": "{name} · {dur} — дословно; ваш файл заменит временный голос CapCut / Edge",
   "codex.toast_voice_upload_failed": "Не удалось загрузить файл с голосом: {msg}",
   "codex.toast_voice_wait": "Файл с голосом ещё загружается — подождите немного.",
-  "codex.toast_voice_one_video": "Один файл с голосом — к одному тексту: вставьте этот текст, а не несколько ссылок."
+  "codex.toast_voice_one_video": "Один файл с голосом — к одному тексту: вставьте этот текст, а не несколько ссылок.",
+  "codex.ext_images_from_template": "Из шаблона: {name}",
+  "codex.ext_images_remove": "Убрать это изображение",
+  "codex.ext_images_max": "Не больше {n} изображений — лишние не добавлены."
 }
