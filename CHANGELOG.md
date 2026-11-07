@@ -2,6 +2,25 @@
 
 Notable changes to TubeCLI. Versions match `tubecli/__init__.py`.
 
+## 2026.08.09.231 — 2026-11-07
+
+### Video tasks
+- **Paste subtitles as the content.** A pasted `.srt` or `.vtt` file is read as plain narration: cue numbers,
+  timestamps, `WEBVTT` / `NOTE` lines and tags are removed. In Chinese, Japanese and Korean, the transcriber's
+  spaces become «，». A pause of 0.6 s or more starts a new paragraph, so scenes split where the speaker pauses.
+- **Content you give is not stopped by the niche check.** When you paste the text, give YouTube links or upload a
+  voice file, the niche score is noted as a warning and the video goes on. Before, an agent with no niche set up
+  stopped such a video at review on every Retry. Automatic publishing still stops off-niche videos.
+
+### Task board: skills
+- Skills no longer fail with «[Codex Error] wrong_thread». Skills that call the model (SOP and workflow skills)
+  now call it off the server's main loop. Before, Codex refused the call, and other models froze the server
+  while they answered.
+- A skill that returns an error now marks its step as failed and the task as **Failed**, with the reason. Before,
+  the error text was reported as the result and the task went to review.
+- A task that asks for a video only goes to review when the skill gives a real video file: the file exists, is not
+  empty and has a duration. «Done» with no file is a failed task.
+
 ## 2026.08.09.230 — 2026-11-07
 
 ### Video tasks: bring your own voice file
