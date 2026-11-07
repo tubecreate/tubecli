@@ -2285,6 +2285,15 @@ def _step_niche(state: Dict, options: Dict) -> None:
                         "Nothing was written from off-niche material.")
 
 
+def _user_gave_content(state: Dict, options: Dict) -> bool:
+    """Nội dung do NGƯỜI đưa vào task (bài dán, link YouTube, file giọng) — không phải lượt tự động từ kho."""
+    if options.get("autopublish"):
+        return False
+    if str(options.get("voice_file") or "").strip() or state.get("youtube_sources"):
+        return True
+    return any(c.get("source") in ("pasted", "youtube") for c in (state.get("corpus") or []))
+
+
 def _step_fit(state: Dict, options: Dict) -> None:
     """Tiêu đề + kịch bản qua bộ lọc ngách. Dưới ngưỡng → NicheHold (dừng ở review, không dựng, không đăng)."""
     from tubecli.core import niche as N
@@ -2309,6 +2318,14 @@ def _step_fit(state: Dict, options: Dict) -> None:
     _task_meta(state.get("task_id"), niche_score=r["score"] if r["score"] is not None else None,
                niche_reason=r["reason"][:200] or None)
     score = "?" if r["score"] is None else r["score"]
+    if not r["pass"] and _user_gave_content(state, options):
+        # Người dùng TỰ đưa bài / file giọng vào form (7/11/2026 #3: agent tạm chưa khai ngách, bài bầu cử Đài Loan
+        # 0/10 → dừng mãi, Retry cũng dừng): người chọn nội dung thắng bộ lọc — chỉ ghi nhận, không chặn.
+        state.setdefault("warnings", []).append(
+            f"Niche check: score {score}/10 (needs {cfg['min_niche_score']}) — kept, because you gave this content "
+            f"yourself. {str(r.get('reason') or '')[:200]}".strip())
+        say("fit", "running", f"score {score}/10 — content you gave, kept")
+        return
     if not r["pass"]:
         raise NicheHold(f"⚠ OFF-NICHE (score {score}/10) — {title}"[:200], r["reason"],
                         unavailable=bool(r.get("unavailable")))

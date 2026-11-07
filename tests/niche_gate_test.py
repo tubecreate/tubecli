@@ -233,6 +233,29 @@ try:
 except P.NicheHold as h:
     h5 = h
 check("E5 kịch bản tới THẲNG lượt dựng (Claude dán sẵn) chưa kiểm → vẫn bị chặn", h5 is not None)
+PASTE = [{"title": "", "url": "", "content": "Taiwan election rally ...", "source": "pasted", "scraped_at": ""}]
+st = state_with([dict(c) for c in PASTE], script="[SHOW: a rally] Amazon and Intel fell...", title="Big Tech rally")
+try:
+    P._step_fit(st, {})
+    h6 = None
+except P.NicheHold as h:
+    h6 = h
+check("E9 bài người dùng DÁN lạc ngách → không chặn, chỉ cảnh báo", h6 is None
+      and any("you gave this content yourself" in w for w in st["warnings"]), (h6 and h6.headline, st["warnings"]))
+st = state_with([], script="[SHOW: a rally] Amazon and Intel fell...", title="Big Tech rally")
+try:
+    P._step_fit(st, {"voice_file": "C:/x/voice.mp3"})
+    h7 = None
+except P.NicheHold as h:
+    h7 = h
+check("E10 có file giọng của người dùng → không chặn", h7 is None, h7 and h7.headline)
+st = state_with([dict(c) for c in PASTE], script="[SHOW: a rally] Amazon and Intel fell...", title="Big Tech rally")
+try:
+    P._step_fit(st, {"autopublish": True})
+    h8 = None
+except P.NicheHold as h:
+    h8 = h
+check("E11 lượt TỰ ĐĂNG vẫn chặn dù nguồn là bài dán", h8 is not None)
 ids = [s[0] for s in P.PLAN_STEPS]
 check("E6 thứ tự bước kế hoạch: crawl → niche → script → fit", ids[ids.index("crawl") + 1:ids.index("fit") + 1]
       == ["niche", "script", "fit"], ids)
