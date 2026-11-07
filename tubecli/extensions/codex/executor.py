@@ -10,6 +10,7 @@ the Telegram listener (see core/telegram_listener.py:671,695,740).
 """
 import asyncio
 import logging
+import re
 from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger("Codex")
@@ -209,6 +210,20 @@ async def _execute_agent(
             raise RuntimeError(
                 f"Skill '{skill.get('name')}' timed out after {SKILL_TIMEOUT_SEC}s"
             )
+        failure = skill_failure(out)
+        if failure:
+            # Trước đây «[Codex Error] wrong_thread: …» về như kết quả: bước báo success, task sang review.
+            report("run_skill", "error", failure[:300])
+            raise RuntimeError(f"Skill '{skill.get('name')}' failed: {failure[:500]}")
+        if wants_video(task, skill):
+            video = find_video(out)
+            if not video:
+                report("run_skill", "error", "The skill ended without a video file")
+                raise RuntimeError(
+                    f"Skill '{skill.get('name')}' finished but produced no video file — a video task only goes to "
+                    "review with a real, playable video. Skill output: " + str(out or reply or "")[:400])
+            report("run_skill", "success", f"Video: {video}")
+            return out or reply
         report("run_skill", "success", "Skill finished")
         return out or reply
 
@@ -221,6 +236,64 @@ async def _execute_agent(
         return dispatched or reply
 
     return reply
+
+
+# ── Kết quả skill: lỗi hay thật (Task Board #4, 7/11/2026) ──────────────────────────────────────────────────
+_SKILL_ERROR_RE = re.compile(r"^\s*(?:⚠️\s*\*\[Auto-Failover[^\]]*\]\*\s*)?(?:\[[\w .-]*Error\]|\[AI SERVER\]|❌)", re.I)
+_VIDEO_EXT = (".mp4", ".mov", ".mkv", ".webm", ".m4v")
+_VIDEO_PATH_RE = re.compile(r"(?:[A-Za-z]:[\\/]|/)[^\n\r\"'<>|*?`]*?\.(?:mp4|mov|mkv|webm|m4v)\b", re.I)
+_MAKE_VIDEO_RE = re.compile(
+    r"\b(?:make|create|render|build|produce|generate)\b[^.\n]{0,40}\bvideos?\b|\b(?:tạo|dựng|làm|xuất|render)\s+(?:lại\s+)?video",
+    re.I)
+
+
+def skill_failure(out: Any) -> str:
+    """Câu lỗi (provider / skill) mà skill trả về dưới dạng CHUỖI — rỗng nếu là kết quả thật."""
+    text = str(out or "")
+    return text.strip() if _SKILL_ERROR_RE.match(text) else ""
+
+
+def wants_video(task: Dict[str, Any], skill: Optional[Dict[str, Any]] = None) -> bool:
+    """Việc này là TẠO video (làn video, hoặc mục tiêu / tên skill nói tạo / dựng video)."""
+    if str(task.get("lane") or "").strip().lower() == "video":
+        return True
+    text = " ".join(str(x or "") for x in (task.get("title"), task.get("goal"), (skill or {}).get("name")))
+    return bool(_MAKE_VIDEO_RE.search(text))
+
+
+def _video_ok(path: str) -> bool:
+    """File video có thật, không rỗng, và (nếu có ffprobe) đọc được thời lượng > 0."""
+    import os
+    import shutil
+    import subprocess
+    try:
+        if not os.path.isfile(path) or os.path.getsize(path) < 10_000:
+            return False
+    except OSError:
+        return False
+    probe = shutil.which("ffprobe")
+    if not probe:
+        return True
+    try:
+        r = subprocess.run([probe, "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path],
+                           capture_output=True, text=True, timeout=30)
+        return float((r.stdout or "0").strip() or 0) > 0
+    except Exception:  # noqa: BLE001 — ffprobe lỗi thì không đánh hỏng việc vì nó
+        return True
+
+
+def find_video(out: Any) -> str:
+    """Đường dẫn video HỢP LỆ đầu tiên nhắc trong kết quả skill — rỗng nếu không có."""
+    text = str(out or "")
+    for m in _VIDEO_PATH_RE.finditer(text):
+        path = m.group(0).strip().rstrip(".,;)")
+        # Khớp có thể bắt đầu sớm («and/or C:/x.mp4»): thử cả từng đoạn đuôi bắt đầu bằng ổ đĩa.
+        tails = [path] + [path[i:] for i in range(1, len(path) - 2) if path[i + 1] == ":" and path[i].isalpha()
+                          and path[i + 2] in "\\/"]
+        for cand in tails:
+            if _video_ok(cand):
+                return cand
+    return ""
 
 
 def _resolve_agent(task: Dict[str, Any]):
