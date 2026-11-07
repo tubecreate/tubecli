@@ -9480,9 +9480,84 @@ def purge_task_files(task: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+# ── Bài dán dạng PHỤ ĐỀ (.srt / .vtt, 7/11/2026) ─────────────────────────────────────────────────────────────────
+# User dán nguyên file .srt (bản gỡ băng của chính file giọng) vào ô nội dung: trước đây số thứ tự + «00:00:03,520 -->
+# 00:00:05,800» đi thẳng vào lời cảnh (chế độ nguyên văn đọc đúng bài dán) và lên phụ đề video. Nay nhận ra phụ đề
+# (≥ 3 dòng mốc thời gian) → chỉ giữ lời; lặng ≥ SUB_PARA_GAP giây giữa hai câu thì xuống ĐOẠN (cắt cảnh theo đoạn).
+SUB_PARA_GAP = 0.6
+_SUB_TIME_RE = re.compile(r"^\s*((?:\d{1,2}:)?\d{1,2}:\d{2}[,.]\d{1,3})\s*-->\s*((?:\d{1,2}:)?\d{1,2}:\d{2}[,.]\d{1,3})")
+_SUB_TAG_RE = re.compile(r"<[^>]{1,40}>|\{\\[^}]{0,40}\}")
+_SUB_CJK = r"\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af\uf900-\ufaff"
+_SUB_CJK_GAP_RE = re.compile(rf"(?<=[{_SUB_CJK}])\s+(?=[{_SUB_CJK}])")
+_SUB_END_RE = re.compile(r"[.!?…。！？,，、;；:：]$")
+
+
+def _sub_seconds(stamp: str) -> float:
+    parts = stamp.replace(",", ".").split(":")
+    try:
+        return sum(float(p) * 60 ** i for i, p in enumerate(reversed(parts)))
+    except ValueError:
+        return 0.0
+
+
+def subtitle_to_text(text: str) -> str:
+    """Bài dán là phụ đề .srt/.vtt → lời đọc liền mạch; không phải phụ đề thì trả NGUYÊN."""
+    raw = str(text or "")
+    lines = raw.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    if sum(1 for l in lines if _SUB_TIME_RE.match(l)) < 3:
+        return text
+    cues: List[Tuple[float, float, str]] = []
+    cur: List[str] = []
+    start = end = None
+    skip = False
+    for line in lines + [""]:
+        st = line.strip()
+        m = _SUB_TIME_RE.match(st)
+        if m:
+            if cur and start is not None:
+                cues.append((start, end, " ".join(cur)))
+            cur, skip = [], False
+            start, end = _sub_seconds(m.group(1)), _sub_seconds(m.group(2))
+            continue
+        if not st:
+            if cur and start is not None:
+                cues.append((start, end, " ".join(cur)))
+            cur, start, skip = [], None, False
+            continue
+        if start is None:
+            # Ngoài cue: số thứ tự, «WEBVTT», khối NOTE / STYLE / REGION — bỏ hết.
+            skip = skip or st.upper().startswith(("NOTE", "STYLE", "REGION"))
+            continue
+        if not skip:
+            cur.append(_SUB_TAG_RE.sub("", st))
+    paras: List[List[str]] = []
+    prev_end = None
+    for s, e, words in cues:
+        words = " ".join(words.split())
+        if not words:
+            continue
+        if not paras or (prev_end is not None and s - prev_end >= SUB_PARA_GAP):
+            paras.append([])
+        paras[-1].append(words)
+        prev_end = e
+    out = []
+    for p in paras:
+        cjk = re.search(f"[{_SUB_CJK}]", "".join(p)) is not None
+        if not cjk:
+            out.append(" ".join(p))
+            continue
+        # Chữ Hán / Nhật / Hàn: phụ đề gỡ băng không có dấu câu, khoảng trắng là chỗ ngắt hơi → «，»; hết đoạn → «。».
+        segs = [_SUB_CJK_GAP_RE.sub("，", w) for w in p]
+        joined = "".join(w if _SUB_END_RE.search(w) or i == len(segs) - 1 else w + "，" for i, w in enumerate(segs))
+        out.append(joined if _SUB_END_RE.search(joined) else joined + "。")
+    return "\n\n".join(out) if out else text
+
+
 def _prepare(payload: Dict[str, Any], report, is_cancelled, needs: tuple) -> Dict[str, Any]:
     """Shared setup for both stages: options, agent, callbacks, state."""
     options: Dict[str, Any] = {**DEFAULTS, **(payload.get("options") or {})}
+    if options.get("source_text"):
+        options["source_text"] = subtitle_to_text(options["source_text"])
     apply_voice_file(options)
     if payload.get("sources") and not options.get("sources"):
         options["sources"] = list(payload["sources"])
