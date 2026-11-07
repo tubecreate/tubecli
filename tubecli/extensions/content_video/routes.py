@@ -131,7 +131,9 @@ async def run_route(req: RunRequest, request: Request):
     created_by = (req.created_by or "").strip() or ("brain" if req.input else "user")
     options = dict(req.options or {})
     if content:
-        options["source_text"] = content
+        # Bài dán là phụ đề .srt / .vtt → chỉ giữ lời (kế hoạch trên thẻ đếm đúng số chữ)
+        from tubecli.extensions.content_video.pipeline import subtitle_to_text
+        options["source_text"] = subtitle_to_text(content)
     if str(options.get("voice_file") or "").strip():
         # File giọng kèm bài (5/11/2026): chuẩn hoá NGAY để kế hoạch trên thẻ ghi đúng (nguyên văn, giọng tạm CapCut/Edge
         # rồi thay bằng file); file không có / không có bài dán → báo lỗi luôn thay vì để task chạy bằng giọng khác mà người
