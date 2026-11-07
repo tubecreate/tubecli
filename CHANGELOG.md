@@ -2,6 +2,25 @@
 
 Notable changes to TubeCLI. Versions match `tubecli/__init__.py`.
 
+## 2026.08.09.230 — 2026-11-07
+
+### Video tasks: bring your own voice file
+- **Your voice file (optional)** in the Content-video form of the Task board. Upload a recording of the text you
+  pasted: the script is read word for word, and the file is cut scene by scene in place of text-to-speech.
+- While the scenes are built, a temporary voice reads the text (CapCut when this machine has a CapCut account,
+  otherwise Edge; never Muse). It is then swapped for your file. If the file does not match the text, the
+  template's voice stays.
+- Swapping in the file is faster (Whisper `base`, beam 1) and shows progress: transcribing, matching, cutting
+  scene N of M.
+- **Re-dub the narration with Muse** (off by default): Muse reads the whole script again in one take, in the voice
+  you describe, and replaces the template's voice scene by scene. If Muse fails, the template's voice stays.
+
+### Templates bring their characters
+- **Characters** field in the Content-video form: picking a template fills in its cast. Remove a character with ✕,
+  or add more from the character library or by uploading a sheet.
+- Extension task forms (for example Pod Studio «Video from reference images») fill the image field with the
+  template's own images. Remove each one with ✕; files you add are added to them.
+
 ## 2026.08.09.229 — 2026-11-05
 
 ### Browser: fewer processes and RAM per run
