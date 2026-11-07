@@ -822,7 +822,10 @@ class AgentBrain:
                     )},
                     {"role": "user", "content": message},
                 ]
-                return AgentBrain._call_llm(agent, sop_messages)
+                # Hàm này chạy TRÊN vòng sự kiện của server: gọi model đồng bộ ở đây thì treo cả server, còn Codex
+                # (codex_gpt.llm.complete_sync) từ chối hẳn bằng «wrong_thread» (Task Board #4, 7/11/2026).
+                import asyncio
+                return await asyncio.to_thread(AgentBrain._call_llm, agent, sop_messages)
             return f"❌ Skill '{skill.get('name')}' is a markdown SOP but has no content."
 
         # 🟢 Extension action skill: call the extension's API endpoint directly
@@ -895,7 +898,8 @@ class AgentBrain:
                         report = data.get(report_key)
                         if isinstance(report, str) and len(report.strip()) >= 40:
                             return report.strip()
-                return AgentBrain.format_skill_result(
+                return await asyncio.to_thread(
+                    AgentBrain.format_skill_result,
                     agent, skill.get("name", "Skill"),
                     {"status": "completed", "outputs": {"result": data if isinstance(data, dict) else {"data": data}}},
                     message,
@@ -970,7 +974,11 @@ Rules:
         
         for step in range(max_steps):
             print(f"  [{step+1}/{max_steps}] LLM Thinking...")
-            raw_response = AgentBrain._call_llm(agent, messages, temperature=0.1)
+            import asyncio
+            raw_response = await asyncio.to_thread(AgentBrain._call_llm, agent, messages, 0.1)
+            if re.match(r"^\s*\[[\w .-]*Error\]", str(raw_response or "")):
+                # Câu lỗi của provider KHÔNG phải câu trả lời: trả nguyên để bên gọi nhận ra lỗi.
+                return str(raw_response)
             messages.append({"role": "assistant", "content": raw_response})
             
             tool_call = AgentBrain._extract_tool_call(raw_response)
@@ -1127,7 +1135,9 @@ Rules:
 
         # Format final result (only for non-AI workflows)
         if last_result:
-            return AgentBrain.format_skill_result(agent, skill.get("name"), {"status": "completed", "outputs": context}, message)
+            import asyncio
+            return await asyncio.to_thread(AgentBrain.format_skill_result, agent, skill.get("name"),
+                                           {"status": "completed", "outputs": context}, message)
         return "Workflow completed."
 
     # ── LLM Management ────────────────────────────────────────────
