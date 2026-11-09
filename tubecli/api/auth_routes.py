@@ -4,6 +4,10 @@ Every path here is exempt from the login gate in server.py (it has to be, or
 there would be no way to log in), so each one re-checks what it needs for
 itself rather than assuming the middleware did it.
 """
+# scrypt (~0,1 s) chạy ở luồng phụ (asyncio.to_thread): trên vòng sự kiện, mỗi lần cloud / Flow đăng nhập lại là cả
+# server đứng theo — py-spy tuan4 9/11/2026.
+import asyncio
+
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
@@ -84,7 +88,7 @@ async def login(body: LoginRequest, request: Request, response: Response):
         )
 
     auth.ensure_initialised()
-    if not auth.verify_password(body.password):
+    if not await asyncio.to_thread(auth.verify_password, body.password):
         auth.record_failure(key)
         # The same message whether the password was wrong or the account was
         # never set up, so this cannot be used to probe the install's state.
@@ -220,7 +224,7 @@ async def change_password(body: PasswordChangeRequest, request: Request):
             content={"detail": f"Sai quá nhiều lần. Thử lại sau {remaining} giây."},
         )
 
-    if not auth.verify_password(body.current_password):
+    if not await asyncio.to_thread(auth.verify_password, body.current_password):
         auth.record_failure(key)
         return JSONResponse(status_code=401, content={"detail": "Mật khẩu hiện tại không đúng."})
 
@@ -231,7 +235,7 @@ async def change_password(body: PasswordChangeRequest, request: Request):
         )
 
     try:
-        auth.set_password(body.new_password)
+        await asyncio.to_thread(auth.set_password, body.new_password)
     except ValueError as e:
         return JSONResponse(status_code=400, content={"detail": str(e)})
 
@@ -286,7 +290,7 @@ async def cloud_sync(body: CloudSyncRequest, request: Request):
     if locked:
         return JSONResponse(status_code=429,
                             content={"detail": f"Sai quá nhiều lần. Thử lại sau {remaining} giây."})
-    if not auth.verify_password(body.password):
+    if not await asyncio.to_thread(auth.verify_password, body.password):
         auth.record_failure(key)
         return JSONResponse(status_code=401, content={"detail": "Mật khẩu hiện tại không đúng."})
     auth.clear_failures(key)
