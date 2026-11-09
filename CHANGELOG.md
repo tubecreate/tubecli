@@ -2,6 +2,15 @@
 
 Notable changes to TubeCLI. Versions match `tubecli/__init__.py`.
 
+## 2026.08.09.232 — 2026-11-09
+
+### Fix: TubeCLI did not start on Python 3.10 and 3.11
+- Versions .230 and .231 stopped at start on machines with Python 3.10 or 3.11:
+  «SyntaxError: f-string: expecting '}'» in `tubecli/core/muse.py`. One line used f-string syntax that only
+  Python 3.12 accepts. It is rewritten so it works on every Python version TubeCLI supports (3.10 and later).
+- New test `tests/py310_fstring_compat_test.py` checks every file in `tubecli/` for f-string syntax that needs
+  Python 3.12. On Python 3.10 or 3.11 it compiles every file.
+
 ## 2026.08.09.231 — 2026-11-07
 
 ### Video tasks
