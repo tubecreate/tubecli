@@ -1289,7 +1289,7 @@ def speech_prompt(paragraphs: List[str], direction: str = "", language: str = ""
     lang = f"{language} " if language else ""
     minutes = max(1, round(len(text) / 260))
     return (f"Create ONE {lang}voice-over AUDIO FILE (MP3) that reads the WHOLE text below, from the first word to the "
-            f"last - about {minutes} minute{"s" if minutes != 1 else ""}. Do not shorten it and do not split it into several files.\n"
+            f"last - about {minutes} minute{'s' if minutes != 1 else ''}. Do not shorten it and do not split it into several files.\n"
             f"VOICE: {(direction or SPEECH_DIRECTION_DEFAULT).strip()}. The SAME narrator voice from start to end.\n"
             "PAUSES: 1.2-1.5 seconds of silence at every paragraph change (the blank lines).\n"
             "DIALOGUE: words a character says aloud in quotation marks may use a second, different voice that fits "
