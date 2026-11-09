@@ -11,6 +11,15 @@ Notable changes to TubeCLI. Versions match `tubecli/__init__.py`.
 - New test `tests/py310_fstring_compat_test.py` checks every file in `tubecli/` for f-string syntax that needs
   Python 3.12. On Python 3.10 or 3.11 it compiles every file.
 
+### TubeCLI Connect (Windows) no longer breaks the install after a crash
+- Connect used to treat every failed start as missing libraries and ran `pip install -e .`. After the crash above,
+  pip could not finish replacing `tubecli.exe` (the file was in use), and the launcher was lost. Connect then
+  started `TubeCLI.bat`, which opens the interactive menu instead of the server («Aborted!»).
+- Connect now reinstalls libraries only when the server log says a module is missing. For any other error it
+  says so in the log and asks you to update TubeCLI.
+- Connect only uses a `tubecli.exe` launcher; `.bat` and `.cmd` files are skipped, and it starts
+  `python -m tubecli.main` instead.
+
 ## 2026.08.09.231 — 2026-11-07
 
 ### Video tasks

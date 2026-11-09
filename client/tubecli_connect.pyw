@@ -351,6 +351,40 @@ def python_with_tubecli(install_dir: str = "") -> str:
     return ""
 
 
+def tubecli_launcher() -> str:
+    """Lệnh `tubecli` trên PATH — trên Windows CHỈ nhận file .exe (launcher pip đặt trong Scripts).
+
+    9/11/2026: pip gỡ dở bản cũ (file đang bị giữ) làm mất Scripts\\tubecli.exe; `which("tubecli")` khi ấy vớ
+    TubeCLI.bat do install.ps1 tạo — file đó mở MENU tương tác («Chọn một tùy chọn: Aborted!») rồi `pause`, máy
+    chủ không bao giờ bật. .bat / .cmd không nhận tham số `api start`, nên không bao giờ là launcher của ta.
+    """
+    exe = shutil.which("tubecli") or ""
+    if exe and IS_WIN and not exe.lower().endswith(".exe"):
+        return ""
+    return exe
+
+
+def crash_needs_deps(log_path: str = "") -> bool:
+    """Lần bật vừa hỏng là do THIẾU THƯ VIỆN (đáng chạy pip) hay lỗi khác.
+
+    Chỉ ModuleNotFoundError / ImportError / «No module named» mới là thiếu thư viện. Lỗi cú pháp, lỗi cổng, lỗi
+    cấu hình mà chạy `pip install -e .` thì không sửa được gì — và trên Windows pip còn có thể gỡ dở launcher đang
+    bị giữ (9/11/2026). Không đọc được log → coi như thiếu thư viện (hành vi cũ).
+    """
+    lines = _tail_lines(log_path or os.path.join(HOME, "server.log"), 40)
+    if not lines:
+        return True
+    # chỉ xét lượt chạy CUỐI (mỗi lượt mở đầu bằng dòng «==== <giờ> <lệnh>»)
+    for i in range(len(lines) - 1, -1, -1):
+        if lines[i].startswith("==== "):
+            lines = lines[i + 1:]
+            break
+    text = "\n".join(lines)
+    if any(k in text for k in ("ModuleNotFoundError", "No module named", "ImportError")):
+        return True
+    return not any(k in text for k in ("SyntaxError", "IndentationError", "Traceback", "Aborted!"))
+
+
 def server_cmd() -> tuple:
     """(lệnh bật máy chủ, thư mục chạy) — hay ([], "") nếu máy chưa có TubeCLI.
 
@@ -368,7 +402,7 @@ def server_cmd() -> tuple:
             # install.ps1 không dựng venv trên Windows: nó pip install vào một Python
             # nào đó rồi để launcher `tubecli.exe` trong Scripts của Python ấy.
             # Launcher biết đúng trình thông dịch, còn `pythonw` trần thì không.
-            launcher = shutil.which("tubecli")
+            launcher = tubecli_launcher()
             if launcher:
                 return [launcher] + SERVE_ARGS, d
             py = python_with_tubecli(d)
@@ -385,7 +419,7 @@ def server_cmd() -> tuple:
             p = os.path.join(d, *rel)
             if os.path.isfile(p):
                 return [p, "-m", "tubecli.main"] + SERVE_ARGS, d
-    exe = shutil.which("tubecli")
+    exe = tubecli_launcher()
     if not exe and not IS_WIN:
         # install.sh đặt launcher ở ~/.local/bin — thư mục này thường CHƯA có trong
         # PATH của phiên hiện tại, nên which() trượt dù máy đã cài xong.
@@ -493,7 +527,7 @@ def repair_deps(d: str, say=None) -> bool:
             log(f"cài phụ thuộc hỏng: {e}")
             continue
         refresh_path_win()
-        if _can_import_tubecli(py) or shutil.which("tubecli"):
+        if _can_import_tubecli(py) or tubecli_launcher():
             log("cài phụ thuộc xong")
             return True
     log(f"pip trả mã {rc} — vẫn chưa import được tubecli")
@@ -1299,9 +1333,13 @@ def prepare_node(say, lang: str = "vi") -> tuple:
         if start_tubecli():
             say("TubeCLI đang chạy ✓")
             return True, ""
-        # Bật hỏng ở đây gần như luôn là THIẾU PHỤ THUỘC: thư mục có mã nguồn nhưng
-        # `pip install -e .` chưa chạy xong. Sửa tại chỗ rồi thử lại, thay vì báo
-        # "không bật được" cho một máy chỉ thiếu đúng một lệnh pip.
+        # Bật hỏng vì THIẾU PHỤ THUỘC (thư mục có mã nguồn nhưng `pip install -e .` chưa chạy xong) thì sửa tại
+        # chỗ rồi thử lại. Lỗi KHÁC (cú pháp, cấu hình…) thì pip không sửa được, mà còn có thể gỡ dở launcher.
+        if not crash_needs_deps():
+            log("TubeCLI hỏng vì lỗi trong mã / cấu hình, không phải thiếu thư viện — không chạy pip. "
+                "Cập nhật TubeCLI (git pull trong thư mục cài) rồi bật lại.")
+            say("TubeCLI không bật được (lỗi trong mã) — xem log, hãy cập nhật TubeCLI.")
+            return False, ""
         if repair_deps(d, say) and start_tubecli():
             say("TubeCLI đang chạy ✓")
             return True, ""
