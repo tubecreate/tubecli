@@ -135,6 +135,7 @@
   "codex.step_pending": "Pending",
   "codex.step_running": "Running",
   "codex.step_skipped": "Skipped",
+  "codex.step_warning": "Needs a check",
   "codex.step_success": "Success",
   "codex.steps_progress": "{done}/{total} steps",
   "codex.subtitle": "Hand work to agents, follow progress, accept the result",

@@ -2217,10 +2217,17 @@ def _niche_cfg(state: Dict) -> Dict[str, Any]:
     if "niche_cfg" not in state:
         cfg, warns = N.effective(state["agent"])
         state["niche_cfg"] = cfg
-        if warns:
+        if N.UNCONFIGURED in warns:
             state.setdefault("warnings", []).append(
                 "This agent has no niche set up yet (agent settings › Niche) — the niche check used its research "
                 "brief instead. Add the niche, the must-relate-to list and blocked terms for a sharper check.")
+        elif getattr(N, "FROM_PROMPT", "") in warns:
+            # Không phải lỗi: ô Niche trống nhưng system prompt có khối NICHE CONFIG — chỉ ghi nhật ký, không làm bẩn
+            # đầu đề kết quả.
+            _task_event(state.get("task_id"), "Niche settings read from the NICHE CONFIG block of the system prompt "
+                        f"(must relate to: {', '.join(cfg.get('must_relate_to') or [])[:200]}; minimum score "
+                        f"{cfg.get('min_niche_score')}/10) — fill agent settings › Niche to override.")
+        if warns:
             _task_meta(state.get("task_id"), niche_warnings=warns)
     return state["niche_cfg"]
 
@@ -2254,35 +2261,157 @@ def _step_niche(state: Dict, options: Dict) -> None:
     if any(c.get("source") in ("pasted", "youtube") for c in corpus) or state.get("youtube_sources"):
         say("niche", "running", "content given for this video — the script is checked after it is written")
         return
-    judged = [c for c in corpus if c.get("content")]
-    kept, rejects, unavailable = [], [], 0
+    agent = state["agent"]
+    # Lọc RẺ trước khi gọi model (10/11/2026): bài quá NICHE_FRESH_DAYS ngày và bài đã bị bộ lọc loại ở lượt trước thì
+    # không chấm lại — kênh Kinh Thánh từng chấm lại đúng 30 bài công nghệ mỗi ngày, lần nào cũng 0/30.
+    from . import niche_memory as NM
+    rejected_before = NM.rejected_urls(str(agent.id))
+    judged, stale_n, seen_n = [], 0, 0
+    for c in corpus:
+        if not c.get("content"):
+            continue
+        if c.get("url") and c["url"] in rejected_before:
+            seen_n += 1
+            continue
+        if _older_than(c.get("scraped_at"), NICHE_FRESH_DAYS):
+            stale_n += 1
+            continue
+        judged.append(c)
+    if stale_n or seen_n:
+        say("niche", "running", f"skipped {stale_n} source(s) older than {NICHE_FRESH_DAYS} days and {seen_n} "
+                                f"rejected on an earlier run")
+    kept, rejects, unavailable, rejected_urls = [], [], 0, []
     for i, c in enumerate(judged, 1):
         if state["_cancelled"]():
             raise _cancel_exc()
         say("niche", "running", f"checking source {i}/{len(judged)}")
-        r = N.niche_gate(state["agent"], f"{c.get('title') or ''}\n{str(c.get('content') or '')[:3000]}",
+        r = N.niche_gate(agent, f"{c.get('title') or ''}\n{str(c.get('content') or '')[:3000]}",
                          kind="source", cfg=cfg)
         if r["pass"]:
             kept.append(c)
             continue
-        unavailable += 1 if r.get("unavailable") else 0
+        if r.get("unavailable"):
+            unavailable += 1
+        elif c.get("url"):
+            rejected_urls.append(c["url"])        # chấm được mà trượt ⇒ đánh dấu, khỏi đọc lại mỗi ngày
         line = f"GATE_REJECT: {(c.get('title') or c.get('url') or '?')[:90]} — {r['reason'] or 'off the niche'}"
         rejects.append(line)
         _task_event(state.get("task_id"), line)
+    if rejected_urls:
+        NM.mark_rejected(str(agent.id), rejected_urls)
     state["corpus"] = kept + [c for c in corpus if not c.get("content")]
     keep_ids = {id(c) for c in kept}
     state["videos"] = [v for v in (state.get("videos") or []) if id(v) in keep_ids or not v.get("content")]
     state["gate_rejects"] = rejects
     _task_meta(state.get("task_id"), gate_rejects=rejects[:30] or None, niche_sources=len(kept))
     say("niche", "running", f"{len(kept)} of {len(judged)} sources fit the niche")
-    if len(kept) < NICHE_MIN_SOURCES:
-        if judged and unavailable == len(judged) - len(kept) and unavailable:
-            raise NicheHold(f"⚠ OFF-NICHE CHECK UNAVAILABLE — the niche check could not reach its AI model "
-                            f"({len(kept)} of {len(judged)} sources confirmed)", rejects[0] if rejects else "",
-                            unavailable=True)
+    if len(kept) >= NICHE_MIN_SOURCES:
+        _task_meta(state.get("task_id"), source="corpus", keyword_source="ai")
+        return
+    if judged and unavailable and unavailable == len(judged) - len(kept):
+        raise NicheHold(f"⚠ OFF-NICHE CHECK UNAVAILABLE — the niche check could not reach its AI model "
+                        f"({len(kept)} of {len(judged)} sources confirmed)", rejects[0] if rejects else "",
+                        unavailable=True)
+    # Ít hơn NICHE_MIN_SOURCES nguồn đúng ngách: KHÔNG dừng task (10/11/2026, kênh không ra video nhiều ngày liền) — lấy
+    # chủ đề trong kho từ khoá của agent, viết từ Kinh Thánh / kiến thức nền + chính những nguồn đúng ngách còn lại.
+    # Không bao giờ viết từ nguồn lạc ngách.
+    topic, free_n = _bank_topic(state, cfg)
+    if not topic:
         raise NicheHold(f"⚠ OFF-NICHE SOURCES — only {len(kept)} of {len(judged)} sources fit the niche "
-                        f"(at least {NICHE_MIN_SOURCES} needed)",
-                        "Nothing was written from off-niche material.")
+                        f"(at least {NICHE_MIN_SOURCES} needed) and the keyword bank has no unused on-niche topic",
+                        "Nothing was written from off-niche material. BANK_LOW: the agent's daily keywords are "
+                        "all used in the last %d days, blocked, or off the niche." % int(cfg.get("cooldown_days") or 0))
+    NM.mark_topic_used(str(agent.id), topic, state.get("task_id") or "")
+    state["bank_topic"] = topic
+    state["corpus"] = [_bank_brief(topic, cfg, kept)] + state["corpus"]
+    meta = {"source": "bank", "keyword_source": "bank", "bank_topic": topic[:200],
+            "fallback": f"only {len(kept)} on-niche source(s) of {len(judged)}"}
+    if free_n < BANK_LOW_TOPICS:
+        meta["bank_low"] = free_n
+        state.setdefault("warnings", []).append(
+            f"BANK_LOW: only {free_n} unused on-niche topic(s) left in this agent's keyword bank — let the daily "
+            f"keywords refresh, or add topics to the research brief.")
+    _task_meta(state.get("task_id"), **meta)
+    _task_event(state.get("task_id"), f"Only {len(kept)} on-niche source(s) — topic taken from the keyword bank: "
+                                      f"«{topic[:160]}» (keyword_source: bank).")
+    say("niche", "running", f"{len(kept)} of {len(judged)} sources fit — writing the bank topic «{topic[:80]}»")
+
+
+NICHE_FRESH_DAYS = 30          # nguồn cũ hơn thì không đưa vào bộ lọc (tin đã nguội, và chắc chắn đã từng bị chấm)
+BANK_LOW_TOPICS = 10           # ít hơn chừng này chủ đề chưa dùng → cảnh báo BANK_LOW
+BANK_TOPICS_TRIED = 3          # chấm tối đa chừng này chủ đề trong kho mỗi lượt (mỗi chủ đề = một lượt gọi model)
+_OPEN_STATUSES = ("backlog", "queued", "running", "review", "pending_approval")
+
+
+def _older_than(stamp: Any, days: int) -> bool:
+    """True khi mốc thu thập đọc được VÀ cũ hơn `days` ngày. Không đọc được mốc → không coi là cũ."""
+    try:
+        from tubecli.core.scraped_store import _parse_utc
+        dt = _parse_utc(str(stamp or ""))
+    except Exception:       # noqa: BLE001
+        return False
+    if dt is None:
+        return False
+    import datetime as _dt
+    return (_dt.datetime.now(_dt.timezone.utc) - dt).days > days
+
+
+def _open_bank_topics(agent_id: str, exclude: str = "") -> set:
+    """Khoá chủ đề của các task CÒN MỞ của agent này (hàng đợi, đang chạy, chờ duyệt) — đừng làm trùng chủ đề."""
+    from . import niche_memory as NM
+    try:
+        from tubecli.extensions.codex.manager import codex_manager
+        tasks = codex_manager.list_tasks(limit=500) or []
+    except Exception:       # noqa: BLE001
+        return set()
+    out = set()
+    for t in tasks:
+        if str(t.get("id")) == str(exclude) or str(t.get("status") or "") not in _OPEN_STATUSES:
+            continue
+        if str(t.get("assignee_id") or "") != str(agent_id):
+            continue
+        topic = str((t.get("meta") or {}).get("bank_topic") or "")
+        if topic:
+            out.add(NM.topic_key(topic))
+    return out
+
+
+def _bank_topic(state: Dict, cfg: Dict[str, Any]) -> Tuple[str, int]:
+    """(chủ đề lấy từ kho từ khoá, số chủ đề còn dùng được). Bỏ: dùng trong cooldown_days ngày, đang có task mở, chứa từ
+    cấm; rồi chấm qua bộ lọc ngách (tối đa BANK_TOPICS_TRIED chủ đề). Không có → ("", n)."""
+    from tubecli.core import niche as N
+    from . import niche_memory as NM
+
+    agent = state["agent"]
+    used = NM.used_topics(str(agent.id), int(cfg.get("cooldown_days") or 0))
+    busy = _open_bank_topics(str(agent.id), exclude=str(state.get("task_id") or ""))
+    free = [q for q in NM.bank_candidates(agent)
+            if NM.topic_key(q) not in used and NM.topic_key(q) not in busy and not N.deny_hit(cfg, q)]
+    for q in free[:BANK_TOPICS_TRIED]:
+        if state["_cancelled"]():
+            raise _cancel_exc()
+        r = N.niche_gate(agent, q, kind="topic", cfg=cfg)
+        if r["pass"]:
+            return q, len(free)
+        _task_event(state.get("task_id"), f"GATE_REJECT (bank topic): {q[:90]} — {r.get('reason') or 'off the niche'}")
+    return "", len(free)
+
+
+def _bank_brief(topic: str, cfg: Dict[str, Any], kept: List[Dict]) -> Dict[str, Any]:
+    """Mục corpus đứng đầu khi chủ đề lấy từ kho: nói rõ viết VỀ cái gì và dựa vào đâu."""
+    niche = str(cfg.get("niche_description") or "").strip()
+    return {
+        "title": f"VIDEO TOPIC (chosen from the channel's keyword bank): {topic}",
+        "url": "", "source": "bank", "scraped_at": "",
+        "content": (
+            f"Make this video about: {topic}\n"
+            + (f"Channel niche: {niche}\n" if niche else "")
+            + "Build the script on the primary text this topic names — quote the exact passage(s) (e.g. the Bible "
+              "verses) accurately, explain their meaning and context — and on the other on-niche sources below "
+            + ("(there are none: rely on the primary text and well-established background knowledge only). "
+               if not kept else f"({len(kept)} of them). ")
+            + "Use nothing else from collected material; never invent quotes, numbers or dates."),
+    }
 
 
 def _user_gave_content(state: Dict, options: Dict) -> bool:
@@ -3995,6 +4124,24 @@ def _fallback_image_warnings(data: Dict) -> List[str]:
     dùng biết là video sử dụng model fallback để hoàn thành»). Studio ghi `fallback_images` {count, total, drew, from}
     vào lượt vẽ; Studio cũ không ghi → []."""
     fb = data.get("fallback_images") if isinstance(data, dict) and isinstance(data.get("fallback_images"), dict) else {}
+    # Model ảnh HỎNG HẲN (10/11/2026: model của mẫu trả 400 «model not supported», 70/79 shot vẽ bằng đường lùi sau khi
+    # mỗi shot thử lại 6 lần): Studio mới đánh dấu model đó chết một lần (6 giờ) và ghi `dead_image_models`
+    # [{model, reason, shots}] — một dòng cho MỖI model, thay cho câu chung bên dưới.
+    dead = data.get("dead_image_models") if isinstance(data, dict) else None
+    if not isinstance(dead, list):
+        dead = fb.get("dead_models") if isinstance(fb.get("dead_models"), list) else []
+    dead_lines = []
+    for d in dead[:5]:
+        if not isinstance(d, dict) or not d.get("model"):
+            continue
+        shots = d.get("shots")
+        dead_lines.append(
+            f"Image model {d['model']} is not usable — {' '.join(str(d.get('reason') or 'permanent error').split())[:200]}. "
+            f"It was marked failed (not retried for 6 hours)"
+            + (f"; {shots} shot(s) went straight to the fallback" if shots else "")
+            + " — fix or change it in Settings → AI image, or in the template.")
+    if dead_lines:
+        return dead_lines
     try:
         n = int(fb.get("count") or 0)
     except (TypeError, ValueError):
@@ -5656,6 +5803,33 @@ def _profile_identities(agent) -> List[Tuple[str, List[str]]]:
     return out
 
 
+def _profile_matches_channel(agent, profile: str, name: str) -> bool:
+    """Hồ sơ `profile` có mang tên kênh `name` không (tên hồ sơ, bí danh nhóm, tài khoản Google, ghi chú) — cùng luật so
+    với _profile_for_channel. Hồ sơ ngoài phạm vi agent vẫn được xét theo dữ liệu của chính nó."""
+    want = _ident_key(name)
+    if not want or not profile:
+        return False
+    labels = next((labs for prof, labs in _profile_identities(agent) if prof == profile), None)
+    if labels is None:
+        labels = [profile]
+        try:
+            from tubecli.extensions.browser.profile_manager import get_profile
+            p = get_profile(profile) or {}
+            ga = p.get("google_account") or {}
+            if isinstance(ga, dict):
+                email = str(ga.get("email") or "")
+                labels += [email, email.split("@")[0] if "@" in email else "", str(ga.get("label") or ""),
+                           str(ga.get("name") or ""), str(ga.get("display_name") or "")]
+            labels.append(str(p.get("notes") or ""))
+        except Exception as e:      # noqa: BLE001
+            logger.debug(f"[ContentVideo] profile {profile}: {e}")
+    for lab in labels:
+        k = _ident_key(lab)
+        if k and (k == want or ((want in k or k in want) and min(len(k), len(want)) >= 4)):
+            return True
+    return False
+
+
 def _profile_for_channel(agent, name: str) -> str:
     """Hồ sơ trình duyệt mà tên kênh trỏ tới (bí danh nhóm, tên hồ sơ, tài khoản
     Google gắn với hồ sơ), hay "". Kênh không có token API vẫn đăng được qua đúng
@@ -5701,16 +5875,25 @@ def _resolve_channel(state: Dict, options: Dict) -> Dict[str, str]:
         # Không token API nào quản lý kênh này → tìm HỒ SƠ TRÌNH DUYỆT mang tên/tài
         # khoản đó (bí danh nhóm, tên hồ sơ, google_account). Ví dụ thật: "mai le" là
         # tài khoản đang đăng nhập trong hồ sơ test2 của nhóm, không có token.
-        prof = "" if options.get("publish_profile") else _profile_for_channel(agent, name)
+        forced = str(options.get("publish_profile") or "").strip()
+        # Hồ sơ đăng đã chọn sẵn (publish_profile) cũng phải KHỚP tên kênh (10/11/2026): trước đây có publish_profile là
+        # bỏ qua hẳn phép so, rồi chỉ cảnh báo và đăng vào kênh mặc định của hồ sơ — video công khai lên nhầm kênh
+        # không có nút hoàn tác.
+        prof = (forced if _profile_matches_channel(agent, forced, name) else "") if forced \
+            else _profile_for_channel(agent, name)
         if prof:
-            options["publish_profile"] = prof
+            if not forced:
+                options["publish_profile"] = prof
             state["channel_profile"] = prof
             state["_say"]("publish", "running", f"channel “{name}” → browser profile “{prof}”") if callable(state.get("_say")) else None
         else:
-            state.setdefault("warnings", []).append(
-                f"Channel “{name}” has no API token here and no browser profile is named/aliased/logged in as it — "
-                "publishing to the default channel of the profile picked for this agent. Give the group's "
-                "profile the alias “{name}” (or add a Google token) to pin it.")
+            state["channel_mismatch"] = (
+                f"Publishing stopped: channel “{name}” matches no YouTube API token here and no browser profile "
+                + (f"— the publish profile “{forced}” is not named, aliased or logged in as it" if forced
+                   else "is named, aliased or logged in as it")
+                + ", so the video would land on the profile's default channel instead. Fix it by giving the profile "
+                f"the alias “{name}” in its Flow group (or writing “{name}” in the profile's notes), choosing the "
+                "channel id in the agent's Data collection tab, or adding a Google token for that channel.")
     res = {"id": str(options.get("publish_channel_id") or ""),
            "name": str(options.get("publish_channel_name") or name),
            "token_id": str(options.get("publish_token_id") or ""),
@@ -6411,8 +6594,12 @@ VERIFY_PUBLISH_CODE = (
     "(async () => { const vis = (e) => !!e && e.getBoundingClientRect().width > 0; "
     "const look = () => { "
     "const share = document.querySelector('ytcp-video-share-dialog, ytcp-uploads-still-processing-dialog'); "
-    "if (vis(share)) { const a = share.querySelector('a[href*=\"youtu\"]'); "
-    "return {state: 'published', url: a ? a.href : '', "
+    # Link VIDEO, không phải link đầu tiên có chữ «youtu»: hộp thoại có cả link trợ giúp
+    # support.google.com/youtube?p=upload_videos — bản cũ lấy nhầm nó và báo «Published: <link trợ giúp>» (10/11/2026).
+    "if (vis(share)) { const a = Array.from(share.querySelectorAll('a[href]')).find((x) => "
+    "/(youtu\\.be\\/|youtube\\.com\\/(watch\\?v=|shorts\\/))[A-Za-z0-9_-]{6,}/.test(x.href)); "
+    "const m = (share.textContent || '').match(/youtu\\.be\\/[A-Za-z0-9_-]{6,}/); "
+    "return {state: 'published', url: a ? a.href : (m ? 'https://' + m[0] : ''), "
     "note: (share.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 120)}; } "
     "const dlg = document.querySelector('ytcp-uploads-dialog'); "
     "if (!vis(dlg)) return {state: 'closed', url: '', note: ''}; return null; }; "
@@ -6964,6 +7151,24 @@ def _run_upload_script(state: Dict, options: Dict, slug: str, variables: Dict, p
                            headless=True, timeout=PUBLISH_SCRIPT_TIMEOUT)
 
 
+_VIDEO_ID_RE = re.compile(r"[A-Za-z0-9_-]{6,20}")
+_VIDEO_URL_RE = re.compile(r"^https?://(?:www\.|m\.)?(?:youtu\.be/|youtube\.com/(?:watch\?(?:.*&)?v=|shorts/|live/))"
+                           r"([A-Za-z0-9_-]{6,20})(?![A-Za-z0-9_-])")
+
+
+def youtube_video_id(url: str) -> str:
+    """Id video khi `url` THẬT SỰ là link một video YouTube (youtu.be/<id>, watch?v=<id>, shorts/<id>), ngược lại "".
+    support.google.com/youtube?p=upload_videos, trang kênh, studio.youtube.com… đều ra ""."""
+    m = _VIDEO_URL_RE.match(str(url or "").strip())
+    return m.group(1) if m else ""
+
+
+def _step_final(state: Dict, sid: str, status: str, message: str = "") -> None:
+    """Bước tự chọn trạng thái KẾT THÚC của mình (vd. «warning» khi xong mà chưa xác minh được) — _run_steps dùng nó
+    thay cho «success» mặc định."""
+    state.setdefault("_step_final", {})[sid] = (status, message)
+
+
 def _publish_verdict(state: Dict, res) -> Dict[str, str]:
     """Bước t2:verify-publish nói gì về video vừa đăng. Ném khi Studio giữ lại bản
     NHÁP: script vẫn "chạy xong" trong ca đó (bấm Lưu lúc file còn đang tải rồi đóng
@@ -7074,16 +7279,25 @@ def _publish_via_script(state: Dict, options: Dict, privacy: str) -> None:
     # Script CÓ THỂ trả về id/link nếu người dùng cho nó xuất biến; không có thì
     # cũng không được bịa. Video đã lên, chỉ là ta không cầm được đường dẫn.
     vid = str(res.get("video_id") or res.get("videoId") or "").strip()
-    url = str(res.get("video_url") or res.get("url") or "").strip() or str(verdict.get("url") or "")
-    if not vid and url:
-        m = re.search(r"(?:youtu\.be/|[?&]v=)([A-Za-z0-9_-]{6,})", url)
-        vid = m.group(1) if m else ""
-    if vid and not url:
-        url = "https://www.youtube.com/watch?v=%s" % vid
-    if not vid and not url:
+    if not _VIDEO_ID_RE.fullmatch(vid):
+        vid = ""
+    url = ""
+    for cand in (res.get("video_url"), res.get("url"), verdict.get("url")):
+        cid = youtube_video_id(str(cand or ""))
+        if cid:
+            vid, url = vid or cid, str(cand).strip()
+            break
+    if vid:
+        url = url or "https://youtu.be/%s" % vid
+    else:
+        # Không cầm được id video thì KHÔNG báo đăng thành công (10/11/2026: kết quả ghi «Published:
+        # https://support.google.com/youtube?p=upload_videos» — link trợ giúp trong hộp thoại, không xác minh được gì).
+        state["publish_unverified_url"] = True
+        _step_final(state, "publish", "warning",
+                    "UNVERIFIED — YouTube Studio finished but no video link (youtu.be/<id>) was found")
         state.setdefault("warnings", []).append(
-            "Published through YouTube Studio, but the script returned no video id — "
-            "open the channel to confirm the upload.")
+            "UNVERIFIED: the upload script finished but returned no video id — no video link (youtu.be/<id>) could be "
+            "read from YouTube Studio — open the channel and check the video is there (and not a draft) before counting it.")
     state["published"] = {
         "video_id": vid,
         "url": url,
@@ -7108,6 +7322,9 @@ def _publish_now(state: Dict, options: Dict) -> None:
     sched = _publish_schedule(state, options, privacy)
     state["publish_schedule"] = sched
     try:
+        _resolve_channel(state, options)
+        if state.get("channel_mismatch"):
+            raise RuntimeError(state["channel_mismatch"])
         if method == "api":
             _publish_via_api(state, options, privacy)
         else:
@@ -9067,7 +9284,11 @@ def _run_steps(steps, state: Dict, options: Dict, say, cancelled,
                 notes.append(f"- **{label}** failed: {str(e)[:200]}")
                 continue
             raise
-        say(sid, "success", "")
+        final = (state.get("_step_final") or {}).pop(sid, None)
+        if final:
+            say(sid, final[0], final[1])
+        else:
+            say(sid, "success", "")
 
 
 # ── Xoá file của một task (nút Xoá của Codex → "xoá cả file") ──────────────────
@@ -10640,6 +10861,10 @@ def _render_result(state: Dict, options: Dict, notes: List[str], skipped_jobs: L
         lines.append(f"- **Published**: {published['url']} "
                      f"({'scheduled — private until then' if published.get('scheduled_label') else published.get('privacy', '')})"
                      + (f" → {published['channel_name']}" if published.get("channel_name") else ""))
+    elif state.get("publish_unverified_url") and published:
+        lines.append("- **Published**: ⚠️ UNVERIFIED — YouTube Studio finished but returned no video link "
+                     "(youtu.be/<id>); check the channel" + (f" → {published['channel_name']}"
+                                                             if published.get("channel_name") else ""))
     if published.get("scheduled_label"):
         lines.append(f"- **Goes public**: {published['scheduled_label']} — uploaded now, YouTube publishes it then")
     if state.get("video_path"):

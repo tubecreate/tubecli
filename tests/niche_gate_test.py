@@ -146,6 +146,13 @@ P._task_event = lambda task_id, message: EVENTS.append(message)
 P._checkpoint_merge = lambda state, extra: CK.update(extra)
 SKIPPED = []
 import tubecli.extensions.content_video.autopublish as AP  # noqa: E402
+# Sổ nhớ của bộ lọc ngách (nguồn đã loại, chủ đề đã dùng — 10/11/2026) ghi vào FILE TẠM, không vào data thật; mỗi
+# phần test tự xoá sổ để kết quả không phụ thuộc phần trước.
+import tempfile as _tf  # noqa: E402
+from pathlib import Path as _P  # noqa: E402
+import tubecli.extensions.content_video.niche_memory as NM  # noqa: E402
+_NM_FILE = _P(_tf.mkdtemp(prefix='niche_mem_')) / 'niche_memory.json'
+NM._store_path = lambda: _NM_FILE
 AP.skip_window = lambda aid, hw="": SKIPPED.append((aid, hw)) or True
 
 
@@ -184,6 +191,7 @@ BIBLE_SRC = [{"title": f"Matthew 5:{n} explained", "url": f"https://b.example/{n
               "source": "read", "scraped_at": ""} for n in (13, 14, 16)]
 st = state_with([dict(c) for c in FINANCE] + [dict(c) for c in BIBLE_SRC])
 EVENTS.clear()
+_NM_FILE.unlink(missing_ok=True)
 P._step_niche(st, {})
 check("D6 trộn: 3 bài Kinh Thánh đạt + 5 bài tài chính bị loại → đi tiếp với 3 bài đúng ngách",
       [c["title"] for c in st["corpus"] if c.get("content")] == [c["title"] for c in BIBLE_SRC]

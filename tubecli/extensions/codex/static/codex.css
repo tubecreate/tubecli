@@ -368,6 +368,7 @@ a.cx-btn { text-decoration: none; }   /* nút là link (Xem live → tab mới) 
 .cx-seg.running { background: var(--cx-orange); animation: cx-blink 1.4s ease-in-out infinite; }
 .cx-seg.error   { background: var(--cx-red); }
 .cx-seg.skipped { background: var(--text-subtle); }
+.cx-seg.warning { background: var(--cx-orange); }
 @keyframes cx-blink { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
 .cx-strip-label { font-size: 0.71rem; color: var(--text-muted); font-family: var(--mono); white-space: nowrap; }
 
@@ -447,12 +448,14 @@ a.cx-btn { text-decoration: none; }   /* nút là link (Xem live → tab mới) 
 .cx-step.running .cx-step-dot { border-color: var(--cx-orange); background: var(--cx-orange); animation: cx-blink 1.4s infinite; }
 .cx-step.error   .cx-step-dot { border-color: var(--cx-red); background: var(--cx-red); }
 .cx-step.skipped .cx-step-dot { border-color: var(--text-subtle); background: var(--text-subtle); }
+.cx-step.warning .cx-step-dot { border-color: var(--cx-orange); background: transparent; }
 .cx-step-head { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
 .cx-step-label { font-size: 0.84rem; font-weight: 600; }
 .cx-step-status { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text-muted); }
 .cx-step.success .cx-step-status { color: var(--cx-green); }
 .cx-step.running .cx-step-status { color: var(--cx-orange); }
 .cx-step.error   .cx-step-status { color: var(--cx-red); }
+.cx-step.warning .cx-step-status { color: var(--cx-orange); }
 .cx-step-time { font-size: 0.7rem; color: var(--text-subtle); font-family: var(--mono); }
 .cx-step-msg { font-size: 0.78rem; color: var(--text2); margin-top: 3px; font-family: var(--mono); word-break: break-word; line-height: 1.5; }
 .cx-step.error .cx-step-msg { color: var(--cx-red); }

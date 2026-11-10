@@ -135,6 +135,7 @@
   "codex.step_pending": "Ожидает",
   "codex.step_running": "Выполняется",
   "codex.step_skipped": "Пропущен",
+  "codex.step_warning": "Проверьте",
   "codex.step_success": "Успешно",
   "codex.steps_progress": "{done}/{total} шагов",
   "codex.subtitle": "Поручайте работу агентам, следите за ходом, принимайте результат",

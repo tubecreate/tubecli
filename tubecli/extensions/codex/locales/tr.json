@@ -135,6 +135,7 @@
   "codex.step_pending": "Bekliyor",
   "codex.step_running": "Çalışıyor",
   "codex.step_skipped": "Atlandı",
+  "codex.step_warning": "Kontrol edin",
   "codex.step_success": "Başarılı",
   "codex.steps_progress": "{done}/{total} adım",
   "codex.subtitle": "İşi ajanlara verin, ilerlemeyi izleyin, sonucu kabul edin",

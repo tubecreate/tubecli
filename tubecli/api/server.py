@@ -686,8 +686,68 @@ async def _guard_cross_origin(request: Request, call_next):
     return await call_next(request)
 
 
-def check_and_generate_daily_keywords(agent, now_dt):
-    """Checks if daily evolved keywords exist for the current date. Generates them via LLM if not."""
+KEYWORD_PERIODS = ("morning", "afternoon", "evening", "night")
+
+
+def _agent_now(agent):
+    """Giờ hiện tại theo múi giờ của agent (không khai / khai sai → giờ máy). «Hôm nay» của từ khoá hằng ngày phải là
+    hôm nay CỦA AGENT — nút «Sinh lại từ khoá» từng ghi ngày theo UTC nên máy ở VN trước 7 giờ sáng ghi nhầm ngày hôm
+    qua, và lượt hẹn giờ sau đó lại coi bộ từ khoá vừa sinh là cũ."""
+    import datetime as _dt
+    tz_str = str(getattr(agent, "timezone", "") or "").strip()
+    if tz_str:
+        try:
+            from zoneinfo import ZoneInfo
+            return _dt.datetime.now(ZoneInfo(tz_str))
+        except Exception:
+            try:
+                import pytz
+                return _dt.datetime.now(pytz.timezone(tz_str))
+            except Exception:
+                pass
+    return _dt.datetime.now()
+
+
+def _keyword_lists(dk) -> dict:
+    """{buổi: [câu…]} sạch từ một bộ daily_keywords (bỏ buổi rỗng / sai kiểu)."""
+    out = {}
+    for p in KEYWORD_PERIODS:
+        v = (dk or {}).get(p) if isinstance(dk, dict) else None
+        if isinstance(v, str):
+            v = [v]
+        if isinstance(v, list):
+            items = [" ".join(str(x).split()) for x in v if str(x or "").strip()]
+            if items:
+                out[p] = items
+    return out
+
+
+def _drop_denied_keywords(agent, lists: dict) -> tuple:
+    """Bỏ câu tìm kiếm dính TỪ CẤM của ngách (rẻ, không gọi model). (lists đã lọc, số câu bị bỏ)."""
+    try:
+        from tubecli.core import niche as _niche
+        cfg, _w = _niche.effective(agent)
+    except Exception:
+        return lists, 0
+    if not cfg.get("enabled", True) or not cfg.get("deny_terms"):
+        return lists, 0
+    dropped, out = 0, {}
+    for p, items in lists.items():
+        keep = [q for q in items if not _niche.deny_hit(cfg, q)]
+        dropped += len(items) - len(keep)
+        if keep:
+            out[p] = keep
+    return out, dropped
+
+
+def check_and_generate_daily_keywords(agent, now_dt, run_id=None):
+    """Checks if daily evolved keywords exist for the current date. Generates them via LLM if not.
+
+    Sinh hỏng (10/11/2026, «Deep Biblical Echoes» kẹt bộ từ khoá từ 3/11): trước đây chỉ `print` rồi trả {} — lượt hẹn
+    giờ rơi xuống câu tìm kiếm MẶC ĐỊNH «github trending» / «technology news», kho đầy bài công nghệ, bộ lọc ngách chặn
+    0/30 nguồn và kênh Kinh Thánh không ra video nhiều ngày liền. Nay: thử model của agent rồi model mặc định của máy;
+    hỏng nữa thì GHI LỖI vào lượt chạy (run_log.note) và DÙNG LẠI bộ từ khoá cũ (vẫn đúng ngách) thay cho câu mặc định.
+    """
     import json
     from pathlib import Path
     from tubecli.core.agent import agent_manager
@@ -779,34 +839,93 @@ Rules for evolution and progression:
   "night": ["query 1", "query 2", "query 3", "query 4", "query 5"]
 }}
 """
+    # Ngách của agent (core/niche.py): câu tìm kiếm lạc ngách chỉ đổ bài lạc vào kho, rồi bộ lọc ngách lại vứt đi.
+    try:
+        from tubecli.core import niche as _niche
+        _ncfg, _nw = _niche.effective(agent)
+        if _ncfg.get("enabled", True) and (_ncfg.get("must_relate_to") or _ncfg.get("deny_terms")):
+            prompt += ("\nNICHE (every query must stay inside it):"
+                       + (f"\n- Must relate to: {', '.join(_ncfg['must_relate_to'])}" if _ncfg.get("must_relate_to") else "")
+                       + (f"\n- Never use these terms: {', '.join(_ncfg['deny_terms'])}" if _ncfg.get("deny_terms") else "")
+                       + "\n")
+    except Exception as _ne:
+        print(f"[Scheduler Callback] niche config unavailable for keywords: {_ne}")
+
     messages = [
         {"role": "system", "content": "You are a precise JSON keyword generator. Output only valid JSON."},
         {"role": "user", "content": prompt}
     ]
 
+    # Model của agent trước, rồi model AI mặc định của máy (nếu khác) — một model hết lượt / trả lời lạc không được
+    # làm cả ngày nghiên cứu rơi về câu tìm kiếm mặc định.
+    base = agent.to_dict()
+    models = [str(base.get("model") or "").strip()]
     try:
-        raw_response = AgentBrain._call_llm(agent.to_dict(), messages, temperature=0.7)
-        json_str = extract_json(raw_response)
-        evolved_data = json.loads(json_str)
-        if all(k in evolved_data for k in ["morning", "afternoon", "evening", "night"]):
-            new_keywords = {
-                "date": date_str,
-                "morning": evolved_data["morning"],
-                "afternoon": evolved_data["afternoon"],
-                "evening": evolved_data["evening"],
-                "night": evolved_data["night"]
-            }
+        from tubecli import config as _cfg
+        models.append(str(_cfg.read_global_settings().get(_cfg.GLOBAL_DEFAULT_MODEL_SETTING) or "").strip())
+    except Exception:
+        pass
+    models = [m for i, m in enumerate(models) if i == 0 or (m and m not in models[:i])]
+    errors = []
+    for model in models:
+        ag = base if model == models[0] else dict(base, model=model, provider="")
+        try:
+            raw_response = AgentBrain._call_llm(ag, messages, temperature=0.7)
+            raw_text = str(raw_response or "")
+            if raw_text.lstrip().startswith("[Error]"):
+                raise RuntimeError(raw_text.strip()[:200])
+            evolved_data = json.loads(extract_json(raw_text))
+            lists = _keyword_lists(evolved_data)
+            missing = [p for p in KEYWORD_PERIODS if p not in lists]
+            if missing:
+                raise ValueError(f"the reply has no {'/'.join(missing)} list "
+                                 f"(reply starts: {' '.join(raw_text.split())[:120]!r})")
+            lists, dropped = _drop_denied_keywords(agent, lists)
+            if not lists:
+                raise ValueError(f"every query used a blocked niche term ({dropped} dropped)")
+            new_keywords = dict(lists, date=date_str)
             # Deep-reload routine from agent to avoid overwriting updates
             agent = agent_manager.get(agent.id)
             routine = agent.routine or {}
             routine["daily_keywords"] = new_keywords
+            routine.pop("daily_keywords_error", None)
             agent_manager.update(agent.id, routine=routine)
             print(f"[Scheduler Callback] Successfully saved daily evolved keywords: {new_keywords}")
+            if dropped:
+                _keyword_note(run_id, agent, f"Daily keywords for {date_str}: {dropped} query(ies) with a blocked "
+                                            f"niche term were dropped.")
             return new_keywords
-    except Exception as e:
-        print(f"[Scheduler Callback] Evolved daily keywords generation failed: {e}. Falling back to default interests.")
+        except Exception as e:
+            errors.append(f"{model or 'default model'}: {' '.join(str(e).split())[:200]}")
 
+    # Hỏng hết: ghi lỗi (lượt chạy + routine, để dashboard / API thấy) rồi dùng lại bộ cũ.
+    stale = _keyword_lists(daily_keywords)
+    stale_date = str(daily_keywords.get("date") or daily_keywords.get("stale_from") or "")
+    msg = (f"Daily keywords for {date_str} could not be generated — " + " | ".join(errors)
+           + (f". Reusing the previous keywords ({stale_date or 'undated'})." if stale else
+              ". No previous keywords to reuse — the run falls back to the niche topics."))
+    print(f"[Scheduler Callback] {msg}")
+    _keyword_note(run_id, agent, msg, kind="keywords_error")
+    try:
+        fresh = agent_manager.get(agent.id)
+        r2 = fresh.routine or {}
+        r2["daily_keywords_error"] = {"date": date_str, "error": msg[:600]}
+        agent_manager.update(agent.id, routine=r2)
+    except Exception as _se:
+        print(f"[Scheduler Callback] could not save the keyword error: {_se}")
+    if stale:
+        stale, _d = _drop_denied_keywords(agent, stale)
+        if stale:
+            return dict(stale, date=stale_date, stale=True)
     return {}
+
+
+def _keyword_note(run_id, agent, text: str, kind: str = "keywords") -> None:
+    try:
+        from tubecli.core import run_log
+        run_log.note(run_id, str(getattr(agent, "id", "") or ""), text, kind=kind)
+    except Exception as e:
+        print(f"[Scheduler Callback] run_log note failed: {e}")
 
 
 def _group_browser_profiles(groups) -> List[tuple]:
@@ -1442,7 +1561,7 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
     print(f"[Scheduler Callback] Period: {time_period} (hour: {hour}, timezone: {tz_str or 'local'})")
     
     # Check and generate daily keywords via AI
-    daily_keywords = check_and_generate_daily_keywords(agent, now)
+    daily_keywords = check_and_generate_daily_keywords(agent, now, run_id=run_id)
     if daily_keywords:
         agent = agent_manager.get(agent_id)
         
@@ -1514,6 +1633,16 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
     if not isinstance(focus_areas, list):
         focus_areas = [focus_areas] if focus_areas else []
     combined_topics = list(dict.fromkeys([str(t) for t in interests + focus_areas if t]))
+    if not combined_topics:
+        # Không sở thích / focus nào (agent tạo bằng system prompt): chủ đề của NGÁCH trước câu mặc định «github
+        # trending» — câu đó từng đổ đầy kho kênh Kinh Thánh bằng bài công nghệ (10/11/2026).
+        try:
+            from tubecli.core import niche as _niche
+            _ncfg, _nw = _niche.effective(agent)
+            if _ncfg.get("enabled", True):
+                combined_topics = [str(t) for t in (_ncfg.get("must_relate_to") or [])][:20]
+        except Exception as _ne:
+            print(f"[Scheduler Callback] niche topics unavailable: {_ne}")
     
     hour_slot = now.strftime('%Y%m%d%H')
     seed_str = f"{profile_name}|{agent.name}|{hour_slot}"
@@ -3041,7 +3170,8 @@ async def regenerate_agent_keywords(agent_id: str):
     def _regen():
         try:
             fresh_agent = agent_manager.get(agent_id)
-            now_dt = datetime.now(tz.utc)
+            # Ngày theo múi giờ CỦA AGENT (trước: UTC — sinh trước 7 giờ sáng giờ VN ghi nhầm ngày hôm qua).
+            now_dt = _agent_now(fresh_agent)
             new_kw = check_and_generate_daily_keywords(fresh_agent, now_dt)
             print(f"[RegenKw] Regenerated keywords for agent '{fresh_agent.name}': {new_kw}")
         except Exception as e:

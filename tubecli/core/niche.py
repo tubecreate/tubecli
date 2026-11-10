@@ -79,15 +79,84 @@ def configured(cfg: Dict[str, Any]) -> bool:
     return bool(cfg.get("must_relate_to") or cfg.get("niche_description"))
 
 
+FROM_PROMPT = "NICHE_FROM_PROMPT"
+_BLOCK_RE = re.compile(r"^\W*NICHE\s+CONFIG\b.*$", re.I | re.M)
+_LINE_RE = re.compile(r"^\s*[-*•]?\s*([A-Za-z][A-Za-z /\-]{1,40}?)\s*(?:\([^)]*\))?\s*:\s*(.*\S)\s*$")
+# Nhãn trong khối → trường của cấu hình (so chữ thường, bỏ khoảng trắng thừa)
+_LABELS = {
+    "niche": "niche_description", "niche description": "niche_description",
+    "language": "language",
+    "must relate to": "must_relate_to", "must-relate-to": "must_relate_to",
+    "deny terms": "deny_terms", "deny": "deny_terms", "blocked terms": "deny_terms",
+    "minimum niche score": "min_niche_score", "min niche score": "min_niche_score",
+}
+
+
+def from_system_prompt(text: str) -> Dict[str, Any]:
+    """Đọc khối «NICHE CONFIG» mà chủ agent viết sẵn trong system prompt (10/11/2026 — «Deep Biblical Echoes» có đủ
+    Must relate to / Deny terms / Minimum niche score trong prompt mà ô Niche của agent để trống ⇒ cổng chạy bằng
+    research brief + cảnh báo NICHE_UNCONFIGURED). {} khi không có khối; chỉ trả các trường đọc được."""
+    s = str(text or "")
+    m = _BLOCK_RE.search(s)
+    if not m:
+        return {}
+    out: Dict[str, Any] = {}
+    started = False
+    for line in s[m.end():].splitlines()[:40]:
+        if not line.strip():
+            if started:
+                break           # khối kết thúc ở dòng trống đầu tiên sau các dòng «Nhãn: giá trị»
+            continue
+        lm = _LINE_RE.match(line)
+        if not lm:
+            if started:
+                break
+            continue
+        key = _LABELS.get(" ".join(lm.group(1).lower().split()))
+        if not key:
+            started = True      # nhãn khác (Channel, Keyword bank…) vẫn thuộc khối
+            continue
+        started = True
+        val = lm.group(2).strip()
+        if key == "min_niche_score":
+            n = re.search(r"\d+(?:\.\d+)?", val)
+            if n:
+                out[key] = n.group(0)
+        elif key in ("must_relate_to", "deny_terms"):
+            out[key] = [x for x in re.split(r"[,;]", val) if x.strip()]
+        else:
+            out[key] = val
+    return out
+
+
 def effective(agent) -> Tuple[Dict[str, Any], List[str]]:
-    """(cấu hình dùng thật, cảnh báo). Agent CHƯA khai ngách: mô tả lấy từ research_prompt / mô tả agent (an toàn —
-    cổng vẫn chạy), kèm cảnh báo NICHE_UNCONFIGURED để task nói rõ."""
-    cfg = coerce(getattr(agent, "niche", None))
+    """(cấu hình dùng thật, cảnh báo). Trường nào của ô Niche còn trống thì lấy từ khối «NICHE CONFIG» trong system
+    prompt (cảnh báo NICHE_FROM_PROMPT). Vẫn chưa có gì: mô tả lấy từ research_prompt / mô tả agent (an toàn — cổng vẫn
+    chạy), kèm cảnh báo NICHE_UNCONFIGURED để task nói rõ."""
+    raw = getattr(agent, "niche", None)
+    cfg = coerce(raw)
+    warns: List[str] = []
+    block = from_system_prompt(getattr(agent, "system_prompt", "") or "")
+    parsed = coerce(block)
+    filled = False
+    if block:
+        was_configured = configured(cfg)
+        for key in ("must_relate_to", "deny_terms", "niche_description", "language"):
+            if not cfg.get(key) and parsed.get(key):
+                cfg[key] = parsed[key]
+                filled = True
+        # Điểm tối thiểu: coerce luôn trả 7 khi trống nên không phân biệt được «chủ để 7» với «chưa khai» — chỉ lấy
+        # của prompt khi ô Niche CHƯA khai gì (cả phải-liên-quan lẫn mô tả).
+        src_min = (raw or {}).get("min_niche_score") if isinstance(raw, dict) else None
+        if not was_configured and src_min in (None, "", DEFAULTS["min_niche_score"]) and "min_niche_score" in block:
+            cfg["min_niche_score"] = parsed["min_niche_score"]
+    if filled:
+        warns.append(FROM_PROMPT)
     if configured(cfg):
-        return cfg, []
+        return cfg, warns
     desc = " ".join(str(getattr(agent, "research_prompt", "") or getattr(agent, "description", "") or "").split())
     cfg["niche_description"] = (desc or str(getattr(agent, "name", "") or ""))[:600]
-    return cfg, [UNCONFIGURED]
+    return cfg, warns + [UNCONFIGURED]
 
 
 # ── từ cấm ────────────────────────────────────────────────────────────────────

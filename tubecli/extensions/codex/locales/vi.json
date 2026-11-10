@@ -135,6 +135,7 @@
   "codex.step_pending": "Chờ",
   "codex.step_running": "Đang chạy",
   "codex.step_skipped": "Bỏ qua",
+  "codex.step_warning": "Cần kiểm tra",
   "codex.step_success": "Xong",
   "codex.steps_progress": "{done}/{total} bước",
   "codex.subtitle": "Giao việc cho agent, theo dõi tiến độ, nghiệm thu",

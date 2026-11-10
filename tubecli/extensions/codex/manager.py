@@ -116,6 +116,9 @@ STEP_RUNNING = "running"
 STEP_SUCCESS = "success"
 STEP_ERROR = "error"
 STEP_SKIPPED = "skipped"
+# Bước XONG mà kết quả chưa xác minh được (10/11/2026: đăng YouTube xong mà không lấy được id video — trước đây ghi
+# success với link trợ giúp của Google). Kết thúc như success, nhưng hiện màu cam để người duyệt biết phải kiểm.
+STEP_WARNING = "warning"
 # Bước đang làm dở lúc người dùng bấm Huỷ: dừng, giữ dấu vết, Chạy lại tiếp từ đây.
 STEP_CANCELLED = "cancelled"
 
@@ -216,7 +219,7 @@ def step_summary(task: Dict[str, Any]) -> Dict[str, Any]:
     """{done, total, current?: {name, label, progress, message, started_at}, failed?: {name, label, message}} — đủ
     cho dòng «Đang: bước · k/N · %» của thẻ thu gọn mà không chở cả mảng bước."""
     steps = [x for x in (task.get("steps") or []) if isinstance(x, dict)]
-    out: Dict[str, Any] = {"done": sum(1 for x in steps if x.get("status") in (STEP_SUCCESS, STEP_SKIPPED)),
+    out: Dict[str, Any] = {"done": sum(1 for x in steps if x.get("status") in (STEP_SUCCESS, STEP_SKIPPED, STEP_WARNING)),
                            "total": len(steps)}
     cur = next((x for x in reversed(steps) if x.get("status") == STEP_RUNNING), None)
     if cur is not None:
@@ -1408,14 +1411,14 @@ class CodexManager:
                     existing["label"] = label
                 if pct is not None:
                     existing["progress"] = pct
-            if status in (STEP_SUCCESS, STEP_ERROR, STEP_SKIPPED, STEP_CANCELLED):
+            if status in (STEP_SUCCESS, STEP_ERROR, STEP_SKIPPED, STEP_CANCELLED, STEP_WARNING):
                 existing["ended_at"] = _now()
-                existing["progress"] = 100.0 if status == STEP_SUCCESS else existing.get("progress")
+                existing["progress"] = 100.0 if status in (STEP_SUCCESS, STEP_WARNING) else existing.get("progress")
             task["updated_at"] = _now()
             self._save()
 
         label_now = str(existing.get("label") or name)
-        terminal = status in (STEP_SUCCESS, STEP_ERROR, STEP_SKIPPED, STEP_CANCELLED)
+        terminal = status in (STEP_SUCCESS, STEP_ERROR, STEP_SKIPPED, STEP_CANCELLED, STEP_WARNING)
 
         # Agent Town: báo lên cloud để trang chủ vẽ. CHỈ khi bước đổi trạng thái —
         # cập nhật tiến độ (12/69 → 13/69) không đổi status nên không tạo chuyến gửi.
@@ -1428,7 +1431,8 @@ class CodexManager:
             who = str(task.get("assignee_id") or "")
             if who:
                 town_telemetry.report(
-                    _step_extension(name), status, who,
+                    # cloud chỉ nhận running/success/error/skipped/cancelled — «warning» là bước ĐÃ XONG
+                    _step_extension(name), STEP_SUCCESS if status == STEP_WARNING else status, who,
                     _elapsed_seconds(existing.get("started_at"), existing.get("ended_at")) or 0,
                 )
         if is_new:

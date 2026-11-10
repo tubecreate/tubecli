@@ -135,6 +135,7 @@
   "codex.step_pending": "Pendiente",
   "codex.step_running": "En ejecución",
   "codex.step_skipped": "Omitido",
+  "codex.step_warning": "Revisar",
   "codex.step_success": "Correcto",
   "codex.steps_progress": "{done}/{total} pasos",
   "codex.subtitle": "Encarga trabajo a los agentes, sigue el progreso y acepta el resultado",

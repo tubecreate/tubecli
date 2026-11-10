@@ -135,6 +135,7 @@
   "codex.step_pending": "等待中",
   "codex.step_running": "运行中",
   "codex.step_skipped": "已跳过",
+  "codex.step_warning": "需确认",
   "codex.step_success": "成功",
   "codex.steps_progress": "{done}/{total} 步",
   "codex.subtitle": "把工作交给代理、跟踪进度、验收结果",

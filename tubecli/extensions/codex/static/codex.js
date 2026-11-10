@@ -41,6 +41,7 @@ const CODEX = (() => {
     error: 'cancel',
     skipped: 'remove_circle',
     cancelled: 'stop_circle',
+    warning: 'warning',
   };
   // Activity trong trình duyệt giữ tối đa chừng này dòng (RAM) — dòng cũ hơn vẫn nằm trong sổ của máy chủ.
   const EVENTS_KEEP = 150;

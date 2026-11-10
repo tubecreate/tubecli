@@ -135,6 +135,7 @@
   "codex.step_pending": "待機",
   "codex.step_running": "実行中",
   "codex.step_skipped": "スキップ",
+  "codex.step_warning": "要確認",
   "codex.step_success": "成功",
   "codex.steps_progress": "{done}/{total} ステップ",
   "codex.subtitle": "エージェントに仕事を渡し、進み具合を見て、結果を受け取る",
