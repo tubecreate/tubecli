@@ -353,19 +353,34 @@ class ScriptDatabase:
         finally:
             conn.close()
 
-    def list_executions(self, script_id=None, limit=50):
+    def list_executions(self, script_id=None, limit=50, log_chars=None):
+        """log_chars (10/11/2026 — một dòng log từng > 1,2 triệu ký tự, 50 dòng là cả trăm MB qua HTTP/MCP):
+        None = log nguyên văn (như cũ); 0 = bỏ log; N > 0 = chỉ N ký tự CUỐI. Khi cắt, dòng có thêm `log_length`
+        (độ dài thật) + `log_truncated`. Cắt ngay trong SQL nên không kéo cả log lên bộ nhớ."""
+        cols = "*"
+        if log_chars is not None:
+            n = max(0, int(log_chars))
+            log_expr = "''" if n == 0 else f"substr(log, -{n})"
+            cols = ("id, script_id, profile_name, status, variables, result, started_at, finished_at, "
+                    f"{log_expr} AS log, length(log) AS log_length")
         conn = self._conn()
         try:
             if script_id:
                 rows = conn.execute(
-                    "SELECT * FROM executions WHERE script_id = ? ORDER BY id DESC LIMIT ?",
+                    f"SELECT {cols} FROM executions WHERE script_id = ? ORDER BY id DESC LIMIT ?",
                     (script_id, limit)
                 ).fetchall()
             else:
                 rows = conn.execute(
-                    "SELECT * FROM executions ORDER BY id DESC LIMIT ?", (limit,)
+                    f"SELECT {cols} FROM executions ORDER BY id DESC LIMIT ?", (limit,)
                 ).fetchall()
-            return [self._exec_row(r) for r in rows]
+            out = [self._exec_row(r) for r in rows]
+            if log_chars is not None:
+                for d in out:
+                    if isinstance(d, dict):
+                        d["log_length"] = int(d.get("log_length") or 0)
+                        d["log_truncated"] = d["log_length"] > len(d.get("log") or "")
+            return out
         finally:
             conn.close()
 
