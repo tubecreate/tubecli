@@ -2,6 +2,42 @@
 
 Notable changes to TubeCLI. Versions match `tubecli/__init__.py`.
 
+## 2026.08.09.233 — 2026-11-10
+
+### Niche channels no longer stop for days at «OFF-NICHE SOURCES»
+- When fewer than 3 collected sources fit the niche, an automatic video no longer stops in review. It takes a topic
+  from the agent's keyword bank (its daily keywords), skips topics used in the last 21 days or already in an open task,
+  and writes from the primary text plus the on-niche sources. The task records `source: bank` and
+  `keyword_source: bank`; `BANK_LOW` warns when fewer than 10 unused topics are left. Off-niche material is never used.
+- Sources older than 30 days, and sources the niche gate rejected on an earlier run, are dropped before the gate
+  instead of being judged again every day.
+- When the Niche settings of an agent are empty, the «NICHE CONFIG» block of its system prompt is used
+  (Must relate to, Deny terms, Minimum niche score).
+
+### Daily keywords refresh again
+- If generating the day's keywords fails, TubeCLI tries the machine's default model, then reuses the previous
+  keywords instead of falling back to generic searches such as «github trending». The error is shown on the run in the
+  agent's Activity. Queries with a blocked niche term are dropped. «Regenerate keywords» uses the agent's time zone.
+
+### Publishing to YouTube Studio
+- The publish step only accepts a real video link (youtu.be/<id>). A help link from the upload dialog is no longer
+  reported as the published video. With no video id the step ends as «Needs a check» (UNVERIFIED), not success.
+- If the channel name matches no API token and no browser profile (including a profile picked for publishing),
+  publishing stops with a clear error instead of uploading to the profile's default channel.
+- A template image model that fails permanently («model not supported») is reported once per model.
+
+### Codex board
+- A task an agent answers with a refusal or «I can't do this» ends as failed with the agent's reason, not in review.
+- «Clean up the board»: accept auto-publish tasks that reached YouTube (never publishes again), and close failed
+  tasks older than N days (kept, can be retried). Both show the count first and ask before running.
+
+### Browser sessions
+- Stuck sessions are closed and logged: past their time limit, hidden Muse sessions idle for 30 minutes, and manual
+  sessions open for more than 4 hours (`browser_manual_max_hours`, 0 = off). Live-viewed sessions are never closed.
+- Hidden Muse sessions take at most all but one slot of the scheduled-browser limit. A «busy» skip lists who holds
+  the slots, and the agent's run shows why no video was created.
+- `GET /api/v1/scripts/executions/history` accepts `include_log=false` and `log_tail=N`.
+
 ## 2026.08.09.232 — 2026-11-09
 
 ### Fix: TubeCLI did not start on Python 3.10 and 3.11
