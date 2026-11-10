@@ -508,5 +508,19 @@
   "codex.cv_cast_add": "+ 從角色庫新增",
   "codex.cv_cast_none": "沒有固定角色——畫面依腳本繪製。",
   "codex.cv_cast_name": "新角色的名字",
-  "codex.cv_cast_added": "已將 {name} 加入角色庫"
+  "codex.cv_cast_added": "已將 {name} 加入角色庫",
+  "codex.cleanup_menu": "整理看板",
+  "codex.bulk_accept_btn": "接受已發布的自動影片",
+  "codex.bulk_close_btn": "關閉舊的失敗任務",
+  "codex.bulk_accept_title": "接受已發布的自動影片",
+  "codex.bulk_close_title": "關閉舊的失敗任務",
+  "codex.bulk_accept_hint": "待審核中有 {n} 個自動發布任務的影片已在 YouTube 上線。接受後將移到已完成——不會重新算繪或上傳。",
+  "codex.bulk_close_hint": "有 {n} 個失敗任務早於此期限。關閉即取消：日誌、腳本和檔案都會保留，仍可重新執行。",
+  "codex.bulk_days": "失敗超過的天數",
+  "codex.bulk_none": "沒有符合條件的任務。",
+  "codex.bulk_more": "……還有 {n} 個",
+  "codex.bulk_confirm_accept": "接受 {n} 個",
+  "codex.bulk_confirm_close": "關閉 {n} 個",
+  "codex.toast_bulk_accepted": "已接受 {n} 個任務",
+  "codex.toast_bulk_closed": "已關閉 {n} 個任務"
 }

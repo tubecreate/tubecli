@@ -821,6 +821,10 @@ a.cx-btn { text-decoration: none; }   /* nút là link (Xem live → tab mới) 
 .cx-menu-item.danger { color: var(--cx-red); }
 .cx-menu-item .material-symbols-outlined { font-size: 17px; }
 .cx-settings .cx-menu { min-width: 240px; padding: 10px; gap: 10px; }
+#cx-cleanup .cx-menu { min-width: 250px; }
+.cx-bulk-list { margin: 8px 0 0; padding-left: 18px; max-height: 220px; overflow: auto; font-size: 0.82rem; color: var(--text2); }
+.cx-bulk-list li { margin: 2px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#cx-bulk-days-row input { width: 110px; }
 
 /* Thẻ mở: dải «Đang» ghim dưới đầu trang khi cuộn */
 .cx-now {

@@ -508,5 +508,19 @@
   "codex.cv_cast_add": "+ Thêm nhân vật từ kho",
   "codex.cv_cast_none": "Không có nhân vật cố định — tranh vẽ theo kịch bản.",
   "codex.cv_cast_name": "Tên nhân vật mới",
-  "codex.cv_cast_added": "Đã thêm {name} vào kho nhân vật"
+  "codex.cv_cast_added": "Đã thêm {name} vào kho nhân vật",
+  "codex.cleanup_menu": "Dọn bảng",
+  "codex.bulk_accept_btn": "Nhận các video tự đăng đã lên kênh",
+  "codex.bulk_close_btn": "Đóng các task lỗi cũ",
+  "codex.bulk_accept_title": "Nhận các video tự đăng đã lên kênh",
+  "codex.bulk_close_title": "Đóng các task lỗi cũ",
+  "codex.bulk_accept_hint": "{n} task tự đăng đang chờ duyệt đã có video trên YouTube. Nhận sẽ chuyển chúng sang Xong — không dựng hay đăng lại gì.",
+  "codex.bulk_close_hint": "{n} task lỗi cũ hơn mốc này. Đóng = huỷ: nhật ký, kịch bản và file vẫn giữ, vẫn Chạy lại được.",
+  "codex.bulk_days": "Lỗi từ hơn số ngày này",
+  "codex.bulk_none": "Không có task nào khớp.",
+  "codex.bulk_more": "…và {n} task nữa",
+  "codex.bulk_confirm_accept": "Nhận {n}",
+  "codex.bulk_confirm_close": "Đóng {n}",
+  "codex.toast_bulk_accepted": "Đã nhận {n} task",
+  "codex.toast_bulk_closed": "Đã đóng {n} task"
 }

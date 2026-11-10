@@ -365,6 +365,24 @@ def _elapsed_seconds(start: Any, end: Any) -> Optional[int]:
         return None
 
 
+# Dọn bảng hàng loạt (bulk_accept_published / bulk_close_failed). Loại task được NHẬN hàng loạt: chỉ những loại không có
+# hook on_accept (content_video.plan có — nó xếp lượt dựng + đăng lần nữa, nên KHÔNG bao giờ nằm trong danh sách này).
+BULK_ACCEPT_KINDS = frozenset(("content_video.auto", "content_video.render"))
+BULK_CLOSE_MIN_DAYS = 1
+_YT_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
+
+
+def _parse_ts(ts: Any) -> Optional[datetime.datetime]:
+    """Mốc ISO → datetime CÓ múi giờ (mốc cũ không ghi múi = giờ máy); None khi không đọc được."""
+    if not ts:
+        return None
+    try:
+        d = datetime.datetime.fromisoformat(str(ts))
+    except (TypeError, ValueError):
+        return None
+    return d if d.tzinfo else d.astimezone()
+
+
 def _fmt_secs(sec: int) -> str:
     if sec < 60:
         return f"{sec}s"
@@ -1114,6 +1132,106 @@ class CodexManager:
             task_id, "log", f"🔁 Changes requested by {actor}: {feedback}", actor=actor
         )
         return updated
+
+    # ── Dọn bảng hàng loạt (10/11/2026) ──────────────────────────
+    # (a) Nhận hết task TỰ ĐĂNG đã lên kênh thật; (b) đóng (cancel — giữ nguyên dữ liệu, Chạy lại vẫn được) mọi task
+    # hỏng cũ hơn N ngày. contabo: hàng chục task auto nằm Review dù video đã public, task hỏng từ tuần trước chiếm cột.
+
+    def checkpoint_of(self, task_id: str) -> Dict[str, Any]:
+        """Checkpoint của task = GỘP mọi sự kiện mang data.checkpoint theo thứ tự (bản sau thắng) — cùng luật
+        content_video._read_checkpoint (mỗi lần ghi chỉ mang vài khoá)."""
+        merged: Dict[str, Any] = {}
+        for ev in self.get_events(task_id, limit=0):
+            ck = (ev.get("data") or {}).get("checkpoint") if isinstance(ev.get("data"), dict) else None
+            if isinstance(ck, dict):
+                merged.update(ck)
+        return merged
+
+    def published_video(self, task_id: str) -> Dict[str, str]:
+        """{video_id, url} của video task này ĐÃ đăng thật (checkpoint.published có video id YouTube hợp lệ), hay {}.
+        Link không có id (vd. «support.google.com/youtube?p=upload_videos» mà script từng ghi) KHÔNG tính."""
+        pub = self.checkpoint_of(task_id).get("published")
+        if not isinstance(pub, dict):
+            return {}
+        vid = str(pub.get("video_id") or "").strip()
+        if not _YT_ID_RE.match(vid):
+            return {}
+        url = str(pub.get("url") or "").strip() or f"https://youtu.be/{vid}"
+        return {"video_id": vid, "url": url}
+
+    def bulk_accept_published(self, actor: str = "user", dry_run: bool = False) -> Dict[str, Any]:
+        """Nhận (REVIEW → DONE) mọi task tự đăng / dựng-và-đăng của content_video ĐÃ có video thật trên kênh.
+
+        KHÔNG gọi hook on_accept — đây là chỗ nguy hiểm nhất của nút này: hook của task kế hoạch xếp lượt DỰNG, tức một
+        lần đăng YouTube nữa. Chỉ nhận loại BULK_ACCEPT_KINDS (auto / render — không có hook nào) và chỉ khi checkpoint
+        ghi video id thật; bấm hai lần hay hai người cùng bấm thì _settle bảo đảm mỗi task chỉ chuyển một lần."""
+        self._ensure_loaded()
+        with self._lock:
+            candidates = [dict(t) for t in self._tasks.values() if t.get("status") == REVIEW]
+        hits: List[Dict[str, Any]] = []
+        for t in sorted(candidates, key=lambda x: int(x.get("seq") or 0)):
+            tid = str(t.get("id") or "")
+            if (self.kind_of(tid) or "") not in BULK_ACCEPT_KINDS:
+                continue
+            pub = self.published_video(tid)
+            if not pub:
+                continue
+            hits.append({"id": tid, "seq": t.get("seq"), "title": t.get("title", ""), "url": pub["url"]})
+        accepted: List[Dict[str, Any]] = []
+        if not dry_run:
+            for h in hits:
+                try:
+                    _done, changed = self._settle(
+                        h["id"], DONE, actor,
+                        message=f"Accepted in bulk by {actor} — published: {h['url']}",
+                        updates={"finished_at": _now()},
+                    )
+                except ValueError as e:      # đổi trạng thái giữa chừng (người khác vừa bấm Retry…) — bỏ qua task đó
+                    logger.info(f"[Codex] bulk accept skipped {h['id']}: {e}")
+                    continue
+                if changed:
+                    accepted.append(h)
+        return {"dry_run": bool(dry_run), "matched": len(hits), "accepted": len(accepted),
+                "tasks": hits if dry_run else accepted}
+
+    def bulk_close_failed(self, older_than_days: float = 7, actor: str = "user",
+                          dry_run: bool = False) -> Dict[str, Any]:
+        """Đóng (FAILED → CANCELLED) task hỏng từ hơn `older_than_days` ngày. Không xoá gì: sổ sự kiện, checkpoint,
+        file đều còn, và task đã huỷ vẫn Chạy lại được (CANCELLED → QUEUED)."""
+        try:
+            days = float(older_than_days)
+        except (TypeError, ValueError):
+            raise ValueError("older_than_days must be a number")
+        if not (BULK_CLOSE_MIN_DAYS <= days <= 3650):
+            raise ValueError(f"older_than_days must be between {BULK_CLOSE_MIN_DAYS} and 3650")
+        cutoff = datetime.datetime.now().astimezone() - datetime.timedelta(days=days)
+        self._ensure_loaded()
+        with self._lock:
+            failed = [dict(t) for t in self._tasks.values() if t.get("status") == FAILED]
+        hits: List[Dict[str, Any]] = []
+        for t in sorted(failed, key=lambda x: int(x.get("seq") or 0)):
+            when = _parse_ts(t.get("finished_at") or t.get("updated_at") or t.get("created_at"))
+            if when is None or when > cutoff:
+                continue
+            hits.append({"id": str(t.get("id") or ""), "seq": t.get("seq"), "title": t.get("title", ""),
+                         "failed_at": when.isoformat(), "error": str(t.get("error") or "")[:160]})
+        closed: List[Dict[str, Any]] = []
+        if not dry_run:
+            note = f"{days:g} day(s)"
+            for h in hits:
+                try:
+                    _t, changed = self._settle(
+                        h["id"], CANCELLED, actor,
+                        message=f"Closed in bulk by {actor} — failed more than {note} ago (Retry still works)",
+                        updates={"closed_at": _now()},
+                    )
+                except ValueError as e:
+                    logger.info(f"[Codex] bulk close skipped {h['id']}: {e}")
+                    continue
+                if changed:
+                    closed.append(h)
+        return {"dry_run": bool(dry_run), "older_than_days": days, "matched": len(hits), "closed": len(closed),
+                "tasks": hits if dry_run else closed}
 
     # ── Pipeline hooks ───────────────────────────────────────────
 

@@ -508,5 +508,19 @@
   "codex.cv_cast_add": "+ Añadir un personaje de la biblioteca",
   "codex.cv_cast_none": "Sin personajes fijos: las imágenes siguen el guion.",
   "codex.cv_cast_name": "Nombre del nuevo personaje",
-  "codex.cv_cast_added": "{name} añadido a la biblioteca de personajes"
+  "codex.cv_cast_added": "{name} añadido a la biblioteca de personajes",
+  "codex.cleanup_menu": "Limpiar el tablero",
+  "codex.bulk_accept_btn": "Aceptar vídeos automáticos publicados",
+  "codex.bulk_close_btn": "Cerrar tareas fallidas antiguas",
+  "codex.bulk_accept_title": "Aceptar vídeos automáticos publicados",
+  "codex.bulk_close_title": "Cerrar tareas fallidas antiguas",
+  "codex.bulk_accept_hint": "{n} tarea(s) de publicación automática en revisión ya tienen su vídeo en YouTube. Aceptarlas las pasa a Hecho; no se vuelve a renderizar ni a subir nada.",
+  "codex.bulk_close_hint": "{n} tarea(s) fallidas son más antiguas que esto. Cerrarlas las cancela: el registro, el guion y los archivos se conservan, y Reintentar sigue funcionando.",
+  "codex.bulk_days": "Fallaron hace más de estos días",
+  "codex.bulk_none": "Nada que hacer: ninguna tarea coincide.",
+  "codex.bulk_more": "…y {n} más",
+  "codex.bulk_confirm_accept": "Aceptar {n}",
+  "codex.bulk_confirm_close": "Cerrar {n}",
+  "codex.toast_bulk_accepted": "{n} tarea(s) aceptadas",
+  "codex.toast_bulk_closed": "{n} tarea(s) cerradas"
 }

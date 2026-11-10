@@ -1271,6 +1271,78 @@ const CODEX = (() => {
   function reject(id) { openNote('reject', id); }
   function requestChanges(id) { openNote('changes', id); }
 
+  // ── Dọn bảng hàng loạt (10/11/2026) ───────────────────────────
+  // Mỗi mục ĐẾM trước bằng dry_run, hộp xác nhận nói rõ bao nhiêu task + vài cái đầu, nút xác nhận mang con số.
+  // 'accept' = nhận task tự đăng đã lên kênh (không dựng / đăng lại gì); 'close' = huỷ task hỏng cũ (giữ dữ liệu).
+  const BULK_LIST_MAX = 8;
+  const BULK_PATH = { accept: '/bulk/accept-published', close: '/bulk/close-failed' };
+
+  function bulkBody(kind, dryRun) {
+    const body = { dry_run: !!dryRun };
+    if (kind === 'close') {
+      const n = parseInt(($('cx-bulk-days') || {}).value, 10);
+      body.older_than_days = Number.isFinite(n) && n >= 1 ? n : 7;
+    }
+    return JSON.stringify(body);
+  }
+
+  function renderBulk(kind, data) {
+    const tasks = (data && data.tasks) || [];
+    const n = Number((data && data.matched) || 0);
+    $('cx-bulk-hint').textContent = n
+      ? t(kind === 'accept' ? 'codex.bulk_accept_hint' : 'codex.bulk_close_hint', { n })
+      : t('codex.bulk_none');
+    const rows = tasks.slice(0, BULK_LIST_MAX).map(x =>
+      `<li><b>#${esc(String(x.seq ?? ''))}</b> ${esc(x.title || '')}</li>`);
+    if (tasks.length > BULK_LIST_MAX) rows.push(`<li class="cx-muted">${esc(t('codex.bulk_more', { n: tasks.length - BULK_LIST_MAX }))}</li>`);
+    $('cx-bulk-list').innerHTML = rows.join('');
+    const go = $('cx-bulk-go');
+    go.disabled = !n;
+    go.className = 'cx-btn ' + (kind === 'close' ? 'cx-btn-danger' : 'cx-btn-primary');
+    go.textContent = t(kind === 'accept' ? 'codex.bulk_confirm_accept' : 'codex.bulk_confirm_close', { n });
+  }
+
+  async function bulkRecount() {
+    const kind = state.bulkKind;
+    if (!kind) return;
+    $('cx-bulk-go').disabled = true;
+    $('cx-bulk-hint').textContent = '…';
+    $('cx-bulk-list').innerHTML = '';
+    try {
+      renderBulk(kind, await api(BULK_PATH[kind], { method: 'POST', body: bulkBody(kind, true) }));
+    } catch (e) {
+      $('cx-bulk-hint').textContent = e.message;
+    }
+  }
+
+  async function openBulk(kind) {
+    if (!BULK_PATH[kind]) return;
+    const menu = $('cx-cleanup');
+    if (menu) menu.open = false;
+    state.bulkKind = kind;
+    $('cx-bulk-title').textContent = t(kind === 'accept' ? 'codex.bulk_accept_title' : 'codex.bulk_close_title');
+    $('cx-bulk-days-row').classList.toggle('hidden', kind !== 'close');
+    $('cx-modal-bulk').classList.remove('hidden');
+    await bulkRecount();
+  }
+
+  async function doBulk() {
+    const kind = state.bulkKind;
+    const go = $('cx-bulk-go');
+    if (!kind || !go || go.disabled) return;
+    go.disabled = true;
+    try {
+      const data = await api(BULK_PATH[kind], { method: 'POST', body: bulkBody(kind, false) });
+      const n = Number((kind === 'accept' ? data.accepted : data.closed) || 0);
+      closeModal('cx-modal-bulk');
+      toast(t(kind === 'accept' ? 'codex.toast_bulk_accepted' : 'codex.toast_bulk_closed', { n }), 'success');
+    } catch (e) {
+      go.disabled = false;
+      toast(t('codex.toast_action_failed', { error: e.message }), 'error');
+    }
+    await refresh(false);
+  }
+
   /** Nút Xoá hỏi trước: chỉ bỏ khỏi bảng, hay xoá cả file (tập Studio, ảnh, giọng, video)
    *  của task video. Bấm nhầm là mất hàng trăm MB không lấy lại được (13/9/2026). */
   function confirmDelete(id) {
@@ -3699,5 +3771,6 @@ const CODEX = (() => {
     onVideoDrive, onVideoDriveToken, onVideoDriveShare, laneChoice, onVideoSplit, openDriveSync, startDriveSync, syncThenDelete, resumeLane,
     openClone, onCloneLang, startClone, openRetry, startRetry,
     onVideoYt, onVideoYtMethod, onVideoYtWhen,
+    openBulk, bulkRecount, doBulk,
   };
 })();

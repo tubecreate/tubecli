@@ -508,5 +508,19 @@
   "codex.cv_cast_add": "+ Kütüphaneden karakter ekle",
   "codex.cv_cast_none": "Sabit karakter yok — resimler senaryoyu izler.",
   "codex.cv_cast_name": "Yeni karakterin adı",
-  "codex.cv_cast_added": "{name} karakter kütüphanesine eklendi"
+  "codex.cv_cast_added": "{name} karakter kütüphanesine eklendi",
+  "codex.cleanup_menu": "Panoyu temizle",
+  "codex.bulk_accept_btn": "Yayınlanan otomatik videoları kabul et",
+  "codex.bulk_close_btn": "Eski başarısız görevleri kapat",
+  "codex.bulk_accept_title": "Yayınlanan otomatik videoları kabul et",
+  "codex.bulk_close_title": "Eski başarısız görevleri kapat",
+  "codex.bulk_accept_hint": "İncelemedeki {n} otomatik yayın görevinin videosu zaten YouTube'da. Kabul etmek onları Tamamlandı'ya taşır — hiçbir şey yeniden işlenmez veya yüklenmez.",
+  "codex.bulk_close_hint": "{n} başarısız görev bu süreden eski. Kapatmak onları iptal eder: günlük, senaryo ve dosyalar kalır, Yeniden dene hâlâ çalışır.",
+  "codex.bulk_days": "Bu kadar günden önce başarısız olanlar",
+  "codex.bulk_none": "Yapılacak bir şey yok — eşleşen görev yok.",
+  "codex.bulk_more": "…ve {n} tane daha",
+  "codex.bulk_confirm_accept": "{n} kabul et",
+  "codex.bulk_confirm_close": "{n} kapat",
+  "codex.toast_bulk_accepted": "{n} görev kabul edildi",
+  "codex.toast_bulk_closed": "{n} görev kapatıldı"
 }

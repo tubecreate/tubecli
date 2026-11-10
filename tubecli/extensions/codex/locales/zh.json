@@ -508,5 +508,19 @@
   "codex.cv_cast_add": "+ 从角色库添加",
   "codex.cv_cast_none": "没有固定角色——画面按脚本绘制。",
   "codex.cv_cast_name": "新角色的名字",
-  "codex.cv_cast_added": "已将 {name} 加入角色库"
+  "codex.cv_cast_added": "已将 {name} 加入角色库",
+  "codex.cleanup_menu": "整理看板",
+  "codex.bulk_accept_btn": "接受已发布的自动视频",
+  "codex.bulk_close_btn": "关闭旧的失败任务",
+  "codex.bulk_accept_title": "接受已发布的自动视频",
+  "codex.bulk_close_title": "关闭旧的失败任务",
+  "codex.bulk_accept_hint": "待审核中有 {n} 个自动发布任务的视频已在 YouTube 上线。接受后将移到已完成——不会重新渲染或上传。",
+  "codex.bulk_close_hint": "有 {n} 个失败任务早于此期限。关闭即取消：日志、脚本和文件都会保留，仍可重新运行。",
+  "codex.bulk_days": "失败超过的天数",
+  "codex.bulk_none": "没有符合条件的任务。",
+  "codex.bulk_more": "……还有 {n} 个",
+  "codex.bulk_confirm_accept": "接受 {n} 个",
+  "codex.bulk_confirm_close": "关闭 {n} 个",
+  "codex.toast_bulk_accepted": "已接受 {n} 个任务",
+  "codex.toast_bulk_closed": "已关闭 {n} 个任务"
 }

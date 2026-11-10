@@ -508,5 +508,19 @@
   "codex.cv_cast_add": "+ Add a character from the library",
   "codex.cv_cast_none": "No fixed characters — the pictures follow the script.",
   "codex.cv_cast_name": "Name of the new character",
-  "codex.cv_cast_added": "{name} added to the character library"
+  "codex.cv_cast_added": "{name} added to the character library",
+  "codex.cleanup_menu": "Clean up the board",
+  "codex.bulk_accept_btn": "Accept published auto videos",
+  "codex.bulk_close_btn": "Close old failed tasks",
+  "codex.bulk_accept_title": "Accept published auto videos",
+  "codex.bulk_close_title": "Close old failed tasks",
+  "codex.bulk_accept_hint": "{n} auto-publish task(s) in Review already have their video live on YouTube. Accepting moves them to Done — nothing is rendered or uploaded again.",
+  "codex.bulk_close_hint": "{n} failed task(s) are older than this. Closing cancels them: their log, script and files stay, and Retry still works.",
+  "codex.bulk_days": "Failed more than this many days ago",
+  "codex.bulk_none": "Nothing to do — no task matches.",
+  "codex.bulk_more": "…and {n} more",
+  "codex.bulk_confirm_accept": "Accept {n}",
+  "codex.bulk_confirm_close": "Close {n}",
+  "codex.toast_bulk_accepted": "Accepted {n} task(s)",
+  "codex.toast_bulk_closed": "Closed {n} task(s)"
 }

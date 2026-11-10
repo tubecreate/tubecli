@@ -57,6 +57,23 @@
         <span id="cx-worker-text" data-i18n="codex.worker_unknown">Worker status unknown</span>
       </div>
 
+      <!-- Dọn bảng hàng loạt (10/11/2026): mỗi mục ĐẾM trước (dry run) rồi mới hỏi xác nhận trong #cx-modal-bulk. -->
+      <details class="cx-more-menu" id="cx-cleanup">
+        <summary class="cx-btn cx-btn-ghost cx-btn-icon" data-i18n-title="codex.cleanup_menu" title="Clean up the board">
+          <span class="material-symbols-outlined">cleaning_services</span>
+        </summary>
+        <div class="cx-menu">
+          <button type="button" class="cx-menu-item" onclick="CODEX.openBulk('accept')">
+            <span class="material-symbols-outlined">task_alt</span>
+            <span data-i18n="codex.bulk_accept_btn">Accept published auto videos</span>
+          </button>
+          <button type="button" class="cx-menu-item danger" onclick="CODEX.openBulk('close')">
+            <span class="material-symbols-outlined">inventory_2</span>
+            <span data-i18n="codex.bulk_close_btn">Close old failed tasks</span>
+          </button>
+        </div>
+      </details>
+
       <!-- Hai công tắc ít dùng nằm trong menu bánh răng — đầu trang chỉ còn thứ hay bấm. -->
       <details class="cx-more-menu cx-settings">
         <summary class="cx-btn cx-btn-ghost cx-btn-icon" data-i18n-title="codex.settings_menu" title="Settings">
@@ -564,6 +581,31 @@
               data-i18n="codex.btn_delete_sync">Sync to Drive, then delete</button>
       <button type="button" class="cx-btn cx-btn-danger hidden" id="cx-del-files" onclick="CODEX.doDelete(true)"
               data-i18n="codex.btn_delete_all">Delete files and the Content Studio project</button>
+    </div>
+  </div>
+</div>
+
+<!-- Dọn bảng hàng loạt — xác nhận sau khi đã đếm (dry run). -->
+<div class="cx-modal hidden" id="cx-modal-bulk" onclick="CODEX.onBackdrop(event,'cx-modal-bulk')">
+  <div class="cx-modal-box cx-modal-sm">
+    <div class="cx-modal-head">
+      <h2 id="cx-bulk-title"></h2>
+      <button type="button" class="cx-icon-btn" onclick="CODEX.closeModal('cx-modal-bulk')" data-i18n-title="codex.btn_close" title="Close">
+        <span class="material-symbols-outlined">close</span>
+      </button>
+    </div>
+    <div class="cx-modal-body">
+      <label class="cx-field hidden" id="cx-bulk-days-row">
+        <span data-i18n="codex.bulk_days">Failed more than this many days ago</span>
+        <input type="number" id="cx-bulk-days" min="1" max="3650" step="1" value="7" onchange="CODEX.bulkRecount()">
+      </label>
+      <p class="cx-hint" id="cx-bulk-hint"></p>
+      <ul class="cx-bulk-list" id="cx-bulk-list"></ul>
+    </div>
+    <div class="cx-modal-foot">
+      <button type="button" class="cx-btn cx-btn-ghost" onclick="CODEX.closeModal('cx-modal-bulk')"
+              data-i18n="codex.btn_cancel">Cancel</button>
+      <button type="button" class="cx-btn cx-btn-primary" id="cx-bulk-go" onclick="CODEX.doBulk()" disabled></button>
     </div>
   </div>
 </div>

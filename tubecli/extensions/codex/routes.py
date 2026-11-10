@@ -283,6 +283,33 @@ async def resume_lane(lane: str):
     return {"ok": True, "lane": lane, "resumed": codex_manager.resume_lane(lane, actor="user")}
 
 
+class BulkAcceptRequest(BaseModel):
+    actor: str = "user"
+    dry_run: bool = False
+
+
+class BulkCloseRequest(BaseModel):
+    older_than_days: float = 7
+    actor: str = "user"
+    dry_run: bool = False
+
+
+# Dọn bảng hàng loạt (10/11/2026). LUỒNG PHỤ: duyệt mọi task + đọc sổ sự kiện của từng task review là việc đĩa, không
+# được làm trên vòng sự kiện (cả máy chủ đứng trong lúc đó).
+@router.post("/bulk/accept-published")
+async def bulk_accept_published(req: BulkAcceptRequest = BulkAcceptRequest()):
+    """Nhận mọi task TỰ ĐĂNG đang ở Review mà video đã lên kênh thật (checkpoint có video id). dry_run → chỉ đếm."""
+    return await asyncio.to_thread(_guard, codex_manager.bulk_accept_published, actor=req.actor,
+                                   dry_run=req.dry_run)
+
+
+@router.post("/bulk/close-failed")
+async def bulk_close_failed(req: BulkCloseRequest = BulkCloseRequest()):
+    """Đóng (huỷ — giữ dữ liệu, Chạy lại được) mọi task hỏng cũ hơn older_than_days ngày. dry_run → chỉ đếm."""
+    return await asyncio.to_thread(_guard, codex_manager.bulk_close_failed, req.older_than_days,
+                                   actor=req.actor, dry_run=req.dry_run)
+
+
 @router.post("/tasks")
 async def create_task(req: CreateTaskRequest):
     task = _guard(

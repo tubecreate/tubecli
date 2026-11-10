@@ -508,5 +508,19 @@
   "codex.cv_cast_add": "+ ライブラリから追加",
   "codex.cv_cast_none": "固定キャラクターなし（絵は台本どおり）。",
   "codex.cv_cast_name": "新しいキャラクターの名前",
-  "codex.cv_cast_added": "{name} をキャラクターライブラリに追加しました"
+  "codex.cv_cast_added": "{name} をキャラクターライブラリに追加しました",
+  "codex.cleanup_menu": "ボードを整理",
+  "codex.bulk_accept_btn": "公開済みの自動動画を承認",
+  "codex.bulk_close_btn": "古い失敗タスクを閉じる",
+  "codex.bulk_accept_title": "公開済みの自動動画を承認",
+  "codex.bulk_close_title": "古い失敗タスクを閉じる",
+  "codex.bulk_accept_hint": "レビュー中の自動公開タスク {n} 件は、動画がすでに YouTube で公開されています。承認すると完了に移ります。再レンダリングや再アップロードはしません。",
+  "codex.bulk_close_hint": "{n} 件の失敗タスクがこの日数より古いです。閉じるとキャンセルされますが、ログ・台本・ファイルは残り、再実行もできます。",
+  "codex.bulk_days": "この日数より前に失敗",
+  "codex.bulk_none": "対象のタスクはありません。",
+  "codex.bulk_more": "…ほか {n} 件",
+  "codex.bulk_confirm_accept": "{n} 件を承認",
+  "codex.bulk_confirm_close": "{n} 件を閉じる",
+  "codex.toast_bulk_accepted": "{n} 件を承認しました",
+  "codex.toast_bulk_closed": "{n} 件を閉じました"
 }
