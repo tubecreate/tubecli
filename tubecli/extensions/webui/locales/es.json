@@ -580,5 +580,10 @@
   "cloudpw.r_not_recognised": "TubeCLI Cloud no reconoció esta máquina. Vuelve a conectarla desde la nube (Servers → Connect).",
   "cloudpw.r_login_failed": "TubeCLI Cloud no pudo entrar en esta máquina con esta contraseña, así que mantuvo la anterior. Comprueba que el túnel esté activo y vuelve a intentarlo.",
   "cloudpw.r_unreachable": "No se pudo contactar con TubeCLI Cloud: ",
+  "cloudpw.key_on": "TubeCLI Cloud entra en esta máquina con su propia clave (creada el {date}), no con esta contraseña. Cambiar la contraseña no desconecta la nube.",
+  "cloudpw.key_revoke_btn": "Quitar la clave de la nube",
+  "cloudpw.key_revoke_confirm": "¿Quitar la clave de la nube? TubeCLI Cloud no podrá abrir esta máquina hasta que la conectes de nuevo con TubeCLI Connect.",
+  "cloudpw.key_revoked": "Clave de la nube eliminada. Conecta esta máquina de nuevo con TubeCLI Connect para usarla desde la nube.",
+  "cloudpw.r_cloud_key": "No hay nada que enviar: TubeCLI Cloud usa su propia clave, no esta contraseña.",
   "cloudpw.r_error": "TubeCLI Cloud lo rechazó: "
 }

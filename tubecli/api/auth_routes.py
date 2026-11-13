@@ -29,6 +29,10 @@ class CloudSyncRequest(BaseModel):
     password: str
 
 
+class CloudKeyRotateRequest(BaseModel):
+    current_key: str
+
+
 class GuestTokenRequest(BaseModel):
     scope: dict = {}
 
@@ -84,7 +88,11 @@ async def login(body: LoginRequest, request: Request, response: Response):
         )
 
     auth.ensure_initialised()
-    if not auth.verify_password(body.password):
+    # KHOÁ CLOUD (`tck_…`, core/auth.py 13/11/2026) vào bằng đúng cửa này: TubeCLI Cloud và trình duyệt của chủ
+    # máy gửi nó ở trường password như một mật khẩu. Sai thì đếm chung bộ đếm, trả cùng một câu.
+    via_cloud_key = auth.is_cloud_key_shape(body.password)
+    passed = auth.verify_cloud_key(body.password) if via_cloud_key else auth.verify_password(body.password)
+    if not passed:
         auth.record_failure(key)
         # The same message whether the password was wrong or the account was
         # never set up, so this cannot be used to probe the install's state.
@@ -108,7 +116,7 @@ async def login(body: LoginRequest, request: Request, response: Response):
     # can only change the password (auth.default_password_refusal). `local` tells the
     # login page whether it may offer "skip" (the machine itself) or not (remote).
     must_change = auth.is_default_password()
-    token = auth.create_session()
+    token = auth.create_session(cloud_key_hash=auth._key_digest(body.password) if via_cloud_key else "")
     response = JSONResponse(content={"ok": True, "must_change_password": must_change,
                                      "local": auth.is_local_request(_client(request), request.headers)})
     response.set_cookie(
@@ -220,7 +228,10 @@ async def change_password(body: PasswordChangeRequest, request: Request):
             content={"detail": f"Sai quá nhiều lần. Thử lại sau {remaining} giây."},
         )
 
-    if not auth.verify_password(body.current_password):
+    # Khoá cloud cũng là bằng chứng hợp lệ ở ô «mật khẩu hiện tại»: máy ghép nối bằng khoá thì cloud KHÔNG giữ mật
+    # khẩu dashboard, mà hộp «bắt buộc đổi mật khẩu mặc định» trên cloud vẫn phải đặt được mật khẩu mới cho chủ.
+    # Trước đây cloud làm việc này bằng chính mật khẩu nó lưu — quyền không rộng hơn.
+    if not (auth.verify_password(body.current_password) or auth.verify_cloud_key(body.current_password)):
         auth.record_failure(key)
         return JSONResponse(status_code=401, content={"detail": "Mật khẩu hiện tại không đúng."})
 
@@ -259,6 +270,10 @@ async def _sync_cloud(password: str) -> dict:
     """Gọi cloud trong luồng riêng: cloud gọi NGƯỢC vào máy qua tunnel để thử đăng nhập trong lúc chờ."""
     import asyncio
     from tubecli.core import cloud_link
+    if auth.cloud_key_info()["set"]:
+        # Máy ghép nối bằng KHOÁ CLOUD: cloud không dùng mật khẩu dashboard, nên KHÔNG gửi nó đi — gửi lên là
+        # cloud lưu mật khẩu đè lên khoá và mọi rắc rối «mật khẩu lệch» quay lại.
+        return {"ok": True, "code": "cloud_key"}
     try:
         return await asyncio.to_thread(cloud_link.sync_password, password)
     except Exception as e:  # noqa: BLE001
@@ -269,7 +284,35 @@ async def _sync_cloud(password: str) -> dict:
 async def cloud_link_status():
     """Máy có nối TubeCLI Cloud không (và qua đâu). Không bao giờ trả tunnel token."""
     from tubecli.core import cloud_link
-    return cloud_link.link_status()
+    out = dict(cloud_link.link_status() or {})
+    out["cloud_key"] = auth.cloud_key_info()
+    return out
+
+
+# ── Khoá cloud: xoay / thu hồi (13/11/2026). Tạo khoá thì KHÔNG có route — chỉ lệnh `tubecli cloud-key --new`
+# trên chính máy (TubeCLI Connect gọi): một route tạo khoá sau cổng đăng nhập là cho mọi trang trong trình duyệt
+# của chủ máy (loopback bỏ qua cổng) quyền xin một khoá vào máy từ xa.
+@router.post("/api/v1/auth/cloud-key/rotate")
+async def cloud_key_rotate(body: CloudKeyRotateRequest, request: Request):
+    """Đổi khoá cloud lấy khoá mới — cloud gọi khi gỡ một thành viên (người ấy từng cầm khoá cũ để mở Flow).
+    Đòi đúng KHOÁ ĐANG DÙNG, chung bộ đếm sai với đăng nhập. Mọi phiên mở bằng khoá cũ chết ngay."""
+    key = auth.throttle_key(_client(request), request.headers)
+    locked, remaining = auth.throttle_status(key)
+    if locked:
+        return JSONResponse(status_code=429,
+                            content={"detail": f"Sai quá nhiều lần. Thử lại sau {remaining} giây."})
+    if not auth.verify_cloud_key(body.current_key):
+        auth.record_failure(key)
+        return JSONResponse(status_code=401, content={"detail": "Khoá cloud hiện tại không đúng."})
+    auth.clear_failures(key)
+    return {"ok": True, "key": auth.mint_cloud_key()}
+
+
+@router.post("/api/v1/auth/cloud-key/revoke")
+async def cloud_key_revoke():
+    """Thu hồi khoá cloud: TubeCLI Cloud không đăng nhập hộ được nữa cho tới khi ghép nối lại. Chỉ BỚT quyền nên
+    không đòi mật khẩu; vẫn nằm sau cổng đăng nhập và bộ chặn khác nguồn."""
+    return {"ok": True, "revoked": auth.revoke_cloud_key()}
 
 
 @router.post("/api/v1/auth/cloud-sync")

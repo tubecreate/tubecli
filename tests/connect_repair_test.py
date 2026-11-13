@@ -38,6 +38,10 @@ os.environ["APPDATA"] = TMP            # cấu hình/log của test không chạ
 mod = types.ModuleType("tubecli_connect")
 mod.__file__ = str(SRC)
 exec(compile(SRC.read_text(encoding="utf-8"), str(SRC), "exec"), mod.__dict__)
+# 13/11/2026: client tự xin KHOÁ CLOUD bằng lệnh `tubecli cloud-key --new` — test KHÔNG BAO GIỜ được chạy lệnh ấy
+# trên bản TubeCLI cài thật của máy (nó thay khoá thật). Mặc định giả lập «lõi cũ» = đường hỏi mật khẩu mà các
+# bài test ở đây viết cho; bài test khoá cloud nằm ở tests/connect_cloud_key_test.py.
+mod.mint_cloud_key = lambda: ("", mod.KEY_OLD_CORE)
 
 checks = failures = 0
 

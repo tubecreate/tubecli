@@ -580,5 +580,10 @@
   "cloudpw.r_not_recognised": "TubeCLI Cloud не узнал эту машину. Подключите её заново из облака (Servers → Connect).",
   "cloudpw.r_login_failed": "TubeCLI Cloud не смог войти на машину с этим паролем и оставил старый. Проверьте, что туннель работает, и повторите попытку.",
   "cloudpw.r_unreachable": "Не удалось связаться с TubeCLI Cloud: ",
+  "cloudpw.key_on": "TubeCLI Cloud входит на этот компьютер по собственному ключу (создан {date}), а не по этому паролю. Смена пароля не отключает облако.",
+  "cloudpw.key_revoke_btn": "Удалить ключ облака",
+  "cloudpw.key_revoke_confirm": "Удалить ключ облака? TubeCLI Cloud не сможет открыть этот компьютер, пока вы снова не подключите его через TubeCLI Connect.",
+  "cloudpw.key_revoked": "Ключ облака удалён. Подключите компьютер снова через TubeCLI Connect, чтобы пользоваться им из облака.",
+  "cloudpw.r_cloud_key": "Отправлять нечего: TubeCLI Cloud использует собственный ключ, а не этот пароль.",
   "cloudpw.r_error": "TubeCLI Cloud отказал: "
 }

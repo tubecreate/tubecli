@@ -1013,6 +1013,80 @@ def change_node_password(new_pw: str, current: str = "") -> tuple:
                   "tới lần khởi động lại máy chủ."), "cli"
 
 
+# ── Khoá cloud (13/11/2026) ─────────────────────────────────────────────────
+# User (ảnh cửa sổ ghép nối, 6 dòng «Mật khẩu dashboard TubeCLI không đúng»): «cái phần ghép nối và mật khẩu này
+# nó phức tạp quá cứ lỗi hoài». Cloud cần một thứ để đăng nhập hộ qua tunnel; trước đây đó là mật khẩu dashboard,
+# nên cửa sổ này bắt người dùng gõ đúng nó. Client chạy NGAY TRÊN MÁY: nó tự xin một khoá riêng cho cloud bằng lệnh
+# `tubecli cloud-key --new` (cùng quyền với `tubecli password` mà nút «Quên mật khẩu» vẫn dùng) rồi giao khoá ấy
+# cho cloud. Mật khẩu dashboard không rời máy, đổi hay quên nó cũng không cắt cloud. Lõi trước 2026.08.09.234
+# chưa có lệnh này → quay về cách cũ (hỏi mật khẩu).
+CLOUD_KEY_PREFIX = "tck_"
+KEY_OLD_CORE = "old-core"
+
+
+def is_cloud_key(value) -> bool:
+    return isinstance(value, str) and value.startswith(CLOUD_KEY_PREFIX) and len(value) >= 30
+
+
+def _cli_base() -> tuple:
+    """(lệnh gốc của tubecli không kèm «api start», thư mục cài) — python.exe thay pythonw.exe để có stdout."""
+    cmd, d = server_cmd()
+    if not cmd:
+        return [], d
+    base = list(cmd[:-len(SERVE_ARGS)] if cmd[-len(SERVE_ARGS):] == SERVE_ARGS else cmd)
+    if base and os.path.basename(base[0]).lower() == "pythonw.exe":
+        py = os.path.join(os.path.dirname(base[0]), "python.exe")
+        if os.path.isfile(py):
+            base[0] = py
+    return base, d
+
+
+def mint_cloud_key() -> tuple:
+    """Xin lõi một khoá cloud mới. Trả (khoá, ""), ("", KEY_OLD_CORE) khi lõi chưa có lệnh, hay ("", câu lỗi).
+    Khoá KHÔNG bao giờ vào log."""
+    base, d = _cli_base()
+    if not base:
+        return "", "Máy chưa có TubeCLI."
+    try:
+        r = subprocess.run(base + ["cloud-key", "--new"], cwd=d or None, env=clean_env(),
+                           capture_output=True, text=True, encoding="utf-8", errors="replace",
+                           timeout=120, stdin=subprocess.DEVNULL,
+                           **({"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)} if IS_WIN else {}))
+    except Exception as e:
+        return "", f"Không chạy được lệnh tạo khoá cloud: {e}"
+    out = (r.stdout or "").strip().splitlines()
+    key = next((ln.strip() for ln in reversed(out) if is_cloud_key(ln.strip())), "")
+    if r.returncode == 0 and key:
+        return key, ""
+    blob = " ".join(((r.stdout or "") + " " + (r.stderr or "")).split())
+    if "No such command" in blob or "no such command" in blob:
+        return "", KEY_OLD_CORE
+    return "", (blob[-200:] or f"lệnh tạo khoá cloud trả mã {r.returncode}")
+
+
+def cloud_credential() -> tuple:
+    """Thứ giao cho cloud lúc ghép nối. Trả (khoá, "key", "") · ("", "legacy", "") khi lõi cũ (phải hỏi mật khẩu)
+    · ("", "error", câu). Khoá đang nhớ còn mở được máy thì DÙNG LẠI — xin khoá mới là giết khoá cũ, mà nếu lượt
+    đổi mã sau đó hỏng (mã sai, hết hạn) thì kết nối cloud đang sống bị cắt oan."""
+    remembered = conf_read().get("cloud_key") or ""
+    if is_cloud_key(remembered) and node_login(remembered):
+        return remembered, "key", ""
+    key, why = mint_cloud_key()
+    if key:
+        if not node_login(key):
+            # Lệnh ghi khoá vào một bản cài KHÁC bản đang chạy ở cổng 5295 (hai thư mục cài): nói thẳng.
+            return "", "error", ("TubeCLI đang chạy không nhận khoá vừa tạo — có thể máy có hai bản cài. "
+                                 "Khởi động lại TubeCLI rồi thử lại.")
+        return key, "key", ""
+    if why == KEY_OLD_CORE:
+        return "", "legacy", ""
+    return "", "error", why
+
+
+OLD_CORE_HINT = ("TubeCLI trên máy này là bản cũ (trước 2026.08.09.234) nên cần mật khẩu dashboard. "
+                 "Nhập mật khẩu rồi bấm Kết nối — hoặc cập nhật TubeCLI rồi thử lại, sẽ không phải nhập nữa.")
+
+
 def sync_cloud_password(conf: dict, new_pw: str) -> tuple:
     """Báo cloud mật khẩu mới, để cloud còn đăng nhập hộ được (live view, Flow).
 
@@ -1127,7 +1201,13 @@ def claim(code: str, password: str) -> dict:
 def adopt_pairing(conf: dict, info: dict, password: str) -> dict:
     """Cấu hình sau một lượt ghép nối: tunnel, tên, địa chỉ của máy MỚI đè lên máy cũ;
     phần còn lại (ngôn ngữ…) giữ nguyên. Ghi xuống connect.json rồi trả bản mới."""
-    new = {**conf, **info, "password": password}
+    if is_cloud_key(password):
+        # Ghép nối bằng khoá cloud: nhớ khoá để dùng lại khi nhập mã mới; mật khẩu dashboard không còn là thứ
+        # cloud dùng nên không ghi đè bản đang nhớ (nút «Đổi mật khẩu» vẫn cần nó cho đường đổi trong máy chủ).
+        new = {**conf, **info, "cloud_key": password}
+    else:
+        new = {**conf, **info, "password": password}
+        new.pop("cloud_key", None)
     conf_write(new)
     return new
 
@@ -1381,8 +1461,25 @@ def ask_pairing_console(default_code: str = "", lang: str = "vi") -> tuple:
     if not ok_node:
         return "", "", None
     import getpass
+    cred, kind, err = cloud_credential()
+    if kind == "error":
+        print(f"  {err}")
+        return "", "", None
+    if kind == "legacy":
+        print("  " + OLD_CORE_HINT)
     while True:
         code = (input(f"Mã ghép nối [{default_code}]: ").strip() or default_code).upper()
+        if kind == "key":
+            if len(code) < 4:
+                print("  Nhập mã ghép nối.")
+                continue
+            try:
+                info = claim(code, cred)
+            except RuntimeError as e:
+                print(f"  Cloud không nhận mã: {e}")
+                continue
+            log(f"ghép nối xong: {info.get('url')}")
+            return code, cred, info
         pw = getpass.getpass(f"Mật khẩu dashboard TubeCLI{' [' + suggest + ']' if suggest else ''}: ") or suggest
         if len(code) < 4 or not pw:
             print("  Nhập đủ mã và mật khẩu.")
@@ -1979,21 +2076,34 @@ def ask_pairing(default_code: str = "", lang: str = "vi", default_password: str 
     tk.Label(body, text="Lấy trên cloud → Kết nối máy của tôi", bg=UI["bg"],
              fg=UI["dim"], font=(FONT, 8), anchor="w").pack(fill="x", pady=(0, 12))
 
-    field_label(body, "MẬT KHẨU DASHBOARD TUBECLI").pack(fill="x")
-    e_pw = ttk.Entry(body, style="TC.TEntry", show="•", font=(FONT, 11))
+    # Ô mật khẩu ẨN (13/11/2026): client tự xin khoá cloud trên máy nên không hỏi mật khẩu dashboard nữa. Khung
+    # này chỉ hiện khi lõi trên máy là bản cũ chưa có lệnh `tubecli cloud-key` (need_password).
+    pw_box = tk.Frame(body, bg=UI["bg"])
+    field_label(pw_box, "MẬT KHẨU DASHBOARD TUBECLI").pack(fill="x")
+    e_pw = ttk.Entry(pw_box, style="TC.TEntry", show="•", font=(FONT, 11))
     e_pw.pack(fill="x", pady=(4, 3))
     if default_password:
         e_pw.insert(0, default_password)
-    tk.Label(body, text="Máy vừa cài xong thì để 123456.", bg=UI["bg"],
+    tk.Label(pw_box, text="Máy vừa cài xong thì để 123456.", bg=UI["bg"],
              fg=UI["dim"], font=(FONT, 8), anchor="w").pack(fill="x")
     # Quên mật khẩu (29/10/2026): đặt mật khẩu mới ngay đây, khỏi mở terminal gõ `tubecli password`.
-    forgot = tk.Label(body, text=FORGOT_LINK, bg=UI["bg"], fg=UI["cyan"],
+    forgot = tk.Label(pw_box, text=FORGOT_LINK, bg=UI["bg"], fg=UI["cyan"],
                       font=(FONT, 9, "underline"), anchor="w", cursor="hand2")
     forgot.pack(fill="x", pady=(4, 0))
+    pw_shown = {"on": False}
 
     msg = tk.Label(body, text="", bg=UI["bg"], fg=UI["red"], font=(FONT, 9),
                    anchor="w", justify="left", wraplength=400)
     msg.pack(fill="x", pady=(10, 0))
+
+    def need_password():
+        """Lõi cũ: hiện ô mật khẩu (ngay trên dòng thông báo). Gọi ở luồng Tk."""
+        if not pw_shown["on"]:
+            pw_shown["on"] = True
+            pw_box.pack(fill="x", before=msg)
+            root.update_idletasks()
+            root.minsize(root.winfo_reqwidth(), root.winfo_reqheight())
+        e_pw.focus()
 
     btn = ttk.Button(body, text="Kết nối", style="TC.TButton")
     btn.pack(fill="x", pady=(12, 0))
@@ -2027,7 +2137,7 @@ def ask_pairing(default_code: str = "", lang: str = "vi", default_password: str 
             bar.pack_forget()
             btn.state(["!disabled"])
             toggle_log(True)
-            e_code.focus()
+            (e_pw if pw_shown["on"] and not e_pw.get() else e_code).focus()
         root.after(0, show)
 
     def on_new_password(new_pw: str):
@@ -2040,14 +2150,25 @@ def ask_pairing(default_code: str = "", lang: str = "vi", default_password: str 
     forgot.bind("<Button-1>", lambda _e: open_forgot_password(root, on_new_password))
 
     def connect(code: str, pw: str):
-        """Đăng nhập node rồi đổi mã — chạy ở luồng nền để cửa sổ không đơ."""
+        """Xin khoá cloud (lõi cũ: kiểm mật khẩu) rồi đổi mã — chạy ở luồng nền để cửa sổ không đơ."""
         if not tubecli_up():
             fail("TubeCLI không còn trả lời ở cổng 5295. Mở TubeCLI rồi thử lại.")
             return
-        if not node_login(pw):
-            fail("Mật khẩu dashboard TubeCLI không đúng — cloud sẽ không mở được máy này. "
-                 f"Quên mật khẩu? Bấm «{FORGOT_LINK}» dưới ô mật khẩu.")
+        cred, kind, err = cloud_credential()
+        if kind == "error":
+            fail(err)
             return
+        if kind == "legacy":
+            if not pw_shown["on"] or not pw:
+                root.after(0, need_password)
+                fail(OLD_CORE_HINT)
+                return
+            if not node_login(pw):
+                fail("Mật khẩu dashboard TubeCLI không đúng — cloud sẽ không mở được máy này. "
+                     f"Quên mật khẩu? Bấm «{FORGOT_LINK}» dưới ô mật khẩu.")
+                return
+            cred = pw
+        pw = cred
         try:
             info = claim(code, pw)
         except RuntimeError as e:
@@ -2059,9 +2180,12 @@ def ask_pairing(default_code: str = "", lang: str = "vi", default_password: str 
 
     def ok():
         code = e_code.get().strip().upper()
-        pw = e_pw.get()
-        if len(code) < 4 or not pw:
-            msg.config(text="Nhập đủ mã và mật khẩu.")
+        pw = e_pw.get() if pw_shown["on"] else ""
+        if len(code) < 4:
+            msg.config(text="Nhập mã ghép nối.", fg=UI["red"])
+            return
+        if pw_shown["on"] and not pw:
+            msg.config(text="Nhập đủ mã và mật khẩu.", fg=UI["red"])
             return
         msg.config(text="")
         btn.state(["disabled"])
@@ -2092,7 +2216,7 @@ def ask_pairing(default_code: str = "", lang: str = "vi", default_password: str 
                 toggle_log(False)
                 if suggest and not e_pw.get():
                     e_pw.insert(0, suggest)
-                (e_code if not e_code.get() else e_pw).focus()
+                (e_code if not e_code.get() else btn).focus()
             else:
                 state.config(fg=UI["red"])
                 set_dot(UI["red"])
@@ -2283,8 +2407,16 @@ class Bridge:
         try:
             if not tubecli_up() and not start_tubecli():
                 return False, "TubeCLI chưa chạy — bấm «Kết nối lại» hay «Khởi động lại» rồi thử lại."
-            if not node_login(password):
-                return False, "Mật khẩu dashboard TubeCLI không đúng — cloud sẽ không mở được máy này."
+            cred, kind, err = cloud_credential()
+            if kind == "error":
+                return False, err
+            if kind == "legacy":
+                if not password:
+                    return False, OLD_CORE_HINT
+                if not node_login(password):
+                    return False, "Mật khẩu dashboard TubeCLI không đúng — cloud sẽ không mở được máy này."
+            else:
+                password = cred
             try:
                 info = claim(code, password)
             except RuntimeError as e:
@@ -2313,10 +2445,15 @@ class Bridge:
                 # Nhớ ngay: lần đổi sau đi được đường 1 (đổi trong máy chủ, huỷ phiên).
                 self.conf = {**self.conf, "password": new_pw}
                 conf_write(self.conf)
-                c_ok, c_msg = sync_cloud_password(self.conf, new_pw)
-                log(f"đổi mật khẩu TubeCLI ({how}) — cloud: {'đã cập nhật' if c_ok else c_msg}")
-                msg += " Cloud đã nhận mật khẩu mới." if c_ok else (
-                    f" Nhưng cloud CHƯA nhận ({c_msg}) — bấm đổi lại lần nữa để báo lại.")
+                if is_cloud_key(self.conf.get("cloud_key")):
+                    # Cloud vào máy bằng khoá riêng, không bằng mật khẩu này — không có gì phải báo.
+                    log(f"đổi mật khẩu TubeCLI ({how}) — cloud dùng khoá riêng, không cần báo")
+                    msg += " Cloud vẫn kết nối như cũ (dùng khoá riêng, không dùng mật khẩu này)."
+                else:
+                    c_ok, c_msg = sync_cloud_password(self.conf, new_pw)
+                    log(f"đổi mật khẩu TubeCLI ({how}) — cloud: {'đã cập nhật' if c_ok else c_msg}")
+                    msg += " Cloud đã nhận mật khẩu mới." if c_ok else (
+                        f" Nhưng cloud CHƯA nhận ({c_msg}) — bấm đổi lại lần nữa để báo lại.")
             else:
                 log(f"đổi mật khẩu TubeCLI hỏng: {msg}")
         finally:
@@ -2767,7 +2904,7 @@ def status_window(bridge: "Bridge") -> None:
 
     def do_repair():
         """Hộp nhập mã ghép nối mới: máy trên cloud bị xoá rồi tạo lại, hay chuyển sang
-        máy khác. Mật khẩu điền sẵn bản client đang nhớ."""
+        máy khác. Không hỏi mật khẩu (khoá cloud); lõi cũ thì ô mật khẩu hiện ra, điền sẵn bản đang nhớ."""
         if bridge.busy:
             return
         do_show()
@@ -2781,10 +2918,18 @@ def status_window(bridge: "Bridge") -> None:
         ttk.Label(box, text="Mã ghép nối").grid(column=0, row=0, sticky="w")
         e_code = ttk.Entry(box, width=34, font=("Consolas", 12, "bold"))
         e_code.grid(column=0, row=1, sticky="we", pady=(2, 8))
-        ttk.Label(box, text="Mật khẩu dashboard TubeCLI").grid(column=0, row=2, sticky="w")
+        # Ô mật khẩu chỉ hiện khi lõi cũ đòi (13/11/2026) — xem cloud_credential.
+        l_pw = ttk.Label(box, text="Mật khẩu dashboard TubeCLI")
         e_pw = ttk.Entry(box, show="•", width=34)
-        e_pw.grid(column=0, row=3, sticky="we", pady=(2, 8))
         e_pw.insert(0, bridge.conf.get("password") or "")
+        pw_shown = {"on": False}
+
+        def need_password():
+            if not pw_shown["on"]:
+                pw_shown["on"] = True
+                l_pw.grid(column=0, row=2, sticky="w")
+                e_pw.grid(column=0, row=3, sticky="we", pady=(2, 8))
+            e_pw.focus_set()
         where = (bridge.conf.get("url") or "").replace("https://", "")
         note = ttk.Label(box, foreground="#666666", wraplength=300, justify="left",
                          text=("Lấy mã trên cloud: trang máy › «Tạo mã ghép nối». "
@@ -2808,13 +2953,19 @@ def status_window(bridge: "Bridge") -> None:
 
         def submit(_evt=None):
             code = e_code.get().strip().upper()
-            pw = e_pw.get()
-            if len(code) < 4 or not pw:
-                note.config(text="Nhập đủ mã và mật khẩu.", foreground="#b91c1c")
+            pw = e_pw.get() if pw_shown["on"] else ""
+            if len(code) < 4 or (pw_shown["on"] and not pw):
+                note.config(text="Nhập mã ghép nối." if not pw_shown["on"] else "Nhập đủ mã và mật khẩu.",
+                            foreground="#b91c1c")
                 return
             b_ok.config(state="disabled")
             note.config(text="Đang ghép nối…", foreground="#666666")
-            run_bg(lambda: root.after(0, finish, *bridge.repair(code, pw)))
+
+            def after(ok, text):
+                finish(ok, text)
+                if not ok and text == OLD_CORE_HINT and dlg.winfo_exists():
+                    need_password()
+            run_bg(lambda: root.after(0, after, *bridge.repair(code, pw)))
 
         b_ok.config(command=submit)
         dlg.bind("<Return>", submit)

@@ -23,6 +23,10 @@ os.environ["APPDATA"] = tempfile.mkdtemp(prefix="tc_forgot_pw_")
 mod = types.ModuleType("tubecli_connect")
 mod.__file__ = str(SRC)
 exec(compile(SRC.read_text(encoding="utf-8"), str(SRC), "exec"), mod.__dict__)
+# 13/11/2026: client tự xin KHOÁ CLOUD bằng lệnh `tubecli cloud-key --new` — test KHÔNG BAO GIỜ được chạy lệnh ấy
+# trên bản TubeCLI cài thật của máy (nó thay khoá thật). Mặc định giả lập «lõi cũ» = đường hỏi mật khẩu mà các
+# bài test ở đây viết cho; bài test khoá cloud nằm ở tests/connect_cloud_key_test.py.
+mod.mint_cloud_key = lambda: ("", mod.KEY_OLD_CORE)
 TXT = SRC.read_text(encoding="utf-8").replace("\r\n", "\n")
 
 checks = failures = 0
@@ -42,8 +46,8 @@ mod.log = lambda m: LOGS.append(str(m))
 # ── 1. tĩnh: móc vào cửa sổ ghép nối + dòng lệnh ─────────────────────────────
 pair = TXT[TXT.index("def ask_pairing(default_code"):TXT.index("def ask_pairing(default_code") + 12000]
 check("liên kết «Quên mật khẩu?» nằm NGAY dưới gợi ý 123456 trong cửa sổ ghép nối",
-      'forgot = tk.Label(body, text=FORGOT_LINK' in pair
-      and pair.index("Máy vừa cài xong thì để 123456.") < pair.index("forgot = tk.Label(body, text=FORGOT_LINK"))
+      'forgot = tk.Label(pw_box, text=FORGOT_LINK' in pair
+      and pair.index("Máy vừa cài xong thì để 123456.") < pair.index("forgot = tk.Label(pw_box, text=FORGOT_LINK"))
 check("bấm liên kết → open_forgot_password(root, on_new_password)",
       'forgot.bind("<Button-1>", lambda _e: open_forgot_password(root, on_new_password))' in pair)
 check("đặt xong: điền mật khẩu mới vào ô + mở nút Kết nối",
