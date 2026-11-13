@@ -2,6 +2,22 @@
 
 Notable changes to TubeCLI. Versions match `tubecli/__init__.py`.
 
+## 2026.08.09.234 — 2026-11-13
+
+### TubeCLI Connect no longer asks for the dashboard password
+- Pairing a machine with TubeCLI Cloud now needs only the pairing code. TubeCLI Connect creates a **cloud key** on
+  the machine (`tubecli cloud-key --new`) and gives it to the cloud with the code. The cloud signs in with that key.
+- The dashboard password stays on the machine. Changing or forgetting it no longer disconnects the cloud, so the
+  errors «Dashboard password is wrong» in the pairing window and «TubeCLI login failed» in Flow no longer come from
+  a password the cloud did not know about.
+- The key is a long random string. The machine stores only its hash. Wrong keys count toward the same login lockout
+  as wrong passwords. While the password is still the default 123456, remote access can still only change it.
+- Remove the key in Settings → «Password & TubeCLI Cloud» → «Remove cloud key», or with
+  `tubecli cloud-key --revoke`. The cloud loses access at once. `tubecli cloud-key --status` shows whether one is set.
+- When a member is removed from a server, the cloud replaces the key (`/api/v1/auth/cloud-key/rotate`).
+- A machine with TubeCLI older than this version still pairs the old way: the password field appears with an
+  explanation. A machine paired the old way keeps working; enter a new pairing code in Connect to switch to a key.
+
 ## 2026.08.09.233 — 2026-11-10
 
 ### Niche channels no longer stop for days at «OFF-NICHE SOURCES»
