@@ -2,6 +2,20 @@
 
 Notable changes to TubeCLI. Versions match `tubecli/__init__.py`.
 
+## 2026.08.09.238 — 2026-11-14
+
+### Preview a video before you create it
+- The «Video from content» form of the task board has a new **Preview** button. It shows every setting of the
+  video before anything starts: template (language, frame, length), the AI that writes the content, the AI that
+  draws the pictures, the voice (including your own voice file, cut by your subtitles' times or by Whisper), the
+  source, how the script is written, still pictures or video clips, subtitles, characters, thumbnail, the review
+  stop, YouTube, Google Drive, watermark, and which steps will run.
+- The preview checks once that the AI services answer: it asks the content AI for one word, checks the Muse
+  accounts or the image key (nothing is drawn), the voice engine, and Content Studio with ffmpeg. Each check shows
+  green, orange or red with the reason.
+- **Back** returns to the form with everything you typed; **Create video** or **Add to queue** starts the video
+  exactly as shown.
+
 ## 2026.08.09.237 — 2026-11-14
 
 ### New task: the buttons are at the top
