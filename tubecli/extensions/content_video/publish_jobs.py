@@ -538,9 +538,31 @@ def request_publish(task_id: str, body: Optional[Dict[str, Any]] = None, actor: 
                        f"rejects videos over 15 minutes from such channels. Verify the channel ({P.VERIFY_URL}) and "
                        "untick “Channel not verified”, or shorten the video.", seconds=round(secs))
 
+    # Trần mỗi ngày của agent (publish_max_per_day) áp cả cho lượt đăng TAY: 74 video tồn ở review mà đăng dồn một ngày
+    # là thứ làm kênh bị đánh dấu spam. Tính video đã lên hôm nay + việc đăng còn trong hàng đợi của cùng agent. Hẹn theo
+    # khung giờ (when=slots) thì YouTube tự rải ngày nên không chặn; ignore_daily_limit=true là lời chủ nói «cứ đăng».
+    when_slots = str(body.get("when") or "").strip().lower() == "slots"
+    limit = int(getattr(agent, "publish_max_per_day", 2) or 0)
+    if limit and not when_slots and not body.get("ignore_daily_limit"):
+        try:
+            from . import autopublish
+            today = int(autopublish.get_mark(str(agent.id)).get("published_today") or 0)
+        except Exception:       # noqa: BLE001
+            today = 0
+        with _LOCK:
+            waiting = sum(1 for j in _jobs.values() if j.get("kind") == "publish" and j.get("agent_id") == str(agent.id)
+                          and j.get("status") in ACTIVE)
+        if today + waiting >= limit:
+            raise JobError(409, "daily_limit_reached",
+                           f"This agent's channel already has {today} video(s) published today and {waiting} waiting to "
+                           f"publish — its limit is {limit} a day. Try tomorrow, pass when=\"slots\" to schedule it, raise "
+                           "the limit (PATCH /api/v1/codex/autopublish/{agent_id} daily_limit), or pass "
+                           "ignore_daily_limit=true.", published_today=today, queued=waiting, daily_limit=limit)
+
     ignored = [k for k in ("category_id",) if body.get(k) not in (None, "")]
     job = _enqueue({
         "kind": "publish", "task_id": tid, "task_seq": task.get("seq"), "actor": str(actor or "user")[:40],
+        "agent_id": str(agent.id),
         "profile": profile, "channel": channel, "explicit_profile": explicit, "privacy": privacy,
         "when": "slots" if str(body.get("when") or "").strip().lower() == "slots" else "now",
         "seo": seo_fields(body), "video_path": video, "seconds": round(secs),
@@ -661,6 +683,11 @@ def _run_publish(job: Dict[str, Any]) -> Tuple[str, Dict[str, Any], str]:
         _task_log(job, f"⚠️ Publish {note}")
         return UNVERIFIED, result, note
     P._remember_published(state)
+    try:        # tính vào trần ngày của agent (không dời mốc kho — video này dựng từ cửa sổ bài đã cũ)
+        from . import autopublish
+        autopublish.count_published(str(job.get("agent_id") or task.get("assignee_id") or ""), result["url"], tid)
+    except Exception as e:      # noqa: BLE001
+        logger.info("[PublishQueue] could not count the publish toward the daily limit: %s", e)
     line = (f"- **Published**: {result['url']} "
             f"({'scheduled — private until then' if result['scheduled'] else result['privacy'] or ''})"
             + (f" → {result['channel']}" if result["channel"] else ""))

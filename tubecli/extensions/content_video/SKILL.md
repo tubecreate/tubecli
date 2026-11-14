@@ -62,3 +62,33 @@ Use this **before saying "I can't"**: it lists which Market extensions are missi
 6. The task ends in **review**: the user watches the video and accepts it on the Codex board.
 
 If the corpus is empty the task fails with a clear message: the agent needs a browsing routine with data collection on, or some `sources`.
+
+## Publishing a finished video and running auto-publish over the API
+
+Use these when a rendered video sits in **review** and never reached YouTube, or to steer an agent's automatic videos.
+Uploads go through YouTube Studio in a browser profile, one at a time. Nothing here needs the owner's approval.
+
+### Publish the video of a review task
+`POST /api/v1/codex/tasks/{task id or number}/publish`
+body (all optional): `{title, description, tags, privacy, channel, profile, when, force, ignore_daily_limit}`
+
+- It uploads the file the task already rendered. It never renders again and never rewrites the script.
+- `title` / `description` / `tags` replace the generated ones. Leave them out to have them written from the script.
+- `privacy`: `public` (default from the agent), `unlisted` or `private`. `when`: `now` or `slots` (the agent's daily publish times).
+- Channel: `profile` (browser profile name) wins, then `channel` (a name or alias looked up in the profiles), then the agent's own setting. If `channel` matches several profiles the call is refused and lists them: pass `profile`.
+- The answer is `202 {status: "queued", job}`. Follow it with `GET /api/v1/codex/tasks/{id}/publish` → `{task, published: {video_id, url} | null, job}`. Job status: `queued`, `waiting` (see `wait_reason`), `running`, `done`, `failed`, `unverified`, `interrupted`.
+- On success the task moves to **done** and its result carries `Published: https://youtu.be/<id>`.
+- `unverified` means Studio finished but returned no video link. Check the channel by hand before publishing again; a second try needs `force: true`.
+- Refusals you should expect: `422 too_long_for_unverified_channel` (over 15 minutes on a channel marked not verified: the owner must verify the channel), `409 daily_limit_reached` (the agent's videos-per-day limit, counting queued jobs; use `when: "slots"`, raise the limit, or `ignore_daily_limit: true` only when the owner says so), `409 already_published`, `409 not_in_review`.
+
+### The browser queue
+`GET /api/v1/content-video/publish-jobs?active=true` → `{jobs, gate, settings}`. One browser profile is open at a time. A job waits while free RAM is under 1.5 GB or while a video is rendering, and the profile is closed after every job. Do not open the same profile yourself while a job runs.
+
+### Edit the title, description or tags of a published video
+`PUT /api/v1/youtube/videos/{video_id}` body `{title?, description?, tags?, channel? | profile?}` → `202 {job}`; then `GET /api/v1/youtube/videos/{video_id}`. It uses the same queue. `category_id` and `default_audio_language` are accepted but not applied yet (`job.not_applied`). This path is new: read the job result and confirm on YouTube.
+
+### Auto-publish per agent
+- `GET /api/v1/codex/autopublish/{agent_id}` → `{publish, auto_video, daily_limit, published_today, profile, channel, channel_unverified, agent_paused, paused_for_length, paused_detail}`.
+- `PATCH /api/v1/codex/autopublish/{agent_id}` body `{publish?: true|false, daily_limit?: 1-20}` turns the Publish step of automatic videos on or off and sets the videos-per-day limit.
+- `POST /api/v1/agents/{agent_id}/pause` stops the agent's schedule and its automatic videos; `POST /api/v1/agents/{agent_id}/resume` turns them back on.
+- An automatic video is not created when the agent already has a video on the same topic from the last 21 days. The agent's run then shows `skip: duplicate topic` under `GET /api/v1/agents/{agent_id}/runs` (`notes`).

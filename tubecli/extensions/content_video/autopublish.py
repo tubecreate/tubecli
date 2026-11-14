@@ -790,3 +790,25 @@ def resume_agent(agent_id: str) -> Dict[str, Any]:
     save_mark(str(agent_id), agent_paused={})
     agent_manager.update(str(agent_id), schedule_enabled=turn_on)
     return {"agent_id": str(agent_id), "paused": False, "schedule_enabled": turn_on}
+
+def count_published(agent_id: str, video_url: str = "", task_id: str = "") -> str:
+    """Một video được đăng TAY (POST /codex/tasks/{id}/publish) → tính vào trần ngày của agent, KHÔNG dời mốc kho.
+    Cùng một task / link gọi lại chỉ tính một lần. Không bao giờ ném."""
+    aid = str(agent_id or "")
+    if not aid:
+        return "no agent id"
+    try:
+        with _LOCK:
+            row = get_mark(aid)
+            key = str(task_id or "") or str(video_url or "")
+            if key and row["last_commit_key"] == key:
+                return "already counted"
+            fields: Dict[str, Any] = {"published_today": row["published_today"] + 1, "day": _today(),
+                                      "last_video_url": str(video_url or "")}
+            if key:
+                fields["last_commit_key"] = key
+            save_mark(aid, **fields)
+            return "counted %d" % fields["published_today"]
+    except Exception as e:      # noqa: BLE001
+        logger.error("[AutoPublish] could not count the publish for %s (%s)", aid, e)
+        return "error: %s" % e

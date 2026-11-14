@@ -61,6 +61,8 @@ REAL_PUBLISH_NOW = P._publish_now                 # phần F chạy đường đ
 import tubecli.extensions.content_video.publish_schedule as PS  # noqa: E402
 PS._store_path = lambda: Path(TMP) / "publish_slots.json"       # sổ khung giờ cũng vào thư mục tạm
 PJ._store_path = lambda: Path(TMP) / "publish_jobs.json"
+import tubecli.extensions.content_video.autopublish as AP  # noqa: E402
+AP._store_path = lambda: Path(TMP) / "autopublish.json"        # sổ trần ngày cũng vào thư mục tạm
 PJ.start_worker = lambda: None                    # test tự gọi tick() — không có luồng nền nào
 STOPS, RAM, RENDER = [], [4000.0], [""]
 P._post = lambda path, payload, timeout=300: STOPS.append((path, payload.get("profile"))) or {}
@@ -83,6 +85,8 @@ class Agent:
         self.publish_monetize = False
         self.publish_slots, self.publish_tz, self.publish_tz_offset = "12:00, 19:00", "Asia/Ho_Chi_Minh", 420
         self.allowed_profiles = [self.publish_profile]
+        # 0 = không trần: các phần A–F xếp nhiều việc cho cùng một agent; trần ngày kiểm riêng ở phần G.
+        self.publish_max_per_day = kw.get("publish_max_per_day", 0)
 
 
 AGENTS = {"ag1": Agent(), "agU": Agent(id="agU", publish_unverified=True)}
@@ -543,6 +547,28 @@ check("E3 route có mặt: POST + GET /tasks/{id}/publish, PUT /youtube/videos/{
       '@router.post("/tasks/{task_id}/publish")' in croutes and '@router.get("/tasks/{task_id}/publish")' in croutes
       and '@youtube_router.put("/videos/{video_id}")' in vroutes and '@router.get("/publish-jobs")' in vroutes)
 check("E4 đăng xong dùng _settle (không complete_review ⇒ không hook)", "cm._settle(tid, \"done\"" in src and "complete_review" not in src)
+
+print("── G. trần mỗi ngày của agent ─────────────────────────────")
+AGENTS["agL"] = Agent(id="agL", publish_max_per_day=2)
+RAM[0], RENDER[0] = 4000.0, ""
+g1, g2, g3 = (to_review(agent="agL", title=f"G video {i}") for i in (1, 2, 3))
+jg1 = PJ.request_publish(g1["id"], {"profile": "gmail_pk0789743"})
+jg2 = PJ.request_publish(g2["id"], {"profile": "gmail_pk0789743"})
+err = refusal(PJ.request_publish, g3["id"], {"profile": "gmail_pk0789743"})
+check("G1 trần 2/ngày: việc thứ ba cùng agent bị từ chối (đếm cả việc còn trong hàng đợi)",
+      err is not None and err.code == "daily_limit_reached" and err.status == 409, err and (err.status, err.code))
+check("G2 when=slots (YouTube tự rải ngày) không bị trần chặn",
+      refusal(PJ.request_publish, g3["id"], {"profile": "gmail_pk0789743", "when": "slots"}) is None)
+g4 = to_review(agent="agL", title="G video 4")
+check("G3 ignore_daily_limit=true: chủ nói cứ đăng", refusal(PJ.request_publish, g4["id"],
+      {"profile": "gmail_pk0789743", "ignore_daily_limit": True}) is None)
+g5 = to_review(agent="ag1", title="G video khác agent")
+check("G4 agent KHÁC (không trần) không bị ảnh hưởng", refusal(PJ.request_publish, g5["id"], {"profile": "gmail_pk0789743"}) is None)
+check("G5 count_published: tính một lần cho mỗi task, không dời mốc kho",
+      AP.count_published("agC", "https://youtu.be/abcdefghijk", "tX").startswith("counted 1")
+      and AP.count_published("agC", "https://youtu.be/abcdefghijk", "tX") == "already counted"
+      and AP.get_mark("agC")["published_today"] == 1 and AP.get_mark("agC")["high_water"] == "")
+check("G6 đăng xong gọi count_published (tính vào trần ngày)", "autopublish.count_published(" in src)
 
 print(f"\n{checks - len(failures)}/{checks} PASS")
 sys.exit(1 if failures else 0)
