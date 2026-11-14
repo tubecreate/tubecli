@@ -138,13 +138,15 @@ async def run_route(req: RunRequest, request: Request):
         # File giọng kèm bài (5/11/2026): chuẩn hoá NGAY để kế hoạch trên thẻ ghi đúng (nguyên văn, giọng tạm CapCut/Edge
         # rồi thay bằng file); file không có / không có bài dán → báo lỗi luôn thay vì để task chạy bằng giọng khác mà người
         # dùng tưởng là giọng của mình.
-        from tubecli.extensions.content_video.pipeline import apply_voice_file
+        from tubecli.extensions.content_video.pipeline import apply_voice_file, save_voice_cues
         if not content:
             raise HTTPException(400, "The voice file needs the text it reads: paste that text as the content.")
         apply_voice_file(options)
         if not options.get("voice_file"):
             raise HTTPException(400, "The voice file needs the text it reads: paste that text as the content "
                                      "(and upload the file again if it is gone).")
+        # Bài dán là .srt / .vtt của chính file giọng → giữ mốc giờ cạnh file: bước dub cắt theo mốc, không dò lại (14/11/2026)
+        save_voice_cues(options, content)
     # Người bấm "Tạo video" trong cửa sổ Codex CHÍNH LÀ lời duyệt để bắt đầu:
     # cổng duyệt-trước-khi-chạy chỉ bắt họ bấm thêm lần nữa cho cùng một ý. Cổng
     # có nghĩa là cổng SAU kịch bản (review=True). Lời gọi từ skill/brain thì

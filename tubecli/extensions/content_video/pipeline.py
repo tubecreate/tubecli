@@ -5182,8 +5182,11 @@ def _dub_user_file(state: Dict, options: Dict) -> None:
         if not path:
             raise ValueError("the voice file is missing on this machine")
         st = os.stat(path)
+        # phụ đề .srt / .vtt dán kèm (14/11/2026) → cắt theo mốc của nó, không dò lại bằng Whisper
+        cues = load_voice_cues(path)
         key = hashlib.sha1(json.dumps([path, st.st_size, int(st.st_mtime), [[s.get("id"), p] for s, p in
-                                                                          zip(voiced, paragraphs)]],
+                                                                          zip(voiced, paragraphs)]]
+                                      + ([len(cues)] if cues else []),
                                       ensure_ascii=False).encode("utf-8")).hexdigest()
         from tubecli.config import DATA_DIR
         out_dir = os.path.join(str(DATA_DIR), "content_video", "audio", f"ep{ep_id}_user")
@@ -5196,8 +5199,12 @@ def _dub_user_file(state: Dict, options: Dict) -> None:
             for s in voiced:
                 f0 = _shot_audio_file(str(s.get("tts_audio_url") or ""))
                 guides.append(media_seconds(f0) if f0 and os.path.isfile(f0) else 0.0)
-            say("dub", "running", f"listening to your voice file {name} to find where each of the {len(voiced)} "
-                                  "scenes starts", 0)
+            if cues:
+                say("dub", "running", f"cutting your voice file {name} into {len(voiced)} scenes by the times in "
+                                      f"your subtitles ({len(cues)} lines)", 0)
+            else:
+                say("dub", "running", f"listening to your voice file {name} to find where each of the {len(voiced)} "
+                                      "scenes starts", 0)
             last = {"t": 0.0, "at": 0.0}
 
             def heard(sec: float, total: float) -> None:
@@ -5214,7 +5221,8 @@ def _dub_user_file(state: Dict, options: Dict) -> None:
             info = _nd.split_by_paragraph(path, paragraphs, out_dir, language=str(state.get("language") or ""),
                                           names=[f"shot{int(s.get('storyboard_number') or i + 1):03d}"
                                                  for i, s in enumerate(voiced)],
-                                          guides=guides, progress=heard)
+                                          guides=guides, progress=heard, cues=cues, install_whisper=True,
+                                          notice=lambda msg: say("dub", "running", msg))
             files = [str(f.get("path") or "") for f in info["files"]]
             if len(files) != len(voiced) or not all(files):
                 raise ValueError("some scenes of the script were not found in the voice file")
@@ -5241,7 +5249,8 @@ def _dub_user_file(state: Dict, options: Dict) -> None:
     _task_meta(state.get("task_id"), voice={"engine": "file", "id": "user-file", "name": name[:80]})
     _audio_check(state)
     m = ck.get("match")
-    how = (f"subtitles follow your voice (Whisper match {float(m):.0%})" if ck.get("engine") == "whisper" and m
+    how = ("cut by the times in your subtitles; subtitles keep those times" if ck.get("engine") == "subtitles"
+           else f"subtitles follow your voice (Whisper match {float(m):.0%})" if ck.get("engine") == "whisper" and m
            else "cut by the temporary voice's timing at the pauses; subtitles are estimated" if ck.get("engine") == "guide"
            else "cut at the pauses; subtitles are estimated")
     say("dub", "running", f"{len(files)} scene(s) voiced from your file ({changed} updated) — {how}")
@@ -9401,12 +9410,12 @@ def _sub_seconds(stamp: str) -> float:
         return 0.0
 
 
-def subtitle_to_text(text: str) -> str:
-    """Bài dán là phụ đề .srt/.vtt → lời đọc liền mạch; không phải phụ đề thì trả NGUYÊN."""
+def subtitle_cues(text: str) -> List[Tuple[float, float, str]]:
+    """Bài dán là phụ đề .srt/.vtt → [(giây đầu, giây cuối, lời)]; không phải phụ đề (< 3 dòng mốc) → []."""
     raw = str(text or "")
     lines = raw.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     if sum(1 for l in lines if _SUB_TIME_RE.match(l)) < 3:
-        return text
+        return []
     cues: List[Tuple[float, float, str]] = []
     cur: List[str] = []
     start = end = None
@@ -9431,6 +9440,14 @@ def subtitle_to_text(text: str) -> str:
             continue
         if not skip:
             cur.append(_SUB_TAG_RE.sub("", st))
+    return cues
+
+
+def subtitle_to_text(text: str) -> str:
+    """Bài dán là phụ đề .srt/.vtt → lời đọc liền mạch; không phải phụ đề thì trả NGUYÊN."""
+    cues = subtitle_cues(text)
+    if not cues:
+        return text
     paras: List[List[str]] = []
     prev_end = None
     for s, e, words in cues:
@@ -9454,12 +9471,51 @@ def subtitle_to_text(text: str) -> str:
     return "\n\n".join(out) if out else text
 
 
+# Mốc giờ của phụ đề dán kèm FILE GIỌNG (14/11/2026, user «nếu người dùng nhập dạng srt thì ko cần phải dò lại»): ghi cạnh
+# file giọng `<file>.cues.json` lúc tạo task (bài dán chỉ còn lời sau subtitle_to_text, chặng dựng không mang bài dán) →
+# bước dub cắt file theo đúng mốc này, không cần Whisper.
+def voice_cues_path(voice_path: str) -> str:
+    return f"{voice_path}.cues.json" if voice_path else ""
+
+
+def save_voice_cues(options: Dict, raw_text: str) -> int:
+    """Bài dán là phụ đề + task có file giọng hợp lệ → ghi mốc cạnh file giọng. Trả số câu đã ghi (0 = không ghi)."""
+    path = voice_file_path(options)
+    cues = subtitle_cues(raw_text) if path else []
+    if not cues:
+        return 0
+    side = voice_cues_path(path)
+    try:
+        with open(side, "w", encoding="utf-8", newline="\n") as f:
+            json.dump([[round(s, 3), round(e, 3), t] for s, e, t in cues], f, ensure_ascii=False)
+    except OSError as e:
+        logger.warning(f"[ContentVideo] could not save subtitle timings next to {path}: {e}")
+        return 0
+    return len(cues)
+
+
+def load_voice_cues(voice_path: str) -> List[List[Any]]:
+    side = voice_cues_path(voice_path)
+    if not side or not os.path.isfile(side):
+        return []
+    try:
+        with open(side, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return []
+    return data if isinstance(data, list) else []
+
+
 def _prepare(payload: Dict[str, Any], report, is_cancelled, needs: tuple) -> Dict[str, Any]:
     """Shared setup for both stages: options, agent, callbacks, state."""
     options: Dict[str, Any] = {**DEFAULTS, **(payload.get("options") or {})}
-    if options.get("source_text"):
-        options["source_text"] = subtitle_to_text(options["source_text"])
+    raw_source = str(options.get("source_text") or "")
+    if raw_source:
+        options["source_text"] = subtitle_to_text(raw_source)
     apply_voice_file(options)
+    if raw_source and options.get("voice_file") and not load_voice_cues(voice_file_path(options)):
+        # lời gọi không qua /run (skill, MCP) mang nguyên phụ đề → vẫn giữ mốc cho bước dub
+        save_voice_cues(options, raw_source)
     if payload.get("sources") and not options.get("sources"):
         options["sources"] = list(payload["sources"])
     if payload.get("high_water_prev"):

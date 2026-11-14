@@ -2,6 +2,22 @@
 
 Notable changes to TubeCLI. Versions match `tubecli/__init__.py`.
 
+## 2026.08.09.236 — 2026-11-14
+
+### Your voice file is cut by your subtitles' times
+- When the content you paste is a subtitle file (.srt or .vtt) and you add your voice file, the video uses the
+  times in the subtitles to cut your voice file scene by scene. It no longer listens to the file again, so it needs
+  no Whisper and takes seconds. The video's subtitles keep those times.
+- A subtitle line that runs over a part with no speech (a film clip, music) is placed at the end of its time.
+- If the subtitles do not belong to the voice file (their times run past its end) or do not match the script, the
+  task says so and listens to the file instead.
+
+### Whisper installs itself
+- When the content is plain text with a voice file and the machine has no Whisper (faster-whisper), TubeCLI now
+  installs it with pip the first time, in the Python that runs TubeCLI, and says so on the task board. Before, these
+  machines guessed the cuts from the temporary voice, failed on long files, and kept the temporary voice.
+- If the install fails, the reason is in the task's warning, and TubeCLI waits 6 hours before trying again.
+
 ## 2026.08.09.235 — 2026-11-14
 
 ### Muse errors say which server and which browser

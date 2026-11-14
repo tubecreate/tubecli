@@ -13,13 +13,22 @@ User: «gọi 1 lần full luôn… làm capcut xong lồng lại bằng muse»,
 
 Máy không có faster_whisper: cắt theo khoảng lặng — lời xin Muse đòi 1,2–1,5 s lặng ở mỗi chỗ chuyển cảnh, chọn N−1 khoảng lặng
 dài theo thứ tự cảnh gần vị trí ước theo số ký tự; không ghi mốc chữ (Studio tự ước lượng phụ đề như cũ).
+
+14/11/2026 (task #155 máy khác: không có Whisper → đoán theo giọng tạm lệch 10–65 s → giữ giọng CapCut 44′ thay file 33′):
+- Bài dán là PHỤ ĐỀ .srt/.vtt của chính file giọng → mốc chữ lấy THẲNG từ mốc giờ phụ đề (`cues`), không dò lại bằng Whisper
+  (user: «nếu người dùng nhập dạng srt thì ko cần phải dò lại»).
+- Không có phụ đề mà máy thiếu faster_whisper → TỰ CÀI bằng pip (một lần; hỏng thì 6 giờ sau mới thử lại, lý do đi vào cảnh báo).
 """
 import difflib
+import importlib
+import importlib.util
 import json
 import logging
 import os
 import re
 import subprocess
+import threading
+import time
 import unicodedata
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -53,6 +62,80 @@ def silences(path: str, ffmpeg: str, noise: str = "-35dB", min_dur: float = 0.2)
     st = [float(x) for x in re.findall(r"silence_start: ([0-9.]+)", err)]
     en = [float(x) for x in re.findall(r"silence_end: ([0-9.]+)", err)]
     return list(zip(st, en))
+
+
+WHISPER_PIP = "faster-whisper"
+WHISPER_PIP_TIMEOUT = 1200      # ctranslate2 + onnxruntime + av ≈ 100 MB — máy mạng chậm cần lâu
+WHISPER_RETRY_S = 6 * 3600      # cài hỏng thì không thử lại ở mỗi task (mỗi lần pip đứng tới 20 phút)
+_WHISPER_LOCK = threading.Lock()
+_WHISPER_FAIL: Dict[str, Any] = {"at": 0.0, "why": ""}
+
+
+def whisper_installed() -> bool:
+    try:
+        return importlib.util.find_spec("faster_whisper") is not None
+    except (ImportError, ValueError):
+        return False
+
+
+def ensure_whisper(notice: Optional[Callable[[str], Any]] = None,
+                   installer: Optional[Callable[..., Tuple[bool, str]]] = None) -> Tuple[bool, str]:
+    """(có faster_whisper dùng được, lý do khi không). Thiếu thì cài bằng pip vào ĐÚNG Python đang chạy TubeCLI
+    (ytdlp_manager.pip_install dùng sys.executable). Bộ cài TubeCLI không kèm gói này ⇒ mọi máy cài mới đều thiếu."""
+    if whisper_installed():
+        return True, ""
+    say = notice or (lambda msg: None)
+    with _WHISPER_LOCK:            # hai task cùng lúc: một task cài, task kia chờ rồi dùng luôn
+        if whisper_installed():
+            return True, ""
+        if _WHISPER_FAIL["at"] and time.time() - _WHISPER_FAIL["at"] < WHISPER_RETRY_S:
+            return False, _WHISPER_FAIL["why"]
+        if installer is None:
+            from tubecli.core.ytdlp_manager import pip_install as installer
+        say("installing Whisper (faster-whisper) to match your voice file to the script — one time, a few minutes")
+        try:
+            ok, tail = installer([WHISPER_PIP], timeout=WHISPER_PIP_TIMEOUT)
+        except Exception as e:      # noqa: BLE001
+            ok, tail = False, str(e)[:300]
+        importlib.invalidate_caches()
+        if ok and whisper_installed():
+            _WHISPER_FAIL.update(at=0.0, why="")
+            say("Whisper installed")
+            return True, ""
+        why = f"Whisper (faster-whisper) could not be installed on this machine: {tail or 'pip finished but it is missing'}"
+        _WHISPER_FAIL.update(at=time.time(), why=why)
+        logger.warning(why)
+        return False, why
+
+
+CUE_SLOW_CHAR = 1.0             # phụ đề dài hơn 1 s/chữ = câu kéo dài qua đoạn không lời (trích phim, nhạc; #598: 7 chữ/71 s) …
+CUE_CHAR_SECONDS = 0.25         # … ⇒ coi lời nằm ở CUỐI câu phụ đề, 0,25 s/chữ
+
+
+def cue_chars(cues: Any, total: float = 0.0) -> Optional[Tuple[str, List[float]]]:
+    """(ký tự chuẩn hoá, giờ giữa từng ký tự) lấy từ phụ đề [[giây đầu, giây cuối, lời], …] của CHÍNH file giọng.
+    None khi không có phụ đề dùng được, hoặc phụ đề không thuộc file này (mốc cuối vượt quá độ dài file / quá ngắn)."""
+    chars: List[str] = []
+    times: List[float] = []
+    for c in cues or []:
+        try:
+            s, e, text = float(c[0]), float(c[1]), str(c[2] or "")
+        except (TypeError, ValueError, IndexError):
+            continue
+        k = "".join(_keep(ch) for ch in text)
+        if not k or e <= s:
+            continue
+        if (e - s) / len(k) > CUE_SLOW_CHAR:
+            s = max(s, e - len(k) * CUE_CHAR_SECONDS)
+        d = (e - s) / len(k)
+        for j, ch in enumerate(k):
+            chars.append(ch)
+            times.append(s + d * (j + 0.5))
+    if not chars:
+        return None
+    if total and (times[-1] > total + 5.0 or times[-1] < total * 0.5):
+        return None
+    return "".join(chars), times
 
 
 def whisper_chars(path: str, language: str = "", progress: Optional[Callable[[float], Any]] = None,
@@ -289,9 +372,14 @@ def _cuts_by_silence(lengths: List[int], total: float, sil: List[Tuple[float, fl
 def split_by_paragraph(src: str, paragraphs: List[str], out_dir: str, ffmpeg: str = "", language: str = "",
                        names: Optional[List[str]] = None, transcribe: Optional[Callable] = None,
                        duration: Optional[Callable[[str], float]] = None, guides: Optional[List[float]] = None,
-                       progress: Optional[Callable[[float, float], Any]] = None) -> Dict[str, Any]:
+                       progress: Optional[Callable[[float, float], Any]] = None, cues: Any = None,
+                       install_whisper: bool = False, notice: Optional[Callable[[str], Any]] = None) -> Dict[str, Any]:
     """Cắt `src` (đọc cả bài) thành một file mp3 cho mỗi đoạn (= cảnh) trong `out_dir`, kèm `<mp3>.words.json` khi có
-    Whisper. Trả {"files": [{"path", "start", "end", "seconds"}], "engine": "whisper"|"guide"|"silence", "match", "anchors"}.
+    mốc chữ. Trả {"files": [{"path", "start", "end", "seconds"}], "engine": "subtitles"|"whisper"|"guide"|"silence",
+    "match", "anchors", "whisper_problem"}.
+    cues: phụ đề .srt/.vtt của chính file giọng [[giây đầu, giây cuối, lời], …] — có thì cắt theo mốc của nó, KHÔNG dò lại
+    bằng Whisper; mốc không thuộc file này (vượt độ dài file) / lời không khớp kịch bản thì mới sang Whisper.
+    install_whisper: máy thiếu faster_whisper thì tự cài (ensure_whisper); notice(câu) báo việc cài lên bảng việc.
     guides: thời lượng GIỌNG TẠM từng đoạn (CapCut / Edge) — máy không có Whisper thì cắt theo nó + khoảng lặng.
     progress(giây đã nghe, tổng giây) khi Whisper đang nghe.
     Ném ValueError khi bản đọc không khớp kịch bản / không tìm được chỗ chuyển cảnh."""
@@ -307,23 +395,42 @@ def split_by_paragraph(src: str, paragraphs: List[str], out_dir: str, ffmpeg: st
     paras = [str(p or "") for p in paragraphs]
     norms = [norm_with_map(p) for p in paras]
     sil = silences(src, ffmpeg)
-    if transcribe is not None:
-        heard = transcribe(src, language)
-    else:
-        heard = whisper_chars(src, language, progress=(lambda t: progress(t, total)) if progress else None)
-    info: Dict[str, Any] = {"engine": "silence", "match": None, "anchors": 0}
+    info: Dict[str, Any] = {"engine": "silence", "match": None, "anchors": 0, "whisper_problem": ""}
+    script, owner = "", []
+    for p, (n, _) in enumerate(norms):
+        script += n
+        owner += [p] * len(n)
+    say = notice or (lambda msg: None)
     t_of: List[float] = []
     first: Dict[int, int] = {}
     last: Dict[int, int] = {}
-    if heard and heard[0]:
-        script, owner = "", []
-        for p, (n, _) in enumerate(norms):
-            script += n
-            owner += [p] * len(n)
-        t_of, ratio = _char_times(script, heard[0], heard[1])
-        info.update(engine="whisper", match=round(ratio, 3))
-        if ratio < MIN_MATCH:
-            raise ValueError(f"the voice-over does not follow the script (only {ratio:.0%} of it was heard back)")
+    picked = ""
+    sub = cue_chars(cues, total) if (cues and transcribe is None) else None
+    if cues and transcribe is None and not sub:
+        say("the pasted subtitles do not fit this voice file (their times run past its end) — listening to it instead")
+    if sub:
+        t_sub, r_sub = _char_times(script, sub[0], sub[1])
+        if r_sub >= MIN_MATCH:
+            t_of, picked = t_sub, "subtitles"
+            info.update(engine="subtitles", match=round(r_sub, 3))
+        else:
+            say(f"the pasted subtitles match only {r_sub:.0%} of the script — listening to the voice file instead")
+    if not picked:
+        if transcribe is not None:
+            heard = transcribe(src, language)
+        else:
+            ready = True
+            if install_whisper:
+                ready, info["whisper_problem"] = ensure_whisper(notice)
+            heard = whisper_chars(src, language, progress=(lambda t: progress(t, total)) if progress else None) \
+                if ready else None
+        if heard and heard[0]:
+            t_of, ratio = _char_times(script, heard[0], heard[1])
+            info.update(engine="whisper", match=round(ratio, 3))
+            if ratio < MIN_MATCH:
+                raise ValueError(f"the voice-over does not follow the script (only {ratio:.0%} of it was heard back)")
+            picked = "whisper"
+    if picked:
         ends, off = [], 0
         for p, (n, rawmap) in enumerate(norms):
             for m in _SENT_END.finditer(paras[p]):
@@ -349,14 +456,18 @@ def split_by_paragraph(src: str, paragraphs: List[str], out_dir: str, ffmpeg: st
         cuts = _cuts_by_guide([float(guides[p]) for p in spoken], total,
                               silences(src, ffmpeg, noise=GUIDE_NOISE, min_dur=GUIDE_SIL_DUR))
         if not cuts:
-            raise ValueError("no clear pause near the expected scene changes — cannot split the voice-over by scene")
+            why = info.get("whisper_problem") or ""
+            raise ValueError("no clear pause near the expected scene changes — cannot split the voice-over by scene"
+                             + (f" ({why})" if why else ""))
         info["engine"] = "guide"
         bounds = {p: (cuts[k], cuts[k + 1]) for k, p in enumerate(spoken)}
     else:
         spoken = [p for p in range(len(paras)) if norms[p][0]]
         cuts = _cuts_by_silence([len(norms[p][0]) for p in spoken], total, sil)
         if not cuts:
-            raise ValueError("no clear pause between the paragraphs of the voice-over — cannot split it by scene")
+            why = info.get("whisper_problem") or ""
+            raise ValueError("no clear pause between the paragraphs of the voice-over — cannot split it by scene"
+                             + (f" ({why})" if why else ""))
         bounds = {p: (cuts[k], cuts[k + 1]) for k, p in enumerate(spoken)}
     files: List[Dict[str, Any]] = []
     for p in range(len(paras)):
