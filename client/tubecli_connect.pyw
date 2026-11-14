@@ -1087,6 +1087,101 @@ OLD_CORE_HINT = ("TubeCLI trên máy này là bản cũ (trước 2026.08.09.234
                  "Nhập mật khẩu rồi bấm Kết nối — hoặc cập nhật TubeCLI rồi thử lại, sẽ không phải nhập nữa.")
 
 
+# ── Tự cập nhật TubeCLI khi ghép nối (14/11/2026) ───────────────────────────
+# User (13/11, máy đang chạy lõi cũ báo OLD_CORE_HINT): «bạn cho client cập nhật luôn trong chỗ ghép nối chứ» /
+# «làm luôn để máy khác không sửa thủ công nữa». Lõi cũ chưa có lệnh `tubecli cloud-key` → client kéo bản mới về
+# rồi mới xin khoá. CHỈ tiến nhanh (fast-forward) và CHỈ khi thư mục cài sạch: máy có file sửa tay hay commit riêng
+# (máy của người phát triển) thì không đụng — khi ấy quay về hỏi mật khẩu như cũ và nói rõ vì sao.
+UPDATE_STATE = {"tried": False, "note": ""}
+
+
+def _git(d: str, args: list, timeout: int = 180):
+    return subprocess.run(["git"] + list(args), cwd=d, capture_output=True, text=True, encoding="utf-8",
+                          errors="replace", timeout=timeout, stdin=subprocess.DEVNULL, env=clean_env(),
+                          **({"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)} if IS_WIN else {}))
+
+
+def update_tubecli(say=None) -> tuple:
+    """Kéo bản TubeCLI mới nhất về thư mục cài rồi khởi động lại máy chủ. Trả (ok, câu người đọc được)."""
+    def _s(m):
+        log(m)
+        if say:
+            try:
+                say(m)
+            except Exception:      # noqa: BLE001
+                pass
+
+    _cmd, d = server_cmd()
+    if not d or not os.path.isdir(os.path.join(d, ".git")):
+        return False, "bản cài này không phải bản git nên không tự cập nhật được"
+    if not shutil.which("git"):
+        return False, "máy không có git nên không tự cập nhật được"
+    try:
+        st = _git(d, ["status", "--porcelain", "--untracked-files=no"], 60)
+        if st.returncode != 0:
+            return False, "không đọc được trạng thái git của thư mục cài"
+        dirty = [ln[3:].strip() for ln in (st.stdout or "").splitlines() if ln.strip()]
+        if dirty:
+            return False, (f"thư mục cài có {len(dirty)} file đã sửa tay ({', '.join(dirty[:3])}"
+                           f"{'…' if len(dirty) > 3 else ''}) nên không tự cập nhật")
+        before = (_git(d, ["rev-parse", "HEAD"], 30).stdout or "").strip()
+        _s("TubeCLI trên máy là bản cũ — đang tải bản mới…")
+        fe = _git(d, ["fetch", "origin", "main"], 300)
+        if fe.returncode != 0:
+            return False, "không tải được bản mới: " + " ".join((fe.stderr or fe.stdout or "").split())[-160:]
+        if _git(d, ["merge-base", "--is-ancestor", "HEAD", "FETCH_HEAD"], 30).returncode != 0:
+            return False, "thư mục cài có commit riêng, khác bản phát hành, nên không tự cập nhật"
+        target = (_git(d, ["rev-parse", "FETCH_HEAD"], 30).stdout or "").strip()
+        if target == before:
+            return False, "thư mục cài đã ở bản mới nhất mà vẫn chưa có lệnh tạo khoá"
+        deps = _git(d, ["diff", "--name-only", before, target, "--", "pyproject.toml", "requirements.txt",
+                        "setup.py", "setup.cfg"], 60)
+        deps_changed = bool((deps.stdout or "").strip())
+        # Dừng máy chủ TRƯỚC khi đổi mã và cài thư viện: pip đang thay launcher mà tubecli.exe còn bị giữ thì gỡ dở
+        # launcher (đã mất một máy vì thế — crash_needs_deps). Máy chủ cũ chưa chịu tắt thì KHÔNG cập nhật.
+        _s("đang tắt TubeCLI để cập nhật…")
+        if not node_stop() and _pid_of_port(PORT):
+            return False, "TubeCLI đang bận, chưa tắt được để cập nhật"
+        mg = _git(d, ["merge", "--ff-only", "FETCH_HEAD"], 120)
+        if mg.returncode != 0:
+            start_tubecli()
+            return False, "không áp được bản mới: " + " ".join((mg.stderr or mg.stdout or "").split())[-160:]
+        log(f"đã cập nhật TubeCLI {before[:8]} → {target[:8]}" + (" (thư viện đổi)" if deps_changed else ""))
+        if deps_changed:
+            repair_deps(d, say)
+        _s("đang bật lại TubeCLI…")
+        if not start_tubecli():
+            # Bản mới không bật được: lùi về bản cũ để máy không chết vì một lượt ghép nối.
+            log("bản mới không bật được — quay về bản cũ")
+            _git(d, ["reset", "--hard", before], 120)
+            start_tubecli()
+            return False, "bản mới không bật được nên đã quay về bản cũ — xem nhật ký"
+        _s("TubeCLI đã cập nhật ✓")
+        return True, "đã cập nhật TubeCLI"
+    except Exception as e:      # noqa: BLE001
+        return False, f"cập nhật TubeCLI gặp lỗi: {e}"
+
+
+def pairing_credential(say=None) -> tuple:
+    """cloud_credential + MỘT lượt tự cập nhật khi lõi cũ. Trả (thứ giao cho cloud, loại, lỗi) như cloud_credential;
+    cập nhật không được thì vẫn là "legacy" (hỏi mật khẩu) và UPDATE_STATE["note"] giữ lý do để nói với người dùng."""
+    cred, kind, err = cloud_credential()
+    if kind != "legacy" or UPDATE_STATE["tried"]:
+        return cred, kind, err
+    UPDATE_STATE["tried"] = True
+    ok, note = update_tubecli(say)
+    UPDATE_STATE["note"] = "" if ok else note
+    if not ok:
+        log(f"không tự cập nhật TubeCLI: {note}")
+        return cred, kind, err
+    return cloud_credential()
+
+
+def old_core_hint() -> str:
+    note = UPDATE_STATE["note"]
+    return OLD_CORE_HINT + (f" (Chưa tự cập nhật được: {note}.)" if note else "")
+
+
 def sync_cloud_password(conf: dict, new_pw: str) -> tuple:
     """Báo cloud mật khẩu mới, để cloud còn đăng nhập hộ được (live view, Flow).
 
@@ -1553,12 +1648,12 @@ def ask_pairing_console(default_code: str = "", lang: str = "vi") -> tuple:
     if not ok_node:
         return "", "", None
     import getpass
-    cred, kind, err = cloud_credential()
+    cred, kind, err = pairing_credential(lambda m: print(f"  {m}"))
     if kind == "error":
         print(f"  {err}")
         return "", "", None
     if kind == "legacy":
-        print("  " + OLD_CORE_HINT)
+        print("  " + old_core_hint())
     while True:
         code = (input(f"Mã ghép nối [{default_code}]: ").strip() or default_code).upper()
         if kind == "key":
@@ -2246,14 +2341,14 @@ def ask_pairing(default_code: str = "", lang: str = "vi", default_password: str 
         if not tubecli_up():
             fail("TubeCLI không còn trả lời ở cổng 5295. Mở TubeCLI rồi thử lại.")
             return
-        cred, kind, err = cloud_credential()
+        cred, kind, err = pairing_credential(lambda m: root.after(0, lambda: state.config(text=m, fg=UI["muted"])))
         if kind == "error":
             fail(err)
             return
         if kind == "legacy":
             if not pw_shown["on"] or not pw:
                 root.after(0, need_password)
-                fail(OLD_CORE_HINT)
+                fail(old_core_hint())
                 return
             if not node_login(pw):
                 fail("Mật khẩu dashboard TubeCLI không đúng — cloud sẽ không mở được máy này. "
@@ -2503,12 +2598,12 @@ class Bridge:
         try:
             if not tubecli_up() and not start_tubecli():
                 return False, "TubeCLI chưa chạy — bấm «Kết nối lại» hay «Khởi động lại» rồi thử lại."
-            cred, kind, err = cloud_credential()
+            cred, kind, err = pairing_credential()
             if kind == "error":
                 return False, err
             if kind == "legacy":
                 if not password:
-                    return False, OLD_CORE_HINT
+                    return False, old_core_hint()
                 if not node_login(password):
                     return False, "Mật khẩu dashboard TubeCLI không đúng — cloud sẽ không mở được máy này."
             else:
@@ -3059,7 +3154,7 @@ def status_window(bridge: "Bridge") -> None:
 
             def after(ok, text):
                 finish(ok, text)
-                if not ok and text == OLD_CORE_HINT and dlg.winfo_exists():
+                if not ok and text.startswith(OLD_CORE_HINT) and dlg.winfo_exists():
                     need_password()
             run_bg(lambda: root.after(0, after, *bridge.repair(code, pw)))
 

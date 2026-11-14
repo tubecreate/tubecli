@@ -32,6 +32,9 @@ exec(compile(SRC.read_text(encoding="utf-8"), str(SRC), "exec"), mod.__dict__)
 # trên bản TubeCLI cài thật của máy (nó thay khoá thật). Mặc định giả lập «lõi cũ» = đường hỏi mật khẩu mà các
 # bài test ở đây viết cho; bài test khoá cloud nằm ở tests/connect_cloud_key_test.py.
 mod.mint_cloud_key = lambda: ("", mod.KEY_OLD_CORE)
+# 14/11/2026: lõi cũ → client tự cập nhật TubeCLI (git fetch / merge + tắt máy chủ). Test KHÔNG BAO GIỜ được làm
+# việc đó trên bản cài thật của máy; bài test riêng ở tests/connect_auto_update_test.py dùng repo git tạm.
+mod.update_tubecli = lambda say=None: (False, "")
 
 checks = failures = 0
 

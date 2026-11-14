@@ -29,6 +29,9 @@ mod = types.ModuleType("tubecli_connect")
 mod.__file__ = str(SRC)
 exec(compile(TXT, str(SRC), "exec"), mod.__dict__)
 mod.mint_cloud_key = lambda: ("", mod.KEY_OLD_CORE)        # không bao giờ chạy lệnh tubecli thật
+# 14/11/2026: lõi cũ → client tự cập nhật TubeCLI (git fetch / merge + tắt máy chủ). Test KHÔNG BAO GIỜ được làm
+# việc đó trên bản cài thật của máy; bài test riêng ở tests/connect_auto_update_test.py dùng repo git tạm.
+mod.update_tubecli = lambda say=None: (False, "")
 
 checks = failures = 0
 

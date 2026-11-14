@@ -27,6 +27,9 @@ os.environ["APPDATA"] = TMP
 mod = types.ModuleType("tubecli_connect")
 mod.__file__ = str(SRC)
 exec(compile(TXT, str(SRC), "exec"), mod.__dict__)
+# 14/11/2026: lõi cũ → client tự cập nhật TubeCLI (git fetch / merge + tắt máy chủ). Test KHÔNG BAO GIỜ được làm
+# việc đó trên bản cài thật của máy; bài test riêng ở tests/connect_auto_update_test.py dùng repo git tạm.
+mod.update_tubecli = lambda say=None: (False, "")
 
 checks = failures = 0
 
@@ -175,7 +178,7 @@ check("F2 chỉ need_password() mới hiện ô mật khẩu",
 check("F3 nút Kết nối chỉ đòi mã (mật khẩu chỉ khi ô đang hiện)",
       'pw = e_pw.get() if pw_shown["on"] else ""' in pair and 'msg.config(text="Nhập mã ghép nối."' in pair)
 check("F4 connect() hỏi cloud_credential trước, lõi cũ mới kiểm mật khẩu",
-      pair.index("cred, kind, err = cloud_credential()") < pair.index("if not node_login(pw):"))
+      pair.index("cred, kind, err = pairing_credential(") < pair.index("if not node_login(pw):"))
 con = TXT[TXT.index("def ask_pairing_console("):TXT.index("# ── Giao diện: bảng màu")]
 check("F5 dòng lệnh: có khoá thì không hỏi mật khẩu",
       con.index('if kind == "key":') < con.index("getpass.getpass(f\"Mật khẩu dashboard TubeCLI"))
