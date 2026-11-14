@@ -4087,9 +4087,12 @@ def _step_images(state: Dict, options: Dict) -> None:
         # Chỉ chặn khi KHÔNG shot nào vẽ được. Bản đầu chặn cả khi 9/10 shot đã có
         # ảnh sẵn và chỉ một shot thiếu (tập 302, 11/9/2026) — đúng lượt đó còn
         # dựng được, và lẽ ra phải đi tiếp.
-        if missing and not res.get("with_prompt"):
+        # Chỉ khi Studio NÓI RÕ không shot nào có prompt (trường with_prompt có mặt và bằng 0). Content Studio cũ không
+        # trả with_prompt / no_prompt: thiếu trường KHÔNG có nghĩa là 0 — bản trước coi là 0 và chặn oan lượt dựng.
+        # Con số trong câu là SỐ shot (no_prompt của Studio), không phải danh sách số thứ tự (từng in «[1, 3, 4, 5]/14»).
+        if missing and "with_prompt" in res and not res.get("with_prompt"):
             raise RuntimeError(
-                f"{missing}/{res.get('shots', '?')} shots have no image prompt, "
+                f"{res.get('no_prompt') or len(missing)}/{res.get('shots', '?')} shots have no image prompt, "
                 "so there is nothing to draw. The storyboard step produced shots without "
                 "an `image_prompt` field — re-run the storyboard, or fill the prompts in "
                 "Content Studio before rendering.")
@@ -6763,15 +6766,56 @@ CLEAR_OVERLAYS_CODE = (
 PUBLISH_CLICK_LABEL = "t2:publish-click — bấm Xuất bản bằng JS nếu chuột không bấm được"
 # Chỉ bấm khi nút VẪN CÒN ở bước Hiển thị của hộp tải lên: nút còn nghĩa là chưa ai
 # bấm được nó. Ở màn khác thì nút ấy là "Lưu" — bấm vào đúng là tự tay tạo bản nháp.
+# Chữ «xuất bản» trên nút của hộp XÁC NHẬN PHỤ (Studio hỏi lại khi còn đang kiểm tra nội dung…) theo ngôn ngữ giao diện.
+_PUBLISH_WORDS = ("publish|xuất bản|đăng|publicar|publier|veröffentlichen|pubblica|公開|发布|發布|게시|опубликовать|"
+                  "yayınla|terbitkan|เผยแพร่|نشر")
+# JS dùng chung: những dòng LỖI / hộp phụ đang hiện trên trang — thứ giải thích vì sao bấm Xuất bản không ăn.
+_PUBLISH_DIAG_JS = (
+    "const diag = () => { const vis = (e) => !!e && e.getBoundingClientRect().width > 0; const out = []; "
+    "const push = (t) => { t = (t || '').replace(/\\s+/g, ' ').trim(); if (t && !out.includes(t)) out.push(t.slice(0, 160)); }; "
+    "for (const e of document.querySelectorAll(\"ytcp-uploads-dialog .error-short, ytcp-uploads-dialog .error-area, "
+    "ytcp-uploads-dialog [role='alert'], ytcp-uploads-dialog ytcp-form-input-container[invalid], "
+    "ytcp-uploads-dialog .ytcp-thumbnails-compact-editor-uploader-old[error], ytcp-uploads-dialog #error-message, "
+    "ytcp-uploads-dialog ytcp-banner, tp-yt-paper-toast, ytcp-toast-manager\")) if (vis(e)) push(e.textContent); "
+    "for (const d of document.querySelectorAll('ytcp-prechecks-warning-dialog, ytcp-confirmation-dialog, ytcp-dialog, "
+    "tp-yt-paper-dialog')) { if (!vis(d) || d.querySelector('#done-button') || d.closest('ytcp-uploads-dialog') "
+    "|| d.closest('ytcp-video-share-dialog')) continue; push('[' + d.tagName.toLowerCase() + '] ' + d.textContent); } "
+    "return out.slice(0, 5).join(' ¦ '); }; "
+)
+
+# 14/11/2026 (tuan4, 3 trong 30 lượt đăng ra NHÁP: lượt 678 / 693 / 700): nút Xuất bản BẬT, đúng bước Hiển thị, đã bấm 4
+# lần (3 chuột + 1 JS) mà Studio đứng yên — lượt thành công thì sau cú bấm đầu nút mờ đi rồi hiện «Video published».
+# Bản cũ bấm MỘT lần rồi đi tiếp, không nhìn hộp nào khác. Nay sau khi bấm: chờ tới ~30 s; có hộp xác nhận phụ với nút
+# mang chữ «xuất bản» thì bấm nó; nút vẫn bật thì bấm lại ở giây 10 và 20; vẫn không ăn thì trả lý do đọc được trên trang.
 PUBLISH_CLICK_CODE = (
-    "(() => { const btn = [...document.querySelectorAll('#done-button')]"
-    ".find((e) => e.getBoundingClientRect().width > 0); "
-    "if (!btn) return 'gone'; "
+    "(async () => { const vis = (e) => !!e && e.getBoundingClientRect().width > 0; "
+    "const sleep = (ms) => new Promise((go) => setTimeout(go, ms)); "
+    "const RX = new RegExp('" + _PUBLISH_WORDS + "', 'i'); "
+    + _PUBLISH_DIAG_JS +
+    "const btnOf = () => [...document.querySelectorAll('#done-button')].find(vis); "
+    "const shared = () => vis(document.querySelector('ytcp-video-share-dialog, ytcp-uploads-still-processing-dialog')); "
+    "const press = (b) => (b.querySelector('button') || b).click(); "
+    "const confirm = () => { for (const d of document.querySelectorAll('ytcp-prechecks-warning-dialog, "
+    "ytcp-confirmation-dialog, ytcp-dialog, tp-yt-paper-dialog')) { "
+    "if (!vis(d) || d.querySelector('#done-button') || d.closest('ytcp-uploads-dialog') "
+    "|| d.closest('ytcp-video-share-dialog')) continue; "
+    "const b = [...d.querySelectorAll('ytcp-button, tp-yt-paper-button, button')].filter(vis)"
+    ".find((x) => RX.test((x.textContent || '').trim())); "
+    "if (b) { press(b); return (b.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 30); } } return ''; }; "
+    "if (shared()) return 'published'; "
+    "const btn = btnOf(); if (!btn) return 'gone'; "
     "const dlg = btn.closest('ytcp-uploads-dialog'); if (!dlg) return 'no-dialog'; "
     "if (!dlg.querySelector(\"#privacy-radios, tp-yt-paper-radio-button[name='PUBLIC'], ytcp-video-visibility-select\")) "
     "return 'not-visibility-step'; "
     "if (btn.getAttribute('aria-disabled') === 'true') return 'disabled'; "
-    "(btn.querySelector('button') || btn).click(); return 'clicked'; })()"
+    "press(btn); let confirmed = ''; "
+    "for (let i = 1; i <= 30; i++) { await sleep(1000); "
+    "if (shared()) return confirmed ? 'clicked+confirmed: ' + confirmed : 'clicked'; "
+    "const c = confirm(); if (c) { confirmed = c; continue; } "
+    "const b = btnOf(); if (!b) return confirmed ? 'clicked+confirmed: ' + confirmed : 'clicked'; "
+    "if (b.getAttribute('aria-disabled') === 'true') return confirmed ? 'clicked+confirmed: ' + confirmed : 'clicked'; "
+    "if (i === 10 || i === 20) press(b); } "
+    "return 'no-effect: ' + (diag() || 'the Publish button stayed enabled and nothing on the page explains why'); })()"
 )
 
 VERIFY_PUBLISH_LABEL = "t2:verify-publish — đọc trạng thái thật sau khi bấm Xuất bản"
@@ -6780,6 +6824,7 @@ VERIFY_PUBLISH_VAR = "t2_publish"
 # tải lên với nút Xuất bản nghĩa là video mới chỉ được LƯU NHÁP. Chờ tối đa ~25 s.
 VERIFY_PUBLISH_CODE = (
     "(async () => { const vis = (e) => !!e && e.getBoundingClientRect().width > 0; "
+    + _PUBLISH_DIAG_JS +
     "const look = () => { "
     "const share = document.querySelector('ytcp-video-share-dialog, ytcp-uploads-still-processing-dialog'); "
     # Link VIDEO, không phải link đầu tiên có chữ «youtu»: hộp thoại có cả link trợ giúp
@@ -6795,7 +6840,7 @@ VERIFY_PUBLISH_CODE = (
     "await new Promise((go) => setTimeout(go, 1000)); } "
     "const dlg = document.querySelector('ytcp-uploads-dialog'); "
     "const btn = document.querySelector('#done-button'); "
-    "return {state: 'draft', url: '', note: ((btn ? btn.textContent : '') + ' | ' + "
+    "return {state: 'draft', url: '', why: diag(), note: ((btn ? btn.textContent : '') + ' | ' + "
     "(dlg ? dlg.textContent : '')).replace(/\\s+/g, ' ').trim().slice(0, 160)}; })()"
 )
 
@@ -7375,11 +7420,17 @@ def _publish_verdict(state: Dict, res) -> Dict[str, str]:
         return {}
     st = str(raw.get("state") or "").strip().lower()
     note = " ".join(str(raw.get("note") or "").split())[:200]
+    # Lý do đọc được trên trang (14/11/2026): dòng lỗi / hộp phụ đang hiện, từ bước verify hay từ bước bấm («no-effect: …»).
+    why = " ".join(str(raw.get("why") or "").split())[:400]
+    click = str(res.get("t2_publish_click") or "") if isinstance(res, dict) else ""
+    if not why and click.startswith("no-effect: "):
+        why = " ".join(click[len("no-effect: "):].split())[:400]
     if st == "draft":
         raise RuntimeError(
             "YouTube kept the video as a DRAFT — the upload dialog was still open when the "
-            "script finished, which is what happens when Publish is pressed while the file is "
-            "still uploading. Nothing was published" + (f" (dialog said: {note})" if note else "") + ".")
+            "script finished: the Publish button was pressed but YouTube Studio did not publish. "
+            + (f"On the page: {why}. " if why else "The page showed no error message. ")
+            + "Nothing was published" + (f" (dialog said: {note})" if note else "") + ".")
     if st == "closed":
         state.setdefault("warnings", []).append(
             "The upload dialog closed without YouTube's “video published” confirmation — "

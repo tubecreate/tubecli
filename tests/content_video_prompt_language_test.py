@@ -59,7 +59,23 @@ ok('+ _for_image(what)' in src and 'what[:300]' not in src,
    "_fill_missing_prompts lọc trước khi ghép — đây là chỗ sinh ra 600 prompt hỏng")
 
 print("\nB. BỘ VẼ: bị từ chối thì GỘT rồi thử lại, không bỏ trắng nhịp")
-STUDIO = ROOT / "data" / "extensions_external" / "content_studio"
+def _find_studio(root):
+    """Thư mục Content Studio để đọc mã: trong cây này → biến TUBECLI_STUDIO_DIR → checkout chính nằm cạnh (worktree
+    phát hành không mang theo data/). None khi không có — Studio là extension cài từ Chợ, không nằm trong repo lõi."""
+    import os as _os
+    cands = [root / "data" / "extensions_external" / "content_studio"]
+    if _os.environ.get("TUBECLI_STUDIO_DIR"):
+        cands.append(Path(_os.environ["TUBECLI_STUDIO_DIR"]))
+    cands.append(root.parent / "tubecli" / "data" / "extensions_external" / "content_studio")
+    return next((c for c in cands if (c / "engines" / "api_image_engine.py").is_file()), None)
+
+
+STUDIO = _find_studio(ROOT)
+if STUDIO is None:
+    print("\nSKIP phần B: không có mã nguồn Content Studio (data/extensions_external/content_studio, "
+          "TUBECLI_STUDIO_DIR hay checkout chính nằm cạnh)")
+    print(f"\n{PASS}/{PASS + FAIL} PASS" if not FAIL else f"\n{PASS}/{PASS + FAIL} PASS — {FAIL} HỎNG")
+    sys.exit(1 if FAIL else 0)
 sys.path[:0] = [str(STUDIO), str(STUDIO / "engines")]
 from api_image_engine import _ascii_only                            # noqa: E402
 

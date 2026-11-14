@@ -229,6 +229,9 @@ P.check_job = lambda job: {"ready": True, "missing": [], "disabled": [], "missin
 P.studio_capabilities = lambda: {"text": {"ok": True, "detail": "gemini"}, "image": {"ok": True, "detail": "cf"},
                                  "assembly": {"ok": True}, "voice": {"ok": True}}
 prompts = []
+# Bộ lọc ngách (4/11/2026) gọi model chấm nguồn trước khi viết: với model giả ở đây cổng ĐÓNG, run_plan dừng ở bước
+# niche và không bao giờ viết kịch bản (prompts rỗng → IndexError). Bài test này kiểm NGÔN NGỮ / MẪU, không kiểm ngách.
+P._niche_cfg = lambda state: {"enabled": False}
 
 
 def fake_llm(agent, messages, temperature=0.7):
