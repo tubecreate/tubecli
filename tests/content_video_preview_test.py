@@ -155,6 +155,17 @@ ok(R4["publish"]["value"] == "YouTube" and "Kênh A" in R4["publish"]["detail"] 
 r5 = PV.build_preview("a1", "x", {"preset": "Cartoon News Recap", "scene_media": "stills"}, True)
 ok(rows_of(r5)["media"]["value"] == "Still images only", "stills chosen in the form")
 
+# Lõi < .236 (không có whisper_installed / subtitle_cues): bảng vẫn mở — Whisper tự dò bằng find_spec
+_wi = ND.whisper_installed
+del ND.whisper_installed
+old = PV.build_preview("a1", "一段普通的文字。", {"preset": "Cartoon News Recap", "voice_file": voice}, True)
+ok(old["ok"] and "Whisper" in rows_of(old)["voice"]["detail"], "older core without whisper_installed → still works",
+   rows_of(old)["voice"])
+ND.whisper_installed = _wi
+_pv_src = open(PV.__file__, encoding="utf-8").read()
+ok('P.subtitle_cues(content) if hasattr(P, "subtitle_cues") else []' in _pv_src,
+   "older core without subtitle_cues → subtitles read as plain text")
+
 bad = PV.build_preview("a1", "x", {"preset": "Nope"}, True)
 ok(not bad["ok"] and rows_of(bad)["template"]["tone"] == "bad" and "not found" in rows_of(bad)["template"]["detail"],
    "unknown template → red row, ok=False", rows_of(bad)["template"])
