@@ -2,6 +2,13 @@
 
 Notable changes to TubeCLI. Versions match `tubecli/__init__.py`.
 
+## 2026.08.09.237 — 2026-11-14
+
+### New task: the buttons are at the top
+- In the New task window of the task board, Cancel, Add to queue and Create are now at the top right, next to the
+  title, instead of at the bottom. The window also sits at the top of the board. When the task board is a tall
+  frame in Flow, you no longer scroll down to find the buttons.
+
 ## 2026.08.09.236 — 2026-11-14
 
 ### Your voice file is cut by your subtitles' times
