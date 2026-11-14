@@ -194,7 +194,11 @@ META_KEYS = ("stage", "kind", "language", "target_language", "text_model", "imag
              "episode_id", "drama_id",
              # bộ lọc ngách + dự phòng AI (core/niche.py, core/llm_errors.py — 4/11/2026)
              "niche_score", "niche_reason", "niche_sources", "gate_rejects", "keyword_source", "niche_warnings",
-             "fallback_used", "fallback_reason", "retry_at", "ai_defers")
+             "fallback_used", "fallback_reason", "retry_at", "ai_defers",
+             # chủ đề của video tự động (14/11/2026): câu tìm kiếm của lượt thu thập + chủ đề lấy từ kho từ khoá — bộ
+             # chống trùng so chúng với lượt sau. bank_topic / bank_low / fallback được ghi từ .233 nhưng thiếu ở đây
+             # nên bị bỏ lặng lẽ (và «đừng trùng chủ đề của task đang mở» không bao giờ có tác dụng).
+             "topic_query", "bank_topic", "bank_low", "fallback")
 _COUNTER_RE = re.compile(r"(\d+)\s*(?:-\s*(\d+))?\s*(?:/|\bof\b)\s*(\d+)", re.I)
 
 

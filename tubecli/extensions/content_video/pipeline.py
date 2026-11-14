@@ -2569,7 +2569,10 @@ def _step_script(state: Dict, options: Dict) -> None:
         words, words_from = resolve_words(opts_len, state.get("preset"))
         # Kênh chưa xác minh số điện thoại nhận tối đa 15 phút: lượt TỰ ĐĂNG viết vừa khung ngay từ đầu, thay vì dựng
         # một video 17 phút rồi mới thấy không đăng được (VPS 49, 22/10/2026: #35/#41/#42/#43 kẹt nháp trên YouTube).
-        if options.get("publish") and options.get("publish_unverified") and words > UNVERIFIED_SAFE_WORDS:
+        # 14/11/2026: áp cho MỌI lượt tự động của kênh chưa xác minh, kể cả lượt chỉ dựng (publish tắt / đang tự dừng) —
+        # video dựng xong mà dài 18 phút thì có bật đăng lại cũng không đăng được (contabo: 78 video nằm ở review).
+        if ((options.get("publish") or options.get("autopublish")) and options.get("publish_unverified")
+                and words > UNVERIFIED_SAFE_WORDS):
             state.setdefault("warnings", []).append(
                 f"This channel is marked “not verified”, and YouTube takes at most 15 minutes from it — so the script "
                 f"is written at ~{UNVERIFIED_SAFE_WORDS} words (~{minutes_of(UNVERIFIED_SAFE_WORDS)} min) instead of "
@@ -2748,6 +2751,9 @@ def _step_script(state: Dict, options: Dict) -> None:
     if long_warn:
         state.setdefault("warnings", []).append(long_warn)
 
+    if state.get("words_capped") and not verbatim:
+        text = fit_unverified(state, text)
+
     title = str(options.get("title") or "").strip()
     lines = text.splitlines()
     if lines and lines[0].upper().startswith("TITLE:"):
@@ -2758,6 +2764,7 @@ def _step_script(state: Dict, options: Dict) -> None:
     state["script"] = text
     state["title"] = title[:120]
     _task_title(state.get("task_id"), state["title"], options)
+    _refuse_duplicate_title(state, options)
     _task_meta(state.get("task_id"), language=state.get("language"))
     # Checkpoint the script: a revision round reads it back, and a restart
     # between plan and render must not lose an accepted text.
@@ -2782,6 +2789,52 @@ def _step_script(state: Dict, options: Dict) -> None:
     nw = narration_words(text)
     state["estimated_minutes"] = minutes_of(nw)
     state["_say"]("script", "running", f"{nw} words · ~{minutes_of(nw)} min read aloud · {n} scenes")
+
+
+def fit_unverified(state: Dict, text: str) -> str:
+    """Kịch bản của kênh CHƯA XÁC MINH phải ra video dưới 15 phút. Model hay viết lố mức xin: quá UNVERIFIED_HARD_WORDS
+    chữ lời đọc thì bỏ bớt cảnh ở GIỮA-CUỐI (giữ mở đầu và cảnh kết) cho tới khi vừa. Không gọi model — một lượt «rút
+    gọn» nữa có thể lại lố, còn cắt cảnh thì chắc chắn vừa."""
+    if narration_words(text) <= UNVERIFIED_HARD_WORDS:
+        return text
+    head = ""
+    lines = text.splitlines()
+    if lines and lines[0].upper().startswith("TITLE:"):
+        head, body = lines[0], "\n".join(lines[1:])
+    else:
+        body = text
+    blocks = [b for b in re.split(r"\n(?=\[SHOW:)", body.strip()) if b.strip()]
+    if len(blocks) < 4:
+        return text                     # không tách được cảnh: để nguyên, cảnh báo độ dài sẵn có sẽ nói
+    before = narration_words(text)
+    dropped = 0
+    while len(blocks) > 3 and narration_words("\n".join(blocks)) > UNVERIFIED_HARD_WORDS:
+        del blocks[-2]                  # cảnh ngay TRƯỚC cảnh kết — mở đầu và câu chốt giữ nguyên
+        dropped += 1
+    out = (head + "\n\n" if head else "") + "\n\n".join(b.strip() for b in blocks)
+    state.setdefault("warnings", []).append(
+        f"The draft was ~{before} words (~{minutes_of(before)} min read aloud), over the 15-minute limit of a channel "
+        f"that is not verified — {dropped} scene(s) before the closing one were dropped to fit "
+        f"(~{narration_words(out)} words). Verify the channel at {VERIFY_URL} for full-length videos.")
+    return out
+
+
+def _refuse_duplicate_title(state: Dict, options: Dict) -> None:
+    """Lưới thứ hai chống trùng (lưới đầu ở autopublish, so câu tìm kiếm): lượt TỰ ĐỘNG viết ra một tiêu đề trùng / gần
+    trùng với video đã có của chính agent này ⇒ dừng ở review TRƯỚC storyboard, ảnh, dựng (mỗi lượt ~3 giờ máy)."""
+    if not options.get("autopublish") or (state.get("feedback") or []):
+        return
+    try:
+        from . import autopublish
+        dup = autopublish.duplicate_task(str(state["agent"].id), [state.get("title") or ""],
+                                         exclude=str(state.get("task_id") or ""))
+    except Exception as e:      # noqa: BLE001
+        logger.info(f"[ContentVideo] duplicate check unavailable: {e}")
+        return
+    if dup:
+        raise NicheHold(f"⚠ DUPLICATE TOPIC — «{state.get('title')}» was already made as task #{dup.get('seq', '?')}",
+                        f"Task #{dup.get('seq', '?')} «{str(dup.get('title') or '')[:100]}» of this agent covers the "
+                        "same topic. Nothing was rendered. Cancel this task, or Request changes with a different angle.")
 
 
 # ── Stage 2 steps ────────────────────────────────────────────────────
@@ -8115,7 +8168,10 @@ THUMB_LOOKUP_DELAY = 20
 # kẹt ở bước Hiển thị, task «xong kèm cảnh báo», mốc corpus đứng yên ⇒ lượt thu thập sau dựng lại nguyên video dài.
 UNVERIFIED_MAX_SEC = 15 * 60
 # Kịch bản tự đăng cho kênh chưa xác minh: ~2000 chữ ≈ 13 phút đọc (video đo thật ~155–165 chữ/phút ⇒ 12–13 phút).
-UNVERIFIED_SAFE_WORDS = 2000
+# 14/11/2026 đo trên contabo: xin 2000 chữ → model viết 2430 (lố ~20%), CapCut đọc ~132 chữ/phút → 18:20, quá 15 phút.
+# 1600 chữ xin × 1,2 = ~1920 chữ ≈ 14,5 phút; UNVERIFIED_HARD_WORDS là trần CỨNG cắt sau khi viết (xem fit_unverified).
+UNVERIFIED_SAFE_WORDS = 1600
+UNVERIFIED_HARD_WORDS = 1850          # ≈ 14 phút ở 132 chữ/phút — quá mức này thì bỏ bớt cảnh
 # Lượt TỰ ĐĂNG mà kịch bản dưới chừng này phần độ dài đã định thì dựng nhưng KHÔNG đăng (chờ duyệt).
 AUTOPUBLISH_MIN_RATIO = 0.5
 VERIFY_URL = "https://www.youtube.com/verify"

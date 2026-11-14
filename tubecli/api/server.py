@@ -708,6 +708,88 @@ def _agent_now(agent):
     return _dt.datetime.now()
 
 
+_KW_ARRAY_RE = {p: __import__("re").compile(r'"%s"\s*:\s*\[(.*?)\]\s*(?:,\s*"|\})' % p, __import__("re").S)
+                for p in KEYWORD_PERIODS}
+
+
+def parse_keyword_reply(raw_text: str) -> dict:
+    """{buổi: [câu…]} từ câu trả lời của model. JSON chuẩn thì đọc thẳng; JSON HỎNG thì đọc từng mảng theo buổi.
+
+    14/11/2026 (contabo, «Deep Biblical Echoes» kẹt từ khoá hơn 10 ngày): model trả
+        "morning": ["What does "seek first the kingdom" mean in Matthew 6:33?", …]
+    — dấu nháy kép của câu trích nằm NGAY trong chuỗi JSON nên json.loads ném «Expecting ',' delimiter», ngày nào
+    cũng vậy. Mỗi phần tử là một chuỗi bắt đầu sau `["` hay `", "` và kết thúc trước `", "` hay `"]`: tách theo ranh
+    giới ĐÓ thì nháy kép bên trong câu không còn phá cấu trúc."""
+    import json as _json
+    import re as _re
+    from tubecli.core.ai_generator import extract_json
+
+    try:
+        data = _json.loads(extract_json(raw_text))
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        pass
+    out = {}
+    for period, rx in _KW_ARRAY_RE.items():
+        m = rx.search(str(raw_text or "") + "}")
+        if not m:
+            continue
+        inner = m.group(1).strip()
+        if inner.startswith('"'):
+            inner = inner[1:]
+        if inner.endswith('"'):
+            inner = inner[:-1]
+        items = [" ".join(x.replace('\\"', '"').split()) for x in _re.split(r'"\s*,\s*"', inner)]
+        items = [x for x in items if x]
+        if items:
+            out[period] = items
+    return out
+
+
+KEYWORD_HISTORY_DAYS = 21       # câu đã tìm trong chừng này ngày thì không lấy lại (khớp cooldown_days của ngách)
+KEYWORD_HISTORY_MAX = 400
+
+
+def _kw_key(text: str) -> str:
+    import re as _re
+    import unicodedata as _ud
+    s = _ud.normalize("NFKD", str(text or "")).casefold()
+    s = "".join(ch for ch in s if not _ud.combining(ch))
+    return " ".join(_re.sub(r"[^0-9a-z]+", " ", s).split())[:160]
+
+
+def keyword_history(routine: dict, today: str) -> dict:
+    """{khoá câu: ngày dùng} còn trong KEYWORD_HISTORY_DAYS ngày, KHÔNG tính hôm nay (hôm nay đã có used_keywords_today)."""
+    import datetime as _dt
+    hist = (routine or {}).get("used_keywords_history")
+    if not isinstance(hist, dict):
+        return {}
+    try:
+        t0 = _dt.date.fromisoformat(today)
+    except (TypeError, ValueError):
+        return {}
+    out = {}
+    for k, day in hist.items():
+        try:
+            age = (t0 - _dt.date.fromisoformat(str(day)[:10])).days
+        except (TypeError, ValueError):
+            continue
+        if 0 < age <= KEYWORD_HISTORY_DAYS:
+            out[str(k)] = str(day)[:10]
+    return out
+
+
+def remember_keyword(routine: dict, topic: str, today: str) -> None:
+    hist = routine.get("used_keywords_history")
+    if not isinstance(hist, dict):
+        hist = {}
+    hist[_kw_key(topic)] = today
+    if len(hist) > KEYWORD_HISTORY_MAX:
+        hist = dict(sorted(hist.items(), key=lambda kv: str(kv[1]))[-KEYWORD_HISTORY_MAX:])
+    routine["used_keywords_history"] = hist
+
+
 def _keyword_lists(dk) -> dict:
     """{buổi: [câu…]} sạch từ một bộ daily_keywords (bỏ buổi rỗng / sai kiểu)."""
     out = {}
@@ -831,6 +913,7 @@ Rules for evolution and progression:
 2. Avoid repeating exactly the same queries or topics already found in the recent history.
 3. Align the topics with the research brief (when given), the agent's profession and specific interest areas.
 4. Provide exactly 5 distinct search queries for each of the following time periods: "morning", "afternoon", "evening", "night".
+4b. Never put a double quote character inside a query — quote a phrase with single quotes ('seek first the kingdom') so the JSON stays valid.
 5. Return the result in raw JSON format matching this EXACT structure (output ONLY the JSON block, no explanations):
 {{
   "morning": ["query 1", "query 2", "query 3", "query 4", "query 5"],
@@ -874,7 +957,7 @@ Rules for evolution and progression:
             raw_text = str(raw_response or "")
             if raw_text.lstrip().startswith("[Error]"):
                 raise RuntimeError(raw_text.strip()[:200])
-            evolved_data = json.loads(extract_json(raw_text))
+            evolved_data = parse_keyword_reply(raw_text)
             lists = _keyword_lists(evolved_data)
             missing = [p for p in KEYWORD_PERIODS if p not in lists]
             if missing:
@@ -1698,6 +1781,20 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
 
         # Find first unused keyword (cycle back when all used)
         available = [kw for kw in today_keywords if kw not in period_used]
+        # Xoay vòng QUA NGÀY (14/11/2026): sổ «đã dùng hôm nay» xoá mỗi sáng, nên khi bộ từ khoá không được làm mới
+        # (sinh hỏng → dùng lại bộ cũ) agent tìm đúng câu ĐẦU TIÊN mỗi ngày — «seek first the kingdom» 5 ngày liền,
+        # 5 video trùng. Câu đã tìm trong KEYWORD_HISTORY_DAYS ngày thì nhường cho câu chưa tìm; hết câu mới thì thôi.
+        _kw_hist = keyword_history(routine_data, today_date)
+        _fresh_kw = [kw for kw in available if _kw_key(kw) not in _kw_hist]
+        if _fresh_kw:
+            available = _fresh_kw
+        elif _kw_hist:
+            # Buổi này hết câu mới: mượn câu chưa tìm của các buổi khác trước khi lặp lại.
+            _other = [kw for p in KEYWORD_PERIODS for kw in (daily_keywords.get(p) or [])
+                      if isinstance(daily_keywords.get(p), list) and _kw_key(kw) not in _kw_hist
+                      and kw not in (used_dict.get(p) or [])]
+            if _other:
+                available = _other
         if not available:
             print(f"[Scheduler Callback] All keywords used for '{time_period}' today. Resetting cycle.")
             period_used = []
@@ -1720,6 +1817,7 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
         # không: chúng vào thẳng hộp thư, không tìm kiếm gì.
         if base_topic and behavior not in ("checkEmails", "replyEmail", "sendReport"):
             period_used.append(base_topic)
+            remember_keyword(routine_data, base_topic, today_date)
             if "used" not in used_meta:
                 used_meta["used"] = {}
             used_meta["used"][time_period] = period_used
@@ -3208,6 +3306,27 @@ class DailyKeywordsUpdateRequest(BaseModel):
     afternoon: List[str] = []
     evening: List[str] = []
     night: List[str] = []
+
+
+@app.post("/api/v1/agents/{agent_id}/pause")
+async def pause_agent_endpoint(agent_id: str):
+    """Tạm dừng một agent nghiên cứu: tắt lịch chạy, và lượt thu thập nào còn dở cũng không châm ngòi dựng video.
+    Không đụng task đang chạy. (14/11/2026 — connector cần dừng agent đang dựng trùng mà không mở quyền sửa agent.)"""
+    from tubecli.extensions.content_video import autopublish
+    try:
+        return {"status": "paused", **autopublish.pause_agent(agent_id, by="api")}
+    except ValueError:
+        raise HTTPException(404, f"Agent {agent_id} not found")
+
+
+@app.post("/api/v1/agents/{agent_id}/resume")
+async def resume_agent_endpoint(agent_id: str):
+    """Tiếp tục agent đã tạm dừng: lịch chạy bật lại nếu trước khi tạm dừng nó đang bật."""
+    from tubecli.extensions.content_video import autopublish
+    try:
+        return {"status": "resumed", **autopublish.resume_agent(agent_id)}
+    except ValueError:
+        raise HTTPException(404, f"Agent {agent_id} not found")
 
 
 @app.put("/api/v1/agents/{agent_id}/daily_keywords")

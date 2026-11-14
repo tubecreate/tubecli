@@ -228,6 +228,43 @@ async def get_stats():
     return codex_manager.get_stats()
 
 
+# ── Tự đăng theo TỪNG agent (14/11/2026) ─────────────────────────────────────
+# Contabo: 78 video dựng xong nằm ở review vì bước Publish của tự đăng bị tắt, mà connector không sửa được
+# /codex/settings lẫn agent. Hai route hẹp này chỉ đọc / đổi đúng công tắc đăng + trần mỗi ngày của một agent.
+class AutopublishPatch(BaseModel):
+    publish: Optional[bool] = None
+    daily_limit: Optional[int] = None
+
+
+def _autopublish_agent(agent_id: str):
+    from tubecli.core.agent import agent_manager
+    agent = agent_manager.get(agent_id)
+    if not agent:
+        raise HTTPException(404, f"Agent {agent_id} not found")
+    return agent
+
+
+@router.get("/autopublish/{agent_id}")
+async def get_autopublish(agent_id: str):
+    """Tình trạng tự đăng của một agent: công tắc, trần ngày, đã đăng hôm nay, đang tự dừng vì sao."""
+    from tubecli.extensions.content_video import autopublish
+    return autopublish.status(_autopublish_agent(agent_id))
+
+
+@router.patch("/autopublish/{agent_id}")
+async def patch_autopublish(agent_id: str, req: AutopublishPatch):
+    """Bật / tắt bước Publish của tự đăng cho một agent, và / hoặc đổi trần video mỗi ngày (1–20)."""
+    from tubecli.extensions.content_video import autopublish
+    agent = _autopublish_agent(agent_id)
+    if req.publish is None and req.daily_limit is None:
+        raise HTTPException(400, "Send publish (true/false) and/or daily_limit (1-20).")
+    publish = bool(getattr(agent, "auto_publish", False)) if req.publish is None else bool(req.publish)
+    try:
+        return {"status": "updated", **autopublish.set_publish(agent_id, publish, req.daily_limit)}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
 # Trường CHỈ dùng khi mở thẻ ra (kế hoạch AI, kết quả) — đo 20/9/2026 trên 50 task: cả gói 790 KB, riêng `plan`
 # 582 KB (74 %) và `result` 47 KB. Bảng đóng chỉ cần title/goal/status/steps. Bỏ hai trường này cho lần tải danh
 # sách, rồi mở thẻ nào tải chi tiết thẻ ấy: gói còn ~160 KB, và trang trong node Flow (đi qua tunnel) hết cảm giác treo.
