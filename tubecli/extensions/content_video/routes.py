@@ -184,6 +184,33 @@ async def run_route(req: RunRequest, request: Request):
     return out
 
 
+# ── Bảng XEM TRƯỚC của form «Tạo video từ nội dung» (14/11/2026) — cùng thân /run, không tạo task ────────────────
+class PreviewRequest(BaseModel):
+    agent_id: str = ""
+    content: str = ""
+    options: Dict[str, Any] = {}
+    review: bool = True
+    voice_name: str = ""        # tên GỐC của file giọng (file trên máy đã đổi tên ngẫu nhiên)
+
+
+@router.post("/preview")
+async def preview_route(req: PreviewRequest, request: Request):
+    """Bảng thông số: mẫu, AI viết, AI vẽ, giọng, nguồn, cách viết, ảnh / clip, ảnh đại diện, duyệt, đăng… Không gọi AI."""
+    _deny_guests(request)
+    from tubecli.extensions.content_video.preview import build_preview
+    return await asyncio.to_thread(build_preview, req.agent_id.strip(), (req.content or "").strip(),
+                                   dict(req.options or {}), bool(req.review), (req.voice_name or "").strip()[:200])
+
+
+@router.post("/preview/check")
+async def preview_check_route(req: PreviewRequest, request: Request):
+    """Kiểm SỐNG một lần: AI viết gọi thử 1 từ, Muse / bộ vẽ ảnh, giọng đọc, Content Studio (ảnh không vẽ thử)."""
+    _deny_guests(request)
+    from tubecli.extensions.content_video.preview import run_checks
+    return await asyncio.to_thread(run_checks, req.agent_id.strip(), (req.content or "").strip(),
+                                   dict(req.options or {}))
+
+
 # ── File giọng của người dùng (form Codex, 5/11/2026) ──────────────────────────────────────
 VOICE_EXTS = (".mp3", ".wav", ".m4a", ".aac", ".ogg", ".opus", ".flac", ".webm")
 VOICE_MAX_BYTES = 500 * 1024 * 1024

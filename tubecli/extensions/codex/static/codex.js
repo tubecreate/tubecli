@@ -2097,6 +2097,8 @@ const CODEX = (() => {
     state.createdTask = null;
     $('cx-new-step-form').classList.remove('hidden');
     $('cx-new-step-done').classList.add('hidden');
+    $('cx-new-step-review').classList.add('hidden');
+    state.reviewSeq = (state.reviewSeq || 0) + 1;     // kết quả xem trước của lần mở trước thì bỏ
     $('cx-f-goal').value = '';
     $('cx-f-title').value = '';
     $('cx-f-priority').value = String(parseInt(lsGet(G_PRIORITY_KEY), 10) || 0);
@@ -2361,6 +2363,7 @@ const CODEX = (() => {
     $('cx-new-ext').classList.toggle('hidden', !ext);
     // "Đưa vào hàng đợi" chỉ có với video: việc chung không có làn để chờ tới lượt.
     $('cx-queue-btn').classList.toggle('hidden', !video);
+    $('cx-preview-btn').classList.toggle('hidden', !video);
     const label = $('cx-create-label');
     if (ext) {
       label.removeAttribute('data-i18n');
@@ -3436,6 +3439,88 @@ const CODEX = (() => {
     lsSet(CV_INSTR_KEY, ($('cx-v-instructions').value || '').slice(0, CV_INSTR_MAX));
   }
 
+  // ── Bảng XEM TRƯỚC của video (14/11/2026) ─────────────────────
+  // User: «thêm button xem trước … bảng review để họ xem các thông số gồm template, AI tạo content, AI tạo ảnh, AI tạo
+  // voice, thêm load 1 lần check AI có hoạt động hay không … nếu người dùng muốn đổi ý thì có nút back để chỉnh và nút tạo».
+  // Đi qua ĐÚNG submitVideo (cùng kiểm lỗi, cùng options) với cờ state.videoPreview; queue=true để khỏi hỏi «song song /
+  // hàng đợi» lúc chỉ xem. Bảng hiện ngay; kiểm AI (gọi thử model viết ~1 từ) về sau, mỗi lần mở bảng một lần.
+  const RV_ROWS = ['template', 'content_ai', 'image_ai', 'voice', 'source', 'script', 'media', 'subtitles', 'cast',
+                   'thumbnail', 'review', 'publish', 'drive', 'watermark'];
+  const RV_CHECKS = ['content_ai', 'image_ai', 'voice', 'studio'];
+  const RV_ICON = { ok: 'check_circle', warn: 'error', fail: 'cancel', wait: 'progress_activity' };
+
+  async function previewVideo() {
+    state.videoPreview = true;
+    try { await submitVideo(true); } finally { state.videoPreview = false; }
+  }
+
+  function backFromReview() {
+    state.reviewSeq = (state.reviewSeq || 0) + 1;      // kết quả còn đang về thì bỏ
+    $('cx-new-step-review').classList.add('hidden');
+    $('cx-new-step-form').classList.remove('hidden');
+  }
+
+  /** Lỗi 404 = lõi chưa có route xem trước → nói cách sửa thay vì «Not Found». */
+  function reviewError(e) {
+    const msg = String((e && e.message) || e || '');
+    return /^not found$/i.test(msg.trim()) ? t('codex.rv_old_server') : msg;
+  }
+
+  function renderReviewChecks(checks) {
+    const byKey = {};
+    (checks || []).forEach(c => { if (c && c.key) byKey[c.key] = c; });
+    $('cx-rv-checks').innerHTML = RV_CHECKS.map(k => {
+      const c = byKey[k] || { key: k, status: 'wait', detail: t('codex.rv_checking') };
+      const st = RV_ICON[c.status] ? c.status : 'warn';
+      const head = t('codex.rv_check_' + k) + (c.value ? ' · ' + c.value : '');
+      return `<div class="cx-rv-check ${st}">${icon(RV_ICON[st], st === 'wait' ? 'cx-spin' : '')}`
+        + `<div><b>${esc(head)}</b><span class="cx-rv-d">${esc(c.detail || '')}</span></div></div>`;
+    }).join('');
+  }
+
+  function renderReview(data, extraWarn) {
+    const rows = (data && data.rows) || [];
+    rows.sort((a, b) => RV_ROWS.indexOf(a.key) - RV_ROWS.indexOf(b.key));
+    $('cx-rv-rows').innerHTML = rows.map(r =>
+      `<dt>${esc(t('codex.rv_row_' + r.key))}</dt><dd class="${r.tone === 'bad' ? 'bad' : ''}">`
+      + `<b>${esc(r.value || '—')}</b>${r.detail ? `<small>${esc(r.detail)}</small>` : ''}</dd>`).join('');
+    $('cx-rv-steps').innerHTML = ((data && data.steps) || []).map(s => {
+      const cls = s.will_run ? 'on' : (s.enabled ? 'blocked' : '');
+      const mark = s.will_run ? '✓ ' : (s.enabled ? '⚠ ' : '– ');
+      const tip = s.enabled && !s.will_run ? t('codex.rv_step_needs', { what: (s.blocked_by || []).join(', ') })
+        : (s.enabled ? '' : t('codex.rv_step_off'));
+      return `<span class="cx-rv-step ${cls}" title="${esc(tip)}">${esc(mark + s.label)}</span>`;
+    }).join('');
+    const warns = (extraWarn || []).concat((data && data.warnings) || []);
+    const box = $('cx-rv-warn');
+    box.innerHTML = warns.map(w => `<div>⚠️ ${esc(w)}</div>`).join('');
+    box.classList.toggle('hidden', !warns.length);
+  }
+
+  function showVideoReview(body, count) {
+    const seq = state.reviewSeq = (state.reviewSeq || 0) + 1;
+    $('cx-new-step-form').classList.add('hidden');
+    $('cx-new-step-review').classList.remove('hidden');
+    $('cx-rv-rows').innerHTML = `<div class="cx-muted">${esc(t('codex.rv_loading'))}</div>`;
+    $('cx-rv-steps').innerHTML = '';
+    $('cx-rv-warn').classList.add('hidden');
+    renderReviewChecks([]);
+    const payload = JSON.stringify(body);
+    const extra = count > 1 ? [t('codex.rv_many', { n: count })] : [];
+    request('/api/v1/content-video/preview', { method: 'POST', body: payload })
+      .then(d => { if (seq === state.reviewSeq) renderReview(d, extra); })
+      .catch(e => {
+        if (seq !== state.reviewSeq) return;
+        $('cx-rv-rows').innerHTML = `<div class="cx-muted">${esc(reviewError(e))}</div>`;
+      });
+    request('/api/v1/content-video/preview/check', { method: 'POST', body: payload })
+      .then(d => { if (seq === state.reviewSeq) renderReviewChecks((d && d.checks) || []); })
+      .catch(e => {
+        if (seq !== state.reviewSeq) return;
+        renderReviewChecks(RV_CHECKS.map(k => ({ key: k, status: 'warn', detail: reviewError(e) })));
+      });
+  }
+
   /** Nút "Đưa vào hàng đợi": như "Tạo video", nhưng task chờ tới lượt trong hàng đợi. */
   function queueVideo() { return submitVideo(true); }
 
@@ -3595,6 +3680,12 @@ const CODEX = (() => {
     if (wmSize) options.watermark_size = wmSize;
     // Đăng YouTube khi xong: cách đăng, kênh, chế độ hiển thị, giờ công khai (ngay / khung hằng ngày / giờ tự chọn).
     if (yt) Object.assign(options, yt);
+    // Nút «Xem trước» (14/11/2026): đúng options sẽ gửi, nhưng chỉ mở bảng xem trước — KHÔNG tạo task.
+    if (state.videoPreview) {
+      showVideoReview({ agent_id: agentId, content: batch[0], review: review, options: options,
+                        voice_name: state.voiceFile ? (state.voiceFile.name || '') : '' }, batch.length);
+      return;
+    }
 
     const btns = [$('cx-create-btn'), $('cx-queue-btn')];
     btns.forEach(b => { b.disabled = true; });
@@ -3641,6 +3732,7 @@ const CODEX = (() => {
       }
       // "Lên kế hoạch bằng AI" là của việc chung; dây chuyền video đã có sẵn các bước.
       $('cx-plan-btn').classList.add('hidden');
+      $('cx-new-step-review').classList.add('hidden');
       $('cx-new-step-form').classList.add('hidden');
       $('cx-new-step-done').classList.remove('hidden');
       showAllAfterCreate();
@@ -3653,6 +3745,7 @@ const CODEX = (() => {
         $('cx-created-title').textContent = t('codex.created_many_title', { n: made });
         $('cx-created-desc').textContent = t('codex.toast_video_many_partial', { n: made, error: e.message });
         $('cx-plan-btn').classList.add('hidden');
+        $('cx-new-step-review').classList.add('hidden');
         $('cx-new-step-form').classList.add('hidden');
         $('cx-new-step-done').classList.remove('hidden');
         showAllAfterCreate();
@@ -3772,5 +3865,6 @@ const CODEX = (() => {
     openClone, onCloneLang, startClone, openRetry, startRetry,
     onVideoYt, onVideoYtMethod, onVideoYtWhen,
     openBulk, bulkRecount, doBulk,
+    previewVideo, backFromReview,
   };
 })();

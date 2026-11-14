@@ -144,8 +144,20 @@
       <!-- Nút của bước form nằm TRÊN, góc phải (14/11/2026): trong Flow khung Bảng việc hay bị kéo cao quá màn hình, nút
            ở chân hộp phải cuộn mới thấy. Ở bước form thì Huỷ thay cho ✕ (CSS #cx-modal-new:has(...)). -->
       <div class="cx-head-actions" id="cx-new-actions">
-        <button type="button" class="cx-btn cx-btn-ghost" onclick="CODEX.closeModal('cx-modal-new')"
+        <!-- Bảng xem trước (14/11/2026): Back về form; ẩn/hiện bằng CSS theo bước đang mở. -->
+        <button type="button" class="cx-btn cx-btn-ghost" id="cx-review-back" onclick="CODEX.backFromReview()">
+          <span class="material-symbols-outlined">arrow_back</span>
+          <span data-i18n="codex.btn_review_back">Back</span>
+        </button>
+        <button type="button" class="cx-btn cx-btn-ghost" id="cx-new-cancel" onclick="CODEX.closeModal('cx-modal-new')"
                 data-i18n="codex.btn_cancel">Cancel</button>
+        <!-- Chỉ hiện với "Tạo video": xem lại mọi thông số + kiểm AI một lần trước khi tạo. -->
+        <button type="button" class="cx-btn cx-btn-ghost hidden" id="cx-preview-btn" onclick="CODEX.previewVideo()"
+                data-i18n-title="codex.btn_preview_video_hint"
+                title="See every setting of this video and check once that its AI services answer, before you create it">
+          <span class="material-symbols-outlined">fact_check</span>
+          <span data-i18n="codex.btn_preview_video">Preview</span>
+        </button>
         <!-- Chỉ hiện với "Tạo video": chờ tới lượt trong hàng đợi thay vì chạy liền. -->
         <button type="button" class="cx-btn cx-btn-ghost hidden" id="cx-queue-btn" onclick="CODEX.queueVideo()"
                 data-i18n-title="codex.btn_queue_video_hint"
@@ -514,6 +526,26 @@
                    placeholder="Leave empty and the AI names the video">
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- Step 1b — bảng xem trước của video (14/11/2026): thông số + kiểm AI một lần; Back / Tạo ở dòng tiêu đề -->
+    <div id="cx-new-step-review" class="hidden">
+      <div class="cx-modal-body">
+        <div class="cx-rv-head">
+          <span class="material-symbols-outlined" aria-hidden="true">fact_check</span>
+          <div>
+            <strong data-i18n="codex.rv_title">Check before you create</strong>
+            <em data-i18n="codex.rv_hint">Back changes the form; Create video or Add to queue starts it exactly as shown.</em>
+          </div>
+        </div>
+        <div class="cx-rv-section" data-i18n="codex.rv_checks">AI check (once)</div>
+        <div class="cx-rv-checks" id="cx-rv-checks" aria-live="polite"></div>
+        <div class="cx-rv-warn hidden" id="cx-rv-warn"></div>
+        <div class="cx-rv-section" data-i18n="codex.rv_settings">Settings</div>
+        <dl class="cx-rv-rows" id="cx-rv-rows"></dl>
+        <div class="cx-rv-section" data-i18n="codex.rv_steps">Steps</div>
+        <div class="cx-rv-steps" id="cx-rv-steps"></div>
       </div>
     </div>
 
