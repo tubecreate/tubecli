@@ -4172,6 +4172,26 @@ def _library_image_warnings(data: Dict) -> List[str]:
             + ". They match the scene's tags, not its exact prompt — check those scenes before publishing."]
 
 
+_CODEX_DRIVER_RE = re.compile(r"The '([\w.\-]+)' model is not supported when using Codex with a ChatGPT account", re.I)
+
+
+def codex_image_driver_hint(reason: str) -> str:
+    """Câu người đọc được cho lỗi 400 của `cx/gpt-image-*` qua 9Router (14/11/2026, contabo: «The 'gpt-5.6-sol' model is
+    not supported when using Codex with a ChatGPT account»), hay "" khi không phải lỗi đó.
+
+    TubeCLI chỉ gửi `model: cx/gpt-image-2`; chính 9Router bọc lời xin vẽ trong một lượt chat Codex bằng một model
+    «lái» nó tự chọn (bản 0.5.95: gpt-5.5; bản trên contabo: gpt-5.6-sol). Gói ChatGPT đăng nhập trong 9Router không có
+    model lái ấy thì MỌI ảnh hỏng — không phải hết lượt, đợi cũng không khỏi (đoạn «reset after …» là giờ 9Router tự
+    khoá model sau lỗi). Sửa ở 9Router (đổi tài khoản / gói, hay đổi bản 9Router), không sửa được từ TubeCLI."""
+    m = _CODEX_DRIVER_RE.search(str(reason or ""))
+    if not m:
+        return ""
+    return (f"9Router draws it through the Codex chat model «{m.group(1)}», and the ChatGPT plan signed in to 9Router "
+            f"does not include that model, so every image fails (waiting does not help). In 9Router, sign in a "
+            f"ChatGPT account whose plan has «{m.group(1)}», or install a 9Router version that drives images with a "
+            f"model your plan has.")
+
+
 def _fallback_image_warnings(data: Dict) -> List[str]:
     """Ảnh vẽ bằng ĐƯỜNG LÙI (21/10/2026, user «khi làm ảnh với đường lùi thì hiện thêm thông tin ở phần duyệt để người
     dùng biết là video sử dụng model fallback để hoàn thành»). Studio ghi `fallback_images` {count, total, drew, from}
@@ -4188,11 +4208,14 @@ def _fallback_image_warnings(data: Dict) -> List[str]:
         if not isinstance(d, dict) or not d.get("model"):
             continue
         shots = d.get("shots")
+        hint = codex_image_driver_hint(str(d.get("reason") or ""))
         dead_lines.append(
-            f"Image model {d['model']} is not usable — {' '.join(str(d.get('reason') or 'permanent error').split())[:200]}. "
-            f"It was marked failed (not retried for 6 hours)"
+            f"Image model {d['model']} is not usable — "
+            + (hint or f"{' '.join(str(d.get('reason') or 'permanent error').split())[:200]}.")
+            + " It was marked failed (not retried for 6 hours)"
             + (f"; {shots} shot(s) went straight to the fallback" if shots else "")
-            + " — fix or change it in Settings → AI image, or in the template.")
+            + (" — fix it in 9Router, or change the template's image model in Content Studio." if hint
+               else " — fix or change it in Settings → AI image, or in the template."))
     if dead_lines:
         return dead_lines
     try:
@@ -6070,14 +6093,107 @@ def _seo_sources(state: Dict) -> List[Dict]:
     return [r for r in rows if str(r.get("title") or "").strip() or str(r.get("url") or "").strip()]
 
 
-def _seo_fallback(state: Dict) -> Dict[str, Any]:
-    """Bản dự phòng khi model im lặng: vẫn đăng được, chỉ là không có SEO."""
+_SEO_FIELD_RE = {
+    "keyword": re.compile(r'"keyword"\s*:\s*"(.*?)"\s*,\s*"(?:title|description|tags|chapters)"', re.S),
+    "title": re.compile(r'"title"\s*:\s*"(.*?)"\s*,\s*"(?:keyword|description|tags|chapters)"', re.S),
+    "description": re.compile(r'"description"\s*:\s*"(.*?)"\s*,\s*"(?:keyword|title|tags|chapters)"\s*:', re.S),
+}
+_SEO_LABEL_RE = re.compile(r"^\s*\**\s*(keyword|title|description|tags)\s*\**\s*[:：]\s*\**\s*(.*)$", re.I)
+_SEO_STOP = frozenset("""about above after again against because before being below between could doing during every
+from further having himself herself itself other ought ourselves should their theirs themselves there these those
+through under until where which while would yourself yourselves really means meaning what when with that this have
+will your they them then than into also just more most some such only over very still para como pero porque cuando
+donde sobre entre desde hasta todos todas esta este estos estas cada mucho muchos tiene tienen puede pueden
+nhung nhieu cung trong ngoai nhu vay khong duoc chung minh nguoi nhung""".split())
+
+
+def _seo_unescape(s: str) -> str:
+    return (s.replace('\\n', "\n").replace('\\"', '"').replace("\\/", "/").replace("\\t", " ")).strip()
+
+
+def _seo_lenient(raw: str) -> Optional[Dict[str, Any]]:
+    """Đọc câu trả lời SEO KHÔNG phải JSON hợp lệ. Hai dạng gặp thật: (1) gần-JSON mà dấu nháy / xuống dòng trong mô tả
+    không thoát (model qua phiên trình duyệt — Muse) → lấy từng trường theo mốc tên trường kế tiếp; (2) văn bản có
+    nhãn «Title: … / Description: … / Tags: …». Không đọc ra đủ tiêu đề + mô tả → None."""
+    s = str(raw or "").strip()
+    if not s:
+        return None
+    out: Dict[str, Any] = {}
+    if '"title"' in s and '"description"' in s:
+        for key, rx in _SEO_FIELD_RE.items():
+            m = rx.search(s)
+            if m:
+                out[key] = _seo_unescape(m.group(1))
+        tm = re.search(r'"tags"\s*:\s*\[(.*?)\]', s, re.S)
+        if tm:
+            out["tags"] = [_seo_unescape(x) for x in re.findall(r'"((?:[^"\\]|\\.)*)"', tm.group(1))]
+        if "description" not in out:
+            # mô tả là trường CUỐI: lấy tới dấu nháy đóng trước «}» cuối cùng
+            dm = re.search(r'"description"\s*:\s*"(.*)"\s*\}?\s*$', s, re.S)
+            if dm:
+                out["description"] = _seo_unescape(dm.group(1))
+    else:
+        cur = None
+        for line in s.splitlines():
+            m = _SEO_LABEL_RE.match(line)
+            if m:
+                cur = m.group(1).lower()
+                out[cur] = m.group(2).strip()
+            elif cur == "description":
+                out[cur] = (out[cur] + "\n" + line.rstrip()).strip()
+        if isinstance(out.get("tags"), str):
+            out["tags"] = [t for t in re.split(r"[,\n]", out["tags"]) if t.strip()]
+    if not str(out.get("title") or "").strip() or not str(out.get("description") or "").strip():
+        return None
+    return out
+
+
+def _seo_fallback_tags(title: str, script: str, channel_name: str = "", limit: int = 12) -> List[str]:
+    """Tag dựng KHÔNG cần AI: tiêu đề và các vế của nó, tên kênh, rồi những từ lặp nhiều nhất trong kịch bản."""
+    tags: List[str] = []
+
+    def add(t: str) -> None:
+        t = " ".join(str(t or "").replace("#", " ").split()).strip(" -–—:|,.?!\"“”'")
+        if 3 <= len(t) <= 60 and t.lower() not in [x.lower() for x in tags]:
+            tags.append(t)
+
+    for part in re.split(r"\s*[:|–—]\s*|\s+-\s+", title):
+        add(part)
+    add(title)
+    add(channel_name)
+    words = re.findall(r"[^\W\d_]{5,}", f"{title} {script}".lower())
+    freq: Dict[str, int] = {}
+    for w in words:
+        if w not in _SEO_STOP:
+            freq[w] = freq.get(w, 0) + 1
+    for w, n in sorted(freq.items(), key=lambda kv: (-kv[1], kv[0])):
+        if len(tags) >= limit or n < 2:
+            break
+        add(w)
+    return tags[:limit]
+
+
+def _seo_fallback(state: Dict, channel: Optional[Dict] = None) -> Dict[str, Any]:
+    """Bản dự phòng khi KHÔNG model nào trả lời (14/11/2026): tiêu đề của chính video; mô tả = đoạn mở của kịch bản
+    (cắt ở cuối câu) + link nguồn + hashtag; tag dựng từ tiêu đề / kịch bản / tên kênh. Trước đây: 300 ký tự kịch bản,
+    0 tag — video lên kênh gần như không có SEO."""
     script = " ".join(_CUE_RE.sub(" ", str(state.get("script") or "")).split())
+    title = str(state.get("title") or "")[:YT_TITLE_MAX]
+    ch_name = str((channel or {}).get("name") or "").strip()
     urls = [str(r.get("url") or "") for r in _seo_sources(state)
             if str(r.get("url") or "").startswith("http")]
-    desc = script[:300] + (("\n\nSources:\n" + "\n".join(urls[:5])) if urls else "")
-    return {"title": str(state.get("title") or "")[:YT_TITLE_MAX],
-            "description": _clamp_desc(desc), "tags": []}
+    lead = script[:700]
+    if len(script) > 700:
+        cut = max(lead.rfind(". "), lead.rfind("? "), lead.rfind("! "), lead.rfind("。"))
+        lead = lead[:cut + 1] if cut >= 250 else lead.rsplit(" ", 1)[0] + "…"
+    tags = _seo_fallback_tags(title, script, ch_name)
+    blocks = [b for b in (title if title and title.lower() not in lead.lower()[:200] else "", lead) if b]
+    if urls:
+        blocks.append("Sources:\n" + "\n".join(urls[:5]))
+    hs = _hashtags_from(tags)
+    if hs:
+        blocks.append(" ".join(hs))
+    return {"title": title, "description": _clamp_desc("\n\n".join(blocks)), "tags": _clean_tags(tags)}
 
 
 # ── Tiêu chí SEO khi đăng (19/10/2026) ───────────────────────────────
@@ -6317,27 +6433,37 @@ def _seo_for(state: Dict, options: Dict, channel: Dict) -> Dict[str, Any]:
            f"stamp, the first is 0:00, at least {int(CHAPTER_GAP)} seconds apart; titles of 2–6 words\n"
            if timeline else "- chapters: []\n")
     )
-    raw = ""
-    try:
-        raw = AgentBrain._call_llm(
-            agent.to_dict(),
-            [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-            temperature=0.6,
-        ) or ""
-    except Exception as e:
-        logger.warning(f"[ContentVideo] SEO model call failed: {e}")
-    data = _json_object(raw) if (raw and not str(raw).startswith("❌") and not is_llm_error(str(raw))) else None
+    # Model của agent trước, rồi model của nhà khác đang dùng được (14/11/2026, contabo: agent chạy muse-spark trả JSON
+    # hỏng — dấu nháy trong mô tả không thoát — nên MỌI video lên kênh với tiêu đề trơn, không tag). Mỗi câu trả lời
+    # được đọc khoan dung (_seo_lenient) trước khi coi là «không trả lời».
+    data, tried = None, []
+    messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}]
+    for cand in _model_chain(agent, max_alternates=2):
+        raw = ""
+        tried.append(_model_label(cand) or "default model")
+        try:
+            raw = AgentBrain._call_llm(cand.to_dict(), messages, temperature=0.6) or ""
+        except Exception as e:
+            logger.warning(f"[ContentVideo] SEO model call failed ({tried[-1]}): {e}")
+        if not raw or str(raw).startswith("❌") or is_llm_error(str(raw)):
+            continue
+        got = _json_object(raw) or _seo_lenient(str(raw))
+        if got and str(got.get("title") or "").strip() and str(got.get("description") or "").strip():
+            data = got
+            break
     title = str((data or {}).get("title") or "").strip().strip("\"“” ")
     desc = str((data or {}).get("description") or "").strip()
     tags = _clean_tags((data or {}).get("tags"))
     keyword = str((data or {}).get("keyword") or "").strip().strip("\"“” ")
     fell_back = not title or not desc
     if fell_back:
-        state.setdefault("warnings", []).append(
-            "The SEO model did not answer, so the video was published with a plain title and no "
-            "tags — edit its title, description and tags on YouTube if you want the reach.")
-        seo = _seo_fallback(state)
+        seo = _seo_fallback(state, channel)
         title, desc, tags = seo["title"], seo["description"], seo["tags"]
+        state.setdefault("warnings", []).append(
+            "The SEO model did not answer"
+            + (f" (tried {', '.join(tried[:3])})" if tried else "")
+            + f", so the title is the video's own title and the description and {len(tags)} tag(s) were built from "
+              "the script without AI — edit them on YouTube if you want more reach.")
     elif "#" not in desc and tags:
         # Model quên hashtag: dựng từ chính tag của nó, đừng để mô tả cụt đuôi.
         hs = _hashtags_from(tags)
@@ -6350,8 +6476,8 @@ def _seo_for(state: Dict, options: Dict, channel: Dict) -> Dict[str, Any]:
     if ov_tags:
         tags = ov_tags
     if fell_back:
-        # Model câm: đúng như câu cảnh báo — tiêu đề trơn, không tag, không bịa từ khoá / chương.
-        return {"title": title[:YT_TITLE_MAX], "description": _clamp_desc(desc), "tags": tags}
+        # Model câm: tiêu đề trơn, mô tả + tag dựng từ kịch bản (không bịa chương).
+        return {"title": title[:YT_TITLE_MAX], "description": _clamp_desc(desc), "tags": _clean_tags(tags)}
     # Model đôi khi vẫn chép mốc vào mô tả: bỏ dòng «0:00 …» của nó, chương hợp lệ do _seo_polish chèn.
     if not ov_desc:
         desc = "\n".join(ln for ln in desc.splitlines() if not re.match(r"^\s*(?:\d+:)?\d{1,2}:\d{2}\s", ln))

@@ -297,7 +297,9 @@ for label, reply in (("rỗng", ""), ("văn xuôi", "Xin loi, toi khong the."),
     s2 = st()
     seo3 = P._seo_for(s2, {}, CHANNEL)
     check(f"D {label} → tiêu đề dự phòng là tiêu đề video", seo3["title"] == "Ca kho to lua nho", seo3["title"])
-    check(f"D {label} → không tag", seo3["tags"] == [], seo3["tags"])
+    # 14/11/2026: không model nào trả lời → tag dựng từ tiêu đề / kịch bản / tên kênh (trước: 0 tag).
+    check(f"D {label} → tag dựng không cần AI (có tiêu đề + tên kênh)", "Ca kho to lua nho" in seo3["tags"]
+          and "Bep Nha Minh" in seo3["tags"], seo3["tags"])
     check(f"D {label} → mô tả có nội dung + link nguồn",
           "Ca kho tieu" in seo3["description"] and "https://vnexpress.net/1" in seo3["description"],
           seo3["description"][:200])
