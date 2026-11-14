@@ -32,9 +32,52 @@ _STATUS = {"config": 400, "refused": 400, "auth": 401, "approval": 409, "busy": 
            "browser": 503, "timeout": 504, "error": 502}
 
 
+def _where(e: "muse.MuseError") -> dict:
+    """Lỗi xảy ra ở MÁY nào, TRÌNH DUYỆT (hồ sơ) nào — user 14/11/2026: lỗi Muse qua khoá/connector chỉ thấy
+    «did not finish within 180 s», không biết vào máy nào xem. Lượt chạy ở nút Muse từ xa → máy + hồ sơ CỦA NÚT ẤY
+    (nút cũ chưa báo thì chỉ có địa chỉ nút)."""
+    remote = getattr(e, "where", None)
+    if isinstance(remote, dict) and remote:
+        return {k: v for k, v in remote.items() if v}
+    try:
+        from tubecli.core import cloud_identity
+        out = cloud_identity.server_label()
+    except Exception:      # noqa: BLE001
+        out = {}
+    prof = str(getattr(e, "profile", "") or "")
+    if prof.startswith(muse.REMOTE_PREFIX) and prof[len(muse.REMOTE_PREFIX):].isdigit():
+        # chỗ ngồi «remote<i>» mà nút không báo gì thêm → địa chỉ nút, không phải máy này
+        try:
+            node = (muse.settings().get("remotes") or [])[int(prof[len(muse.REMOTE_PREFIX):])]
+            return {"node": str(node.get("base_url") or prof)}
+        except (IndexError, ValueError, TypeError):
+            return {"node": prof}
+    out["browser"] = prof
+    return {k: v for k, v in out.items() if v}
+
+
+def _tag(w: dict) -> str:
+    """«[server t3rwap (VPS Contabo) · browser muse-vinh-21]» — cho chỗ chỉ hiện câu lỗi."""
+    bits = []
+    srv = w.get("server_code") or ""
+    if w.get("server_name"):
+        srv = f"{srv} ({w['server_name']})" if srv else w["server_name"]
+    if srv:
+        bits.append(f"server {srv}")
+    if w.get("browser"):
+        bits.append(f"browser {w['browser']}")
+    if w.get("node") and not srv:
+        bits.append(f"remote node {w['node']}")
+    return f" [{' · '.join(bits)}]" if bits else ""
+
+
 def _error(e: "muse.MuseError") -> JSONResponse:
+    w = _where(e)
+    msg = f"Muse: {e}"
+    if "[server " not in msg and "[browser " not in msg:      # lỗi nút từ xa đã kèm nhãn của nút → không gắn hai lần
+        msg += _tag(w)
     return JSONResponse(status_code=_STATUS.get(e.kind, 502),
-                        content={"error": {"message": f"Muse: {e}", "type": "muse_" + e.kind, "code": e.kind}})
+                        content={"error": {"message": msg, "type": "muse_" + e.kind, "code": e.kind, **w}})
 
 
 def _profile_names() -> List[str]:

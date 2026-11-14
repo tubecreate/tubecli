@@ -54,13 +54,29 @@ def load() -> Dict[str, Any]:
     return {
         "username": u,
         "server_code": code,
+        "server_name": _clean_name(data.get("server_name")),
         "seen": data.get("seen"),
         "town_key": key if isinstance(key, str) and _TOWN_KEY.match(key) else "",
         "owner": owner if isinstance(owner, str) and _OWNER.match(owner) else "",
     }
 
 
-def save(username: Any, server_code: Any, town_key: Any = None, owner: Any = None) -> Dict[str, Any]:
+def _clean_name(v: Any) -> str:
+    """Tên server chủ đặt trên cloud (chỉ để HIỂN THỊ, vd. lỗi Muse báo «server t3rwap · VPS Contabo»):
+    bỏ ký tự điều khiển, gộp khoảng trắng, tối đa 80 ký tự."""
+    if not isinstance(v, str):
+        return ""
+    return " ".join("".join(ch for ch in v if ch.isprintable()).split())[:80]
+
+
+def server_label() -> Dict[str, str]:
+    """{"server_code", "server_name"} của máy này — "" khi cloud chưa báo (máy tự quản / lõi vừa nâng cấp)."""
+    ident = load()
+    return {"server_code": ident.get("server_code", ""), "server_name": ident.get("server_name", "")}
+
+
+def save(username: Any, server_code: Any, town_key: Any = None, owner: Any = None,
+         server_name: Any = None) -> Dict[str, Any]:
     """Ghi danh tính cloud báo; sai dạng → ValueError. Không đổi gì thì không ghi lại file.
 
     town_key là khoá ký telemetry Agent Town (cloud suy ra từ server_code, lib/town.js).
@@ -85,10 +101,14 @@ def save(username: Any, server_code: Any, town_key: Any = None, owner: Any = Non
         if o and not _OWNER.match(o):
             raise ValueError("owner must be 8-32 hex characters")
         own = o
+    # None = cloud cũ không gửi tên → giữ tên đang có
+    name = old.get("server_name", "") if server_name is None else _clean_name(server_name)
     if (old.get("username") == u and old.get("server_code") == code
-            and old.get("town_key", "") == key and old.get("owner", "") == own):
+            and old.get("town_key", "") == key and old.get("owner", "") == own
+            and old.get("server_name", "") == name):
         return old
-    data = {"username": u, "server_code": code, "seen": time.time(), "town_key": key, "owner": own}
+    data = {"username": u, "server_code": code, "server_name": name, "seen": time.time(), "town_key": key,
+            "owner": own}
     path = _path()
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
