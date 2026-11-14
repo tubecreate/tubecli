@@ -41,13 +41,27 @@ def _model_of(agent) -> Tuple[str, str]:
     return str(d.get("model") or getattr(agent, "model", "") or ""), str(d.get("provider") or "")
 
 
+def whisper_ready() -> bool:
+    """Máy đã có faster_whisper chưa (lõi < .236 không có narration_dub.whisper_installed → tự dò)."""
+    from tubecli.extensions.content_video import narration_dub as ND
+    fn = getattr(ND, "whisper_installed", None)
+    if callable(fn):
+        return bool(fn())
+    import importlib.util
+    try:
+        return importlib.util.find_spec("faster_whisper") is not None
+    except (ImportError, ValueError):
+        return False
+
+
 def normalize(content: str, options: Dict[str, Any]) -> Tuple[Dict[str, Any], List[Any]]:
     """Options y như /run sẽ tạo (bài dán phụ đề → lời, file giọng → nguyên văn) + mốc phụ đề. Không ghi file mốc."""
     from tubecli.extensions.content_video import pipeline as P
     o = {**P.DEFAULTS, **dict(options or {})}
     cues: List[Any] = []
     if content:
-        cues = P.subtitle_cues(content)
+        # lõi < .236 không giữ mốc phụ đề (không có subtitle_cues): coi như bài chữ thường
+        cues = P.subtitle_cues(content) if hasattr(P, "subtitle_cues") else []
         o["source_text"] = P.subtitle_to_text(content)
     if str(o.get("voice_file") or "").strip():
         P.apply_voice_file(o)
@@ -114,7 +128,6 @@ def _media_line(options: Dict[str, Any], meta: Dict[str, Any]) -> Tuple[str, str
 def _voice_line(options: Dict[str, Any], meta: Dict[str, Any], agent, cues: List[Any],
                 voice_name: str) -> Tuple[Dict[str, str], List[str]]:
     from tubecli.extensions.content_video import pipeline as P
-    from tubecli.extensions.content_video import narration_dub as ND
     warns: List[str] = []
     path = P.voice_file_path(options)
     if options.get("voice_file") and path:
@@ -129,7 +142,7 @@ def _voice_line(options: Dict[str, Any], meta: Dict[str, Any], agent, cues: List
                 how = "Whisper listens to it to find each scene (the subtitles do not fit the file)"
             else:
                 how = f"cut scene by scene by the times in your subtitles ({len(cues)} lines) — no listening needed"
-        elif ND.whisper_installed():
+        elif whisper_ready():
             how = "Whisper listens to it to find where each scene starts"
         else:
             how = ("Whisper listens to it to find each scene — Whisper is not on this machine yet and installs itself "
@@ -334,7 +347,6 @@ def check_image_ai(meta: Dict[str, Any], agent) -> Dict[str, Any]:
 
 def check_voice(options: Dict[str, Any], fields: Dict[str, Any], agent, cues: List[Any]) -> Dict[str, Any]:
     from tubecli.extensions.content_video import pipeline as P
-    from tubecli.extensions.content_video import narration_dub as ND
     state: Dict[str, Any] = {"preset": {"fields": fields}, "agent": agent}
     try:
         eng = P._tts_engine(state, options)
@@ -349,7 +361,7 @@ def check_voice(options: Dict[str, Any], fields: Dict[str, Any], agent, cues: Li
         temp = f"temporary voice: {name}" + (f" ({state.get('capcut_email')})" if state.get("capcut_email") else "")
         if cues:
             return _check("voice", True, f"{temp}; your file is cut by your subtitles' times", name)
-        if ND.whisper_installed():
+        if whisper_ready():
             return _check("voice", True, f"{temp}; Whisper is installed", name)
         return _check("voice", None, f"{temp}; Whisper is not installed yet — it installs itself when the voice "
                                      "file is swapped in (needs internet, about 100 MB)", name)
