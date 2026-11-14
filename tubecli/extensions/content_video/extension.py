@@ -117,9 +117,9 @@ class ContentVideoExtension(Extension):
             logger.warning(f"[ContentVideo] could not register skills: {e}")
 
     def get_routes(self):
-        from tubecli.extensions.content_video.routes import router
+        from tubecli.extensions.content_video.routes import router, youtube_router
 
-        return router
+        return [router, youtube_router]
 
     def get_skill_md(self) -> Optional[str]:
         path = os.path.join(self.extension_dir, "SKILL.md")

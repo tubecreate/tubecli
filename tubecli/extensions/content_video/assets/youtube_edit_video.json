@@ -1,0 +1,222 @@
+{
+  "name": "YouTube Edit Video Details",
+  "slug": "youtube_edit_video",
+  "description": "Sửa tiêu đề / mô tả / tag của MỘT video đã đăng trong YouTube Studio (trang /video/<id>/edit). Chỉ gõ khi trang đúng là video ấy; chỉ sửa trường có cờ set_* = 1; bấm Lưu, KHÔNG đổi chế độ hiển thị. Biến: video_id, edit_url, set_title, title, set_description, description, set_tags, tags_csv. Kết quả: t2_edit.",
+  "category": "post",
+  "target_url": "{{edit_url}}",
+  "tags": [
+    "post",
+    "edit",
+    "seo"
+  ],
+  "steps": [
+    {
+      "type": "navigate",
+      "label": "Mở trang chi tiết video trong YouTube Studio",
+      "params": {
+        "url": "{{edit_url}}"
+      }
+    },
+    {
+      "type": "wait",
+      "label": "Chờ ô Tiêu đề",
+      "selector": "#title-textarea #textbox",
+      "params": {
+        "state": "visible",
+        "timeout": 60000
+      },
+      "on_error": "skip"
+    },
+    {
+      "type": "sleep",
+      "label": "Ổn định",
+      "params": {
+        "ms": 2500
+      }
+    },
+    {
+      "type": "evaluate",
+      "label": "t2:edit-guard — đúng video này, đúng trang chi tiết thì mới gõ",
+      "params": {
+        "code": "(() => { const vis = (e) => !!e && e.getBoundingClientRect().width > 0; const onVideo = location.hostname === 'studio.youtube.com' && location.pathname.indexOf('/video/{{video_id}}/') === 0; const box = document.querySelector('#title-textarea #textbox'); window.__t2edit = {video_ok: onVideo && vis(box), applied: [], skipped: [], saved: false, note: ''}; if (!window.__t2edit.video_ok) window.__t2edit.note = onVideo ? 'title box not found' : 'not on this video: ' + location.href.slice(0, 120); return window.__t2edit.video_ok ? 'ok' : 'no'; })()",
+        "save_as": "t2_edit_guard"
+      },
+      "on_error": "skip"
+    },
+    {
+      "type": "condition",
+      "label": "t2:edit-title — sửa tiêu đề (chỉ khi được gửi)",
+      "params": {
+        "check": "window.__t2edit && window.__t2edit.video_ok && '{{set_title}}' === '1'",
+        "else_steps": [],
+        "then_steps": [
+          {
+            "type": "type",
+            "label": "Điền tiêu đề",
+            "selector": "#title-textarea #textbox",
+            "params": {
+              "text": "{{title}}",
+              "clear_first": true
+            }
+          },
+          {
+            "type": "sleep",
+            "params": {
+              "ms": 800
+            }
+          },
+          {
+            "type": "evaluate",
+            "label": "t2:edit-mark — ghi nhận đã điền title",
+            "params": {
+              "code": "(() => { window.__t2edit.applied.push('title'); return 'title'; })()"
+            },
+            "on_error": "skip"
+          }
+        ]
+      }
+    },
+    {
+      "type": "condition",
+      "label": "t2:edit-description — sửa mô tả (chỉ khi được gửi)",
+      "params": {
+        "check": "window.__t2edit && window.__t2edit.video_ok && '{{set_description}}' === '1'",
+        "else_steps": [],
+        "then_steps": [
+          {
+            "type": "type",
+            "label": "Điền mô tả",
+            "selector": "#description-textarea #textbox",
+            "params": {
+              "text": "{{description}}",
+              "clear_first": true
+            }
+          },
+          {
+            "type": "sleep",
+            "params": {
+              "ms": 800
+            }
+          },
+          {
+            "type": "evaluate",
+            "label": "t2:edit-mark — ghi nhận đã điền description",
+            "params": {
+              "code": "(() => { window.__t2edit.applied.push('description'); return 'description'; })()"
+            },
+            "on_error": "skip"
+          }
+        ]
+      }
+    },
+    {
+      "type": "condition",
+      "label": "t2:edit-tags — sửa tag (chỉ khi được gửi)",
+      "params": {
+        "check": "window.__t2edit && window.__t2edit.video_ok && '{{set_tags}}' === '1'",
+        "else_steps": [],
+        "then_steps": [
+          {
+            "type": "condition",
+            "label": "Mở «Hiện thêm» nếu ô tag chưa hiện",
+            "params": {
+              "check": "!tcQuery('#tags-container input#text-input')",
+              "else_steps": [],
+              "then_steps": [
+                {
+                  "type": "click_if_exists",
+                  "label": "Bấm Hiện thêm (Show more)",
+                  "selector": "ytcp-button#toggle-button, #toggle-button",
+                  "params": {}
+                },
+                {
+                  "type": "sleep",
+                  "params": {
+                    "ms": 2000
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "type": "condition",
+            "label": "Chỉ gõ khi ô tag có trên trang",
+            "params": {
+              "check": "!!tcQuery('#tags-container input#text-input')",
+              "else_steps": [
+                {
+                  "type": "evaluate",
+                  "label": "t2:edit-mark — không thấy ô tag",
+                  "params": {
+                    "code": "(() => { window.__t2edit.skipped.push('tags: tag box not found'); return 'skip'; })()"
+                  },
+                  "on_error": "skip"
+                }
+              ],
+              "then_steps": [
+                {
+                  "type": "evaluate",
+                  "label": "Xoá tag cũ",
+                  "params": {
+                    "code": "(() => { const b = document.querySelector('#tags-container #clear-button, ytcp-form-input-container#tags-container #clear-button'); if (b && b.getBoundingClientRect().width > 0) { b.click(); return 'cleared'; } return 'none'; })()"
+                  },
+                  "on_error": "skip"
+                },
+                {
+                  "type": "sleep",
+                  "params": {
+                    "ms": 600
+                  }
+                },
+                {
+                  "type": "type",
+                  "label": "Gõ tag mới",
+                  "selector": "#tags-container input#text-input",
+                  "params": {
+                    "text": "{{tags_csv}},",
+                    "clear_first": false
+                  },
+                  "on_error": "skip"
+                },
+                {
+                  "type": "sleep",
+                  "params": {
+                    "ms": 800
+                  }
+                },
+                {
+                  "type": "evaluate",
+                  "label": "t2:edit-mark — ghi nhận đã điền tags",
+                  "params": {
+                    "code": "(() => { window.__t2edit.applied.push('tags'); return 'tags'; })()"
+                  },
+                  "on_error": "skip"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "sleep",
+      "label": "Chờ Studio nhận thay đổi",
+      "params": {
+        "ms": 1500
+      }
+    },
+    {
+      "type": "evaluate",
+      "label": "t2:edit-save — bấm Lưu rồi đọc kết quả thật (KHÔNG đụng chế độ hiển thị)",
+      "params": {
+        "code": "(async () => { const st = window.__t2edit || {video_ok: false, applied: [], skipped: [], note: 'guard did not run'}; const sleep = (ms) => new Promise((go) => setTimeout(go, ms)); const off = (b) => !b || b.getAttribute('aria-disabled') === 'true' || b.hasAttribute('disabled'); const box = document.querySelector('#title-textarea #textbox'); st.title = box ? (box.textContent || '').trim().slice(0, 120) : ''; if (!st.video_ok) return st; if (!st.applied.length) { st.note = 'no field was typed'; return st; } const btn = document.querySelector('ytcp-button#save'); if (!btn) { st.note = 'save button not found'; return st; } if (off(btn)) { st.note = 'save button is disabled (the page saw no change)'; return st; } (btn.querySelector('button') || btn).click(); for (let i = 0; i < 30; i++) { await sleep(1000); const err = document.querySelector('ytcp-form-input-container[invalid], .error-short, #error-message'); if (off(document.querySelector('ytcp-button#save'))) { st.saved = true; break; } if (err && err.getBoundingClientRect().width > 0 && i > 3) { st.note = 'Studio shows an error: ' + (err.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 120); break; } } if (!st.saved && !st.note) st.note = 'save was clicked but Studio did not confirm within 30 s'; return st; })()",
+        "save_as": "t2_edit"
+      },
+      "on_error": "skip"
+    }
+  ],
+  "variables": [],
+  "is_function": false,
+  "function_inputs": [],
+  "function_outputs": []
+}

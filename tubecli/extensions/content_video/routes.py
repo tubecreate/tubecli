@@ -21,6 +21,8 @@ from pydantic import BaseModel
 logger = logging.getLogger("ContentVideo")
 
 router = APIRouter(prefix="/api/v1/content-video", tags=["content-video"])
+# Sửa video ĐÃ ĐĂNG (14/11/2026) — đường dẫn theo đặc tả của chủ máy: PUT /api/v1/youtube/videos/{video_id}.
+youtube_router = APIRouter(prefix="/api/v1/youtube", tags=["content-video"])
 
 
 def _deny_guests(request: Request) -> None:
@@ -53,6 +55,62 @@ class RunRequest(BaseModel):
     # True: nút "Đưa vào hàng đợi" của cửa sổ Codex — task vào hàng đợi, Codex tự
     # chạy khi không còn video nào đang làm. False: chạy liền, chen trước hàng đợi.
     queue: bool = False
+
+
+# ── Hàng đợi đăng / sửa video (publish_jobs.py, 14/11/2026) ──────────────────
+@router.on_event("startup")
+async def _resume_publish_queue():
+    """Việc đăng còn CHỜ từ lần chạy trước tiếp tục sau khi máy chủ lên (việc đang chạy dở thì thành «interrupted»)."""
+    try:
+        from tubecli.extensions.content_video import publish_jobs
+        if await asyncio.to_thread(lambda: bool(publish_jobs.list_jobs(active_only=True, limit=1))):
+            publish_jobs.start_worker()
+    except Exception as e:      # noqa: BLE001
+        logger.warning(f"[ContentVideo] could not resume the publish queue: {e}")
+
+
+@router.get("/publish-jobs")
+async def publish_jobs_list(request: Request, active: bool = False, limit: int = 50):
+    """Hàng đợi đăng / sửa video: việc đang chờ (vì sao chờ), đang chạy, đã xong."""
+    _deny_guests(request)
+    from tubecli.extensions.content_video import publish_jobs
+    return {"jobs": await asyncio.to_thread(publish_jobs.list_jobs, active, limit),
+            "gate": await asyncio.to_thread(publish_jobs.gate_reason),
+            "settings": {k: publish_jobs.setting(k) for k in publish_jobs.SETTINGS}}
+
+
+@router.get("/publish-jobs/{job_id}")
+async def publish_job_get(job_id: str, request: Request):
+    _deny_guests(request)
+    from tubecli.extensions.content_video import publish_jobs
+    job = publish_jobs.get_job(job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+    return {"job": publish_jobs.public(job)}
+
+
+@youtube_router.put("/videos/{video_id}")
+async def youtube_video_edit(video_id: str, request: Request, body: Optional[Dict[str, Any]] = None):
+    """Sửa tiêu đề / mô tả / tag của video đã đăng qua YouTube Studio (cùng hàng đợi một-trình-duyệt). Trả 202 + việc."""
+    _deny_guests(request)
+    from fastapi.responses import JSONResponse
+    from tubecli.extensions.content_video import publish_jobs
+    body = body if isinstance(body, dict) else {}
+    try:
+        job = await asyncio.to_thread(publish_jobs.request_seo_edit, video_id, body, str(body.get("actor") or "user"))
+    except publish_jobs.JobError as e:
+        raise HTTPException(e.status, {"error": e.message, "code": e.code, **e.extra})
+    return JSONResponse(status_code=202, content={"status": "queued", "job": job})
+
+
+@youtube_router.get("/videos/{video_id}")
+async def youtube_video_edit_status(video_id: str, request: Request):
+    """Việc sửa mới nhất của video này."""
+    _deny_guests(request)
+    from tubecli.extensions.content_video import publish_jobs
+    rows = [j for j in await asyncio.to_thread(publish_jobs.list_jobs, False, 200)
+            if j.get("kind") == "seo_edit" and j.get("video_id") == video_id]
+    return {"video_id": video_id, "job": rows[0] if rows else None}
 
 
 @router.get("/capabilities")

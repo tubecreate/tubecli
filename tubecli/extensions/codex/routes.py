@@ -534,6 +534,50 @@ async def review_task(task_id: str, req: ReviewRequest):
     )}
 
 
+# ── Đăng video ĐÃ DỰNG của một task đang ở Review (14/11/2026) ───────────────
+# contabo: 74 task «Auto video» nằm Review với bước Publish tắt; Accept chỉ đóng task. Route này xếp MỘT việc đăng vào
+# hàng đợi trình duyệt an toàn RAM của content_video (publish_jobs.py) rồi trả về ngay — đăng mất nhiều phút. Đăng
+# xong: link thật vào kết quả + checkpoint, task sang DONE, KHÔNG gọi hook on_accept. Thân request là dict tự do để
+# người gọi (connector) gửi đúng các trường đã hẹn: title, description, tags, category_id, privacy, channel (+ profile,
+# when, force).
+def _publish_jobs():
+    try:
+        from tubecli.extensions.content_video import publish_jobs
+        return publish_jobs
+    except Exception as e:      # noqa: BLE001
+        raise HTTPException(501, f"Publishing needs the Content Video extension: {e}")
+
+
+def _job_call(fn, *args, **kwargs):
+    pj = _publish_jobs()
+    try:
+        return fn(*args, **kwargs)
+    except pj.JobError as e:
+        raise HTTPException(e.status, {"error": e.message, "code": e.code, **e.extra})
+
+
+@router.post("/tasks/{task_id}/publish")
+async def publish_task(task_id: str, body: Optional[Dict[str, Any]] = None):
+    """Đăng video đã dựng của task lên YouTube qua hồ sơ trình duyệt. Trả việc đã xếp hàng (202)."""
+    task = _require(task_id)
+    pj = _publish_jobs()
+    body = body if isinstance(body, dict) else {}
+    job = await asyncio.to_thread(_job_call, pj.request_publish, task["id"], body,
+                                  str(body.get("actor") or "user"))
+    return JSONResponse(status_code=202, content={"status": "queued", "job": job})
+
+
+@router.get("/tasks/{task_id}/publish")
+async def publish_task_status(task_id: str):
+    """Việc đăng mới nhất của task + video đã đăng (nếu có)."""
+    task = _require(task_id)
+    pj = _publish_jobs()
+    job = pj.job_for_task(task["id"])
+    return {"task": {"id": task["id"], "seq": task.get("seq"), "status": task.get("status")},
+            "published": await asyncio.to_thread(codex_manager.published_video, task["id"]) or None,
+            "job": pj.public(job) if job else None}
+
+
 @router.post("/tasks/{task_id}/plan")
 async def plan_task(task_id: str):
     """Ask the brain to decompose the goal into steps (blocking LLM call)."""
