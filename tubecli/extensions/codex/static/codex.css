@@ -722,8 +722,61 @@ a.cx-btn { text-decoration: none; }   /* nút là link (Xem live → tab mới) 
 #cx-modal-new .cx-modal-head { flex-wrap: wrap; }
 #cx-modal-new .cx-modal-head h2 { flex: 1 1 auto; }
 .cx-head-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-left: auto; }
-#cx-modal-new:has(#cx-new-step-form:not(.hidden)) #cx-new-close { display: none; }
-#cx-modal-new:has(#cx-new-step-form.hidden) #cx-new-actions { display: none; }
+#cx-new-close, #cx-review-back { display: none; }
+#cx-modal-new:has(#cx-new-step-done:not(.hidden)) #cx-new-close { display: inline-flex; }
+#cx-modal-new:has(#cx-new-step-done:not(.hidden)) #cx-new-actions { display: none; }
+/* Bước xem trước: Back thay cho Huỷ + Xem trước; Thêm vào hàng đợi / Tạo giữ nguyên chỗ. */
+#cx-modal-new:has(#cx-new-step-review:not(.hidden)) #cx-review-back { display: inline-flex; }
+#cx-modal-new:has(#cx-new-step-review:not(.hidden)) #cx-new-cancel,
+#cx-modal-new:has(#cx-new-step-review:not(.hidden)) #cx-preview-btn { display: none; }
+#cx-new-step-review { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; overflow: hidden; }
+
+/* ─── Bảng xem trước của video (14/11/2026) ─────────────────────── */
+.cx-rv-head { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 14px; }
+.cx-rv-head > .material-symbols-outlined { color: var(--primary); font-size: 22px; margin-top: 1px; }
+.cx-rv-head strong { display: block; font-size: 0.92rem; }
+.cx-rv-head em { display: block; font-style: normal; font-size: 0.76rem; color: var(--text-muted); margin-top: 2px; line-height: 1.45; }
+.cx-rv-section {
+    font-size: 0.72rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+    color: var(--text-muted); margin: 14px 0 7px;
+}
+.cx-rv-checks { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; }
+.cx-rv-check {
+    display: flex; gap: 8px; align-items: flex-start; padding: 9px 11px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--bg); min-width: 0;
+}
+.cx-rv-check .material-symbols-outlined { font-size: 18px; margin-top: 1px; color: var(--text-muted); }
+.cx-rv-check.ok .material-symbols-outlined { color: var(--cx-green); }
+.cx-rv-check.warn .material-symbols-outlined { color: var(--cx-orange); }
+.cx-rv-check.fail { border-color: color-mix(in srgb, var(--cx-red) 45%, var(--border)); }
+.cx-rv-check.fail .material-symbols-outlined { color: var(--cx-red); }
+.cx-rv-check b { display: block; font-size: 0.8rem; }
+.cx-rv-check span.cx-rv-d { display: block; font-size: 0.74rem; color: var(--text-muted); line-height: 1.4;
+    overflow-wrap: anywhere; }
+.cx-rv-warn {
+    margin-top: 10px; padding: 9px 12px; border-radius: 8px; font-size: 0.78rem; line-height: 1.5;
+    color: var(--cx-orange); background: color-mix(in srgb, var(--cx-orange) 9%, transparent);
+    border: 1px solid color-mix(in srgb, var(--cx-orange) 30%, transparent);
+}
+.cx-rv-rows { display: grid; grid-template-columns: minmax(110px, 30%) 1fr; gap: 0; margin: 0;
+    border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.cx-rv-rows dt, .cx-rv-rows dd { margin: 0; padding: 8px 11px; border-top: 1px solid var(--border); font-size: 0.8rem; }
+.cx-rv-rows dt:first-of-type, .cx-rv-rows dd:first-of-type { border-top: 0; }
+.cx-rv-rows dt { color: var(--text2); font-weight: 600; background: var(--bg3); }
+.cx-rv-rows dd b { font-weight: 600; overflow-wrap: anywhere; }
+.cx-rv-rows dd small { display: block; color: var(--text-muted); font-size: 0.74rem; line-height: 1.45; margin-top: 2px;
+    overflow-wrap: anywhere; }
+.cx-rv-rows dd.bad b, .cx-rv-rows dd.bad small { color: var(--cx-red); }
+.cx-rv-steps { display: flex; flex-wrap: wrap; gap: 6px; }
+.cx-rv-step { font-size: 0.74rem; padding: 4px 9px; border-radius: 999px; border: 1px solid var(--border);
+    color: var(--text-muted); }
+.cx-rv-step.on { color: var(--text); border-color: color-mix(in srgb, var(--primary) 45%, var(--border)); }
+.cx-rv-step.blocked { color: var(--cx-orange); border-color: color-mix(in srgb, var(--cx-orange) 45%, var(--border)); }
+@media (max-width: 640px) {
+    .cx-rv-rows { grid-template-columns: 1fr; }
+    .cx-rv-rows dt { border-top: 1px solid var(--border); padding-bottom: 2px; }
+    .cx-rv-rows dd { border-top: 0; padding-top: 2px; }
+}
 /* Khung cao (Flow): hộp neo MÉP TRÊN thay vì giữa / đáy — nút luôn ở chỗ mắt đang nhìn. */
 #cx-modal-new { align-items: flex-start; }
 @media (max-width: 640px) {
