@@ -717,6 +717,18 @@ a.cx-btn { text-decoration: none; }   /* nút là link (Xem live → tab mới) 
 /* Cửa sổ Codex nằm trong khung dashboard nên thấp: nhường thêm chiều cao cho
    hộp này để ô "Duyệt kịch bản" không khuất dưới mép. */
 #cx-modal-new .cx-modal-box { max-height: 92vh; }
+/* Nút của form «New task» ở dòng tiêu đề, góc phải (14/11/2026): trong Flow khung Bảng việc hay cao hơn màn hình, nút ở
+   chân hộp phải cuộn mới thấy. Bước form: Huỷ / Thêm vào hàng đợi / Tạo thay cho ✕; bước «đã tạo»: chỉ ✕. */
+#cx-modal-new .cx-modal-head { flex-wrap: wrap; }
+#cx-modal-new .cx-modal-head h2 { flex: 1 1 auto; }
+.cx-head-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+#cx-modal-new:has(#cx-new-step-form:not(.hidden)) #cx-new-close { display: none; }
+#cx-modal-new:has(#cx-new-step-form.hidden) #cx-new-actions { display: none; }
+/* Khung cao (Flow): hộp neo MÉP TRÊN thay vì giữa / đáy — nút luôn ở chỗ mắt đang nhìn. */
+#cx-modal-new { align-items: flex-start; }
+@media (max-width: 640px) {
+    #cx-modal-new .cx-modal-box { border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
+}
 
 @media (max-width: 640px) {
     .cx-kind-row { grid-template-columns: 1fr; }
