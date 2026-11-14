@@ -141,7 +141,23 @@
   <div class="cx-modal-box">
     <div class="cx-modal-head">
       <h2 data-i18n="codex.modal_new_title">New task</h2>
-      <button type="button" class="cx-icon-btn" onclick="CODEX.closeModal('cx-modal-new')" data-i18n-title="codex.btn_close" title="Close">
+      <!-- Nút của bước form nằm TRÊN, góc phải (14/11/2026): trong Flow khung Bảng việc hay bị kéo cao quá màn hình, nút
+           ở chân hộp phải cuộn mới thấy. Ở bước form thì Huỷ thay cho ✕ (CSS #cx-modal-new:has(...)). -->
+      <div class="cx-head-actions" id="cx-new-actions">
+        <button type="button" class="cx-btn cx-btn-ghost" onclick="CODEX.closeModal('cx-modal-new')"
+                data-i18n="codex.btn_cancel">Cancel</button>
+        <!-- Chỉ hiện với "Tạo video": chờ tới lượt trong hàng đợi thay vì chạy liền. -->
+        <button type="button" class="cx-btn cx-btn-ghost hidden" id="cx-queue-btn" onclick="CODEX.queueVideo()"
+                data-i18n-title="codex.btn_queue_video_hint"
+                title="Waits its turn: Codex makes the videos in the queue one at a time, whenever no other video is being made">
+          <span class="material-symbols-outlined">playlist_add</span>
+          <span data-i18n="codex.btn_queue_video">Add to queue</span>
+        </button>
+        <button type="button" class="cx-btn cx-btn-primary" id="cx-create-btn" onclick="CODEX.submitNewTask()">
+          <span id="cx-create-label" data-i18n="codex.btn_create">Create task</span>
+        </button>
+      </div>
+      <button type="button" class="cx-icon-btn" id="cx-new-close" onclick="CODEX.closeModal('cx-modal-new')" data-i18n-title="codex.btn_close" title="Close">
         <span class="material-symbols-outlined">close</span>
       </button>
     </div>
@@ -498,20 +514,6 @@
                    placeholder="Leave empty and the AI names the video">
           </div>
         </div>
-      </div>
-      <div class="cx-modal-foot">
-        <button type="button" class="cx-btn cx-btn-ghost" onclick="CODEX.closeModal('cx-modal-new')"
-                data-i18n="codex.btn_cancel">Cancel</button>
-        <!-- Chỉ hiện với "Tạo video": chờ tới lượt trong hàng đợi thay vì chạy liền. -->
-        <button type="button" class="cx-btn cx-btn-ghost hidden" id="cx-queue-btn" onclick="CODEX.queueVideo()"
-                data-i18n-title="codex.btn_queue_video_hint"
-                title="Waits its turn: Codex makes the videos in the queue one at a time, whenever no other video is being made">
-          <span class="material-symbols-outlined">playlist_add</span>
-          <span data-i18n="codex.btn_queue_video">Add to queue</span>
-        </button>
-        <button type="button" class="cx-btn cx-btn-primary" id="cx-create-btn" onclick="CODEX.submitNewTask()">
-          <span id="cx-create-label" data-i18n="codex.btn_create">Create task</span>
-        </button>
       </div>
     </div>
 
