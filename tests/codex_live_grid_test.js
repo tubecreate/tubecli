@@ -7,7 +7,7 @@
  * bước thì ẩn grid»; «tạo ảnh chạy song song nên loading ở nhiều vị trí»; «refresh liên tục có sao không? ban đầu 2s
  * rồi tăng dần».
  *
- *   1. liveDelay: 2 s × 1,5^streak, trần 30 s (hàm thuần cắt từ live.js).
+ *   1. liveDelay: 4 s × 1,5^streak, trần 30 s (hàm thuần cắt từ live.js).
  *   2. liveOrder: bước đang chạy trước, bước xong mới → cũ, bước chưa tới gom vào `next`.
  *   3. runStats: ba số của bước đang chạy (ảnh / clip / giọng / %) + còn bao lâu; recentOf / watchLink (vừa xong).
  *   4. Bảng việc: một nút «Live view» ở đầu bảng → /taskboard/live (tab mới), thẻ KHÔNG có nút; route /taskboard/live.
@@ -47,12 +47,12 @@ const FINAL = new Set(['review', 'done', 'failed', 'rejected', 'cancelled']);
 const fns = new Function('MAX_MS', 'BASE_MS', 'GROW', 'parseTs', 'GRID_STEPS', 'FINAL_STATES', 'RECENT_HOURS', 'RECENT_MAX',
   cut(live, 'liveDelay') + cut(live, 'liveOrder') + cut(live, 'runStats') + cut(live, 'cellState') + cut(live, 'recentOf')
   + cut(live, 'watchLink') + '\nreturn { liveDelay, liveOrder, runStats, cellState, recentOf, watchLink };')(
-  30000, 2000, 1.5, parseTs, new Set(['images', 'tts']), FINAL, 12, 6);
+  30000, 4000, 1.5, parseTs, new Set(['images', 'tts']), FINAL, 12, 6);
 
 console.log('1. liveDelay');
-ok(fns.liveDelay(0) === 2000 && fns.liveDelay(1) === 3000 && fns.liveDelay(2) === 4500 && fns.liveDelay(3) === 6750,
-   'bắt đầu 2 s, mỗi lượt không đổi ×1,5', [0, 1, 2, 3].map(fns.liveDelay));
-ok(fns.liveDelay(7) === 30000 && fns.liveDelay(50) === 30000 && fns.liveDelay(-3) === 2000 && fns.liveDelay('x') === 2000,
+ok(fns.liveDelay(0) === 4000 && fns.liveDelay(1) === 6000 && fns.liveDelay(2) === 9000 && fns.liveDelay(3) === 13500,
+   'bắt đầu 4 s, mỗi lượt không đổi ×1,5', [0, 1, 2, 3].map(fns.liveDelay));
+ok(fns.liveDelay(7) === 30000 && fns.liveDelay(50) === 30000 && fns.liveDelay(-3) === 4000 && fns.liveDelay('x') === 4000,
    'trần 30 s; streak âm / rác → 2 s');
 
 console.log('2. liveOrder');
@@ -122,8 +122,18 @@ console.log('5. live.js — nhịp hỏi');
 ok(/If-None-Match/.test(live) && /\?events=0/.test(live), 'hỏi kèm If-None-Match; task không kèm nhật ký');
 ok(/group=working/.test(live) && /group=backlog/.test(live) && /group=all&sort=updated/.test(live),
    'trang chung: đang chạy + hàng đợi + mới đổi (ETag từng nhóm)');
-ok(/muse\/status\?quick=1/.test(live) && /MUSE_MS = 15000/.test(live) && !/await fetchMuse|await pollMuse/.test(live),
-   'chỗ ngồi Muse: quick=1, tối đa 15 s một lần, hỏi nền (không chặn nhịp chính)');
+ok(/muse\/status\?quick=1/.test(live) && /MUSE_MS = 30000/.test(live) && !/await fetchMuse|await pollMuse/.test(live),
+   'chỗ ngồi Muse: quick=1, tối đa 30 s một lần, hỏi nền (không chặn nhịp chính)');
+// 14/11/2026 — giảm request: nhịp nhanh nhất 4 s; hàng đợi + «vừa xong» hỏi thưa; chi tiết task có ETag
+ok(/BASE_MS = 4000/.test(live) && /SLOW_MS = 12000/.test(live), 'nhịp nhanh nhất 4 s; danh sách chậm 12 s một lần');
+ok(/changed = await fetchList\('working'/.test(live)
+   && /if \(changed \|\| !state\.slowAt \|\| Date\.now\(\) - state\.slowAt >= SLOW_MS\)/.test(live),
+   'hàng đợi + «vừa xong» chỉ hỏi khi tới hạn hoặc danh sách đang chạy vừa đổi');
+ok(/\?events=0`, cur && cur\.etag\)/.test(live) && /state\.details\[id\] = \{ etag: r\.etag/.test(live),
+   'chi tiết task hỏi kèm ETag đã nhớ');
+ok(/state\.slowAt = 0;/.test(live), 'Refresh / tab hiện lại → hỏi lại cả danh sách chậm');
+ok(/async def get_task\(task_id: str, events: int = 50, request: Request = None\)/.test(routes)
+   && /if request is not None and not events:/.test(routes), 'lõi: GET /tasks/{id}?events=0 trả ETag / 304');
 ok(/if \(document\.hidden\) \{ schedule\(BASE_MS\); return; \}/.test(live) && /visibilitychange/.test(live),
    'tab ẩn không hỏi; hiện lại → hỏi ngay');
 const intervals = live.match(/setInterval\(/g) || [];
@@ -131,7 +141,7 @@ ok(intervals.length === 1 && /setInterval\(\(\) => \{ if \(!document\.hidden\) t
    'setInterval duy nhất là đồng hồ 1 s (không request)');
 ok(!/state\.stopped/.test(live) && /schedule\(liveDelay\(state\.streak\)\)/.test(live), 'trang chung không thôi hẳn — chỉ giãn tới 30 s');
 ok(/text === cur\.text/.test(live) && /cur\.text === r\.text/.test(live), 'thân không đổi = không đổi (nhịp giãn dần)');
-ok(/\['pointerdown', 'keydown', 'wheel', 'touchstart'\]/.test(live), 'chạm trang → về 2 s');
+ok(/\['pointerdown', 'keydown', 'wheel', 'touchstart'\]/.test(live), 'chạm trang → về nhịp nhanh nhất');
 
 console.log('6. Trang + CSS + chữ');
 ok(/src="\/codex\/live\.js"/.test(html) && /href="\/codex\/live\.css"/.test(html) && /href="\/codex\/codex\.css"/.test(html)

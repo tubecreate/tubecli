@@ -304,12 +304,24 @@ async def create_task(req: CreateTaskRequest):
 
 
 @router.get("/tasks/{task_id}")
-async def get_task(task_id: str, events: int = 50):
+async def get_task(task_id: str, events: int = 50, request: Request = None):
     task = _require(task_id)
-    return {
+    body = {
         "task": task,
         "events": _public_events(codex_manager.get_events(task["id"], limit=events)),
     }
+    if request is not None and not events:
+        # Live view hỏi lại chi tiết task đang chạy mỗi nhịp (`?events=0`): ETag trên nội dung → không đổi thì 304 rỗng
+        # thay vì gửi lại cả task (kế hoạch + kết quả hàng chục KB qua tunnel) — user 14/11/2026 «bạn giảm giúp tôi».
+        import hashlib
+        import json as _json
+        digest = hashlib.sha1(_json.dumps(body, sort_keys=True, default=str, ensure_ascii=False).encode("utf-8")).hexdigest()
+        etag = f'W/"{digest[:24]}"'
+        headers = {"ETag": etag, "Cache-Control": "no-cache"}
+        if request.headers.get("if-none-match") == etag:
+            return Response(status_code=304, headers=headers)
+        return JSONResponse(body, headers=headers)
+    return body
 
 
 @router.put("/tasks/{task_id}")

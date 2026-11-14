@@ -19,10 +19,13 @@ const LIVE = (() => {
   // tăng»): 2 s; mỗi lượt KHÔNG có gì đổi thì nhân 1,5 (2 → 3 → 4,5 → … → 30 s); có đổi, người dùng chạm trang, hay
   // tab hiện lại → về 2 s. Tab ẩn thì không hỏi. Trang chung không bao giờ thôi hẳn (task mới có thể vào bất cứ lúc
   // nào) — chỉ giãn tới 30 s.
-  const BASE_MS = 2000;
+  // 14/11/2026 (user «bạn giảm giúp tôi» — mỗi tab ~150 request/phút khi có task chạy): nhịp nhanh nhất 4 s; hàng đợi +
+  // «vừa xong» chỉ hỏi SLOW_MS một lần (hỏi ngay khi danh sách đang chạy đổi); chi tiết task có ETag; ghế Muse 30 s.
+  const BASE_MS = 4000;
   const MAX_MS = 30000;
   const GROW = 1.5;
-  const MUSE_MS = 15000;
+  const MUSE_MS = 30000;
+  const SLOW_MS = 12000;
   const RECENT_MAX = 6;
   const RECENT_HOURS = 12;
   const LIVE_STATES = new Set(['queued', 'running']);
@@ -615,11 +618,12 @@ const LIVE = (() => {
   }
 
   async function fetchDetail(id) {
-    const r = await fetchJsonText(`${API}/tasks/${encodeURIComponent(id)}?events=0`);
     const cur = state.details[id];
-    if (cur && cur.text === r.text) return false;
+    // ETag (lõi ≥ 14/11/2026): task không đổi → 304 rỗng; lõi cũ không gửi ETag thì vẫn so thân như trước
+    const r = await fetchJsonText(`${API}/tasks/${encodeURIComponent(id)}?events=0`, cur && cur.etag);
+    if (r.unchanged || (cur && cur.text === r.text)) return false;
     const d = JSON.parse(r.text);
-    state.details[id] = { text: r.text, task: (d && d.task) || d };
+    state.details[id] = { etag: r.etag, text: r.text, task: (d && d.task) || d };
     return true;
   }
 
@@ -681,12 +685,17 @@ const LIVE = (() => {
     tickClock();
     let changed = false;
     try {
-      const lists = await Promise.all([
-        fetchList('working', 'group=working&limit=20'),
-        fetchList('backlog', 'group=backlog&limit=20'),
-        fetchList('recent', 'group=all&sort=updated&limit=20'),
-      ]);
-      changed = lists.some(Boolean);
+      // Danh sách đang chạy: mỗi nhịp. Hàng đợi + «vừa xong»: SLOW_MS một lần — hay ngay khi danh sách đang chạy đổi
+      // (task vừa vào / vừa xong phải hiện liền), và ở lượt đầu.
+      changed = await fetchList('working', 'group=working&limit=20');
+      if (changed || !state.slowAt || Date.now() - state.slowAt >= SLOW_MS) {
+        state.slowAt = Date.now();
+        const slow = await Promise.all([
+          fetchList('backlog', 'group=backlog&limit=20'),
+          fetchList('recent', 'group=all&sort=updated&limit=20'),
+        ]);
+        changed = slow.some(Boolean) || changed;
+      }
       state.error = '';
       const run = runningTasks();
       const alive = new Set(run.map(x => x.id));
@@ -725,6 +734,7 @@ const LIVE = (() => {
 
   function refreshNow() {
     state.streak = 0;
+    state.slowAt = 0;          // hỏi lại cả hàng đợi + «vừa xong»
     Object.values(state.lives).forEach((L) => { L.missing = false; });
     schedule(0);
   }
@@ -745,7 +755,7 @@ const LIVE = (() => {
     document.addEventListener('click', onClick);
     ['pointerdown', 'keydown', 'wheel', 'touchstart'].forEach(ev => document.addEventListener(ev, touch, { passive: true }));
     document.addEventListener('visibilitychange', () => {
-      if (!document.hidden) { state.streak = 0; schedule(50); }
+      if (!document.hidden) { state.streak = 0; state.slowAt = 0; schedule(50); }
     });
     setInterval(() => { if (!document.hidden) tickClock(); }, 1000);
     // Chữ giao diện và dữ liệu tải SONG SONG (như codex.js); chữ về sau thì dựng lại khung một lần cho đúng tiếng.
