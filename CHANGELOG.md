@@ -2,6 +2,22 @@
 
 Notable changes to TubeCLI. Versions match `tubecli/__init__.py`.
 
+## 2026.08.09.235 — 2026-11-14
+
+### Muse errors say which server and which browser
+- A failed Muse request (chat, image, or video, including `GET /api/v1/muse/v1/videos/jobs/{id}`) now returns
+  `server_code`, `server_name` and `browser` (the browser profile that ran it) inside `error`. The message ends with
+  the same label, for example «[server t3rwap (VPS Contabo) · browser muse-vinh-21]», so you know which machine and
+  profile to check.
+- When the request ran on a remote Muse node, the error names that node's server and browser, not the machine that
+  forwarded it. An older node that does not report them is named by its address.
+- The server name comes from TubeCLI Cloud. It is sent the next time the cloud signs in to the machine.
+
+### TubeCLI Connect
+- Downloading cloudflared no longer fails when Python is missing root certificates: it falls back to curl.exe, then
+  PowerShell, which use the Windows certificate store. Certificate checks stay on.
+- A machine with an older TubeCLI updates itself during pairing, then asks for the cloud key.
+
 ## 2026.08.09.234 — 2026-11-13
 
 ### TubeCLI Connect no longer asks for the dashboard password
