@@ -642,11 +642,18 @@ def _ask_remote(node: dict, prof: str, prompt: str, *, files=None, want_images=F
             kind = str(err.get("code") or "")
             kind = kind if kind in ("config", "refused", "auth", "approval", "busy", "browser", "timeout", "error") else \
                 ("auth" if e.code in (401, 403) else "browser")
-            raise MuseError(kind, f"remote Muse node {base}: {err.get('message') or e}")
+            me = MuseError(kind, f"remote Muse node {base}: {err.get('message') or e}")
+            # Nút ≥ 14/11/2026 báo máy + trình duyệt NÓ dùng — lỗi trả tiếp phải chỉ đúng máy ấy, không phải máy này.
+            me.where = {k: str(err.get(k) or "")[:80] for k in ("server_code", "server_name", "browser")
+                        if err.get(k)}
+            me.where.setdefault("node", base)
+            raise me
         except MuseError:
             raise
         except Exception as e:      # noqa: BLE001 — không nối được / hết giờ
-            raise MuseError("browser", f"remote Muse node {base} unreachable: {str(e)[:160]}")
+            me = MuseError("browser", f"remote Muse node {base} unreachable: {str(e)[:160]}")
+            me.where = {"node": base}
+            raise me
 
     # Lượt đầu: chat/ảnh chờ trọn; video chỉ chờ 90 s (nút mới trả id ngay; nút cũ trả clip luôn nếu kịp dưới 100 s).
     data = _http("POST", base + path, body, wait=REMOTE_POST_WAIT if want_videos else int(timeout) + 60)
@@ -654,7 +661,9 @@ def _ask_remote(node: dict, prof: str, prompt: str, *, files=None, want_images=F
         job, deadline = str(data["id"]), time.time() + int(timeout) + 60
         while True:
             if time.time() > deadline:
-                raise MuseError("timeout", f"remote Muse node {base}: video job {job} did not finish within {int(timeout) + 60} s")
+                me = MuseError("timeout", f"remote Muse node {base}: video job {job} did not finish within {int(timeout) + 60} s")
+                me.where = {"node": base}
+                raise me
             time.sleep(REMOTE_POLL)
             data = _http("GET", f"{base}/v1/videos/jobs/{job}", None, wait=60)
             if data.get("status") != "running":
@@ -1602,6 +1611,7 @@ def generate_video_clip(prompt: str, out_dir: str, reference_images: Optional[li
             said = " ".join(str(res.get("text") or "").split())[:240]
             err = MuseError(_no_output_kind(said), f"Muse did not make a video{': ' + said if said else '.'}")
             prof = str(res.get("profile") or "")
+            err.profile = prof
         except MuseError as e:
             err, prof = e, str(getattr(e, "profile", "") or "")
         region = bool(prof) and bool(_REGION_RE.search(str(err)))
