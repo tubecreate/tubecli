@@ -321,7 +321,8 @@ check("mọi request lên cloud đều mang UA ấy",
 check("opener toàn cục cũng gắn UA (bắt cả urlopen(chuỗi) lúc tải cloudflared)",
       "_install_ua_opener()" in _src and 'op.addheaders = [("User-Agent", UA)]' in _src)
 check("tải cloudflared đi qua Request có UA, không phải chuỗi trần",
-      "cf_req = urllib.request.Request(CF_URL, headers={\"User-Agent\": UA})" in _src)
+      "req = urllib.request.Request(url, headers={\"User-Agent\": UA})" in _src
+      and '"-A", UA, "-o", dest, url' in _src)      # 14/11/2026: đường lùi curl cũng mang UA
 check("đăng nhập node cũng mang UA (node cũng có thể ngồi sau proxy)",
       _src.count('"User-Agent": UA') >= 2)
 

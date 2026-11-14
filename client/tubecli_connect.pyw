@@ -1114,20 +1114,94 @@ def sync_cloud_password(conf: dict, new_pw: str) -> tuple:
 
 # ── Tunnel ──────────────────────────────────────────────────────────────────
 
+# ── Tải cloudflared (14/11/2026) ────────────────────────────────────────────
+# Máy «maycongty»: ghép nối xong mà «Tunnel: TẮT» mãi — log đầy «không tải được cloudflared: <urlopen error
+# [SSL: CERTIFICATE_VERIFY_FAILED] unable to get issuer certificate>», 20 giây một dòng. Python trên Windows chỉ
+# tin các chứng chỉ gốc ĐÃ NẰM SẴN trong kho của Windows; Windows nạp gốc mới theo nhu cầu, mà Python không kích
+# hoạt việc đó (máy mới, máy công ty). curl.exe / PowerShell có sẵn của Windows dùng thẳng kho ấy (schannel) nên
+# tải được. Thứ tự: urllib → curl → PowerShell. KHÔNG BAO GIỜ tắt kiểm chứng chỉ: file tải về là thứ sẽ được chạy.
+CF_MIN_BYTES = 5 * 1024 * 1024       # cloudflared thật > 30 MB; nhỏ hơn mức này là trang lỗi / tải dở
+CF_RETRY_MAX = 600                   # tải hỏng liên tiếp thì giãn dần tới 10 phút một lần
+TUNNEL_STATE = {"error": "", "fails": 0, "next_try": 0.0}
+
+
+def _download_urllib(url: str, dest: str) -> None:
+    req = urllib.request.Request(url, headers={"User-Agent": UA})
+    with urllib.request.urlopen(req, timeout=180) as r, open(dest, "wb") as f:
+        while True:
+            chunk = r.read(262144)
+            if not chunk:
+                break
+            f.write(chunk)
+
+
+def _download_tool(cmd: list) -> None:
+    r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=900,
+                       stdin=subprocess.DEVNULL,
+                       **({"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)} if IS_WIN else {}))
+    if r.returncode != 0:
+        raise RuntimeError(" ".join(((r.stderr or "") + " " + (r.stdout or "")).split())[-200:]
+                           or f"mã thoát {r.returncode}")
+
+
+def _download_curl(url: str, dest: str) -> None:
+    exe = shutil.which("curl.exe" if IS_WIN else "curl")
+    if not exe:
+        raise RuntimeError("máy không có curl")
+    _download_tool([exe, "-fL", "--retry", "2", "--connect-timeout", "30", "-A", UA, "-o", dest, url])
+
+
+def _download_powershell(url: str, dest: str) -> None:
+    if not IS_WIN:
+        raise RuntimeError("chỉ có trên Windows")
+    exe = shutil.which("powershell.exe") or "powershell.exe"
+    script = ("$ProgressPreference='SilentlyContinue'; "
+              "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; "
+              "Invoke-WebRequest -UseBasicParsing -Uri $env:TC_DL_URL -OutFile $env:TC_DL_OUT")
+    env = dict(os.environ, TC_DL_URL=url, TC_DL_OUT=dest)      # qua env: khỏi lo nháy / khoảng trắng trong đường dẫn
+    r = subprocess.run([exe, "-NoProfile", "-NonInteractive", "-Command", script], env=env, capture_output=True,
+                       text=True, encoding="utf-8", errors="replace", timeout=900, stdin=subprocess.DEVNULL,
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    if r.returncode != 0:
+        raise RuntimeError(" ".join(((r.stderr or "") + " " + (r.stdout or "")).split())[-200:]
+                           or f"mã thoát {r.returncode}")
+
+
+def download_file(url: str, dest: str) -> str:
+    """Tải `url` về `dest`. Trả tên cách đã tải được; ném RuntimeError gom lý do của MỌI cách khi đều hỏng."""
+    errors = []
+    for name, fn in (("python", _download_urllib), ("curl", _download_curl), ("powershell", _download_powershell)):
+        try:
+            if os.path.isfile(dest):
+                os.remove(dest)
+            fn(url, dest)
+            size = os.path.getsize(dest) if os.path.isfile(dest) else 0
+            if size < CF_MIN_BYTES:
+                raise RuntimeError(f"file tải về chỉ {size} byte")
+            return name
+        except Exception as e:
+            errors.append(f"{name}: {' '.join(str(e).split())[:160]}")
+    raise RuntimeError(" | ".join(errors))
+
+
+def tunnel_problem() -> str:
+    """Câu người đọc được vì sao tunnel chưa chạy ("" = không có gì để nói)."""
+    return TUNNEL_STATE["error"]
+
+
 def ensure_cloudflared() -> bool:
     if os.path.isfile(CLOUDFLARED):
+        TUNNEL_STATE.update(error="", fails=0, next_try=0.0)
         return True
+    if time.time() < TUNNEL_STATE["next_try"]:
+        return False                      # vừa hỏng: chờ tới hẹn, đừng ghi log 20 giây một dòng
     log("tải cloudflared…")
     os.makedirs(HOME, exist_ok=True)
     try:
         part = CLOUDFLARED + ".part"
-        cf_req = urllib.request.Request(CF_URL, headers={"User-Agent": UA})
-        with urllib.request.urlopen(cf_req, timeout=180) as r, open(part, "wb") as f:
-            while True:
-                chunk = r.read(262144)
-                if not chunk:
-                    break
-                f.write(chunk)
+        how = download_file(CF_URL, part)
+        if how != "python":
+            log(f"python không tải được, đã tải bằng {how}")
         if CF_URL.endswith(".tgz"):
             # macOS phát hành .tgz, bên trong đúng một file `cloudflared`. Chạy thẳng
             # file vừa tải là "Exec format error" — nó là gói nén, không phải binary.
@@ -1145,9 +1219,15 @@ def ensure_cloudflared() -> bool:
         if not IS_WIN:
             os.chmod(CLOUDFLARED, 0o755)      # tải về là 0644 → không chạy được
         log(f"đã tải cloudflared ({OS_NAME}/{cpu_arch()})")
+        TUNNEL_STATE.update(error="", fails=0, next_try=0.0)
         return True
     except Exception as e:
-        log(f"không tải được cloudflared: {e}")
+        TUNNEL_STATE["fails"] += 1
+        wait = min(CF_RETRY_MAX, 30 * (2 ** (TUNNEL_STATE["fails"] - 1)))
+        TUNNEL_STATE["next_try"] = time.time() + wait
+        TUNNEL_STATE["error"] = (f"không tải được cloudflared ({' '.join(str(e).split())[:220]}). Thử lại sau {wait} giây — "
+                                 f"hoặc tải tay {CF_URL} rồi chép vào {CLOUDFLARED}")
+        log(f"không tải được cloudflared: {e} — thử lại sau {wait} giây")
         return False
 
 
@@ -1156,11 +1236,23 @@ def start_tunnel(token: str):
     if not ensure_cloudflared():
         return None
     try:
-        return subprocess.Popen(
-            [CLOUDFLARED, "tunnel", "--no-autoupdate", "run", "--token", token],
+        # --logfile: cloudflared tự ghi vì sao không nối được (tường lửa, DNS, token) — trước đây stderr đổ vào
+        # DEVNULL nên «Tunnel: TẮT» không kèm manh mối nào. File quá 2 MB thì bắt đầu lại.
+        cf_log = os.path.join(HOME, "cloudflared.log")
+        try:
+            if os.path.isfile(cf_log) and os.path.getsize(cf_log) > 2 * 1024 * 1024:
+                os.remove(cf_log)
+        except OSError:
+            pass
+        proc = subprocess.Popen(
+            [CLOUDFLARED, "tunnel", "--no-autoupdate", "--logfile", cf_log, "--loglevel", "info",
+             "run", "--token", token],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        TUNNEL_STATE["error"] = ""
+        return proc
     except Exception as e:
+        TUNNEL_STATE["error"] = f"không chạy được cloudflared ({e}) — phần mềm diệt virus có thể đã chặn {CLOUDFLARED}"
         log(f"không chạy được cloudflared: {e}")
         return None
 
@@ -2291,8 +2383,12 @@ class Bridge:
         if self.paused.is_set():
             return "ĐÃ NGẮT KẾT NỐI — bấm «Kết nối lại» để bật lại"
         node = "đang chạy" if tubecli_up() else "TẮT"
-        tun = "đang chạy" if (self.tunnel and self.tunnel.poll() is None) else "TẮT"
-        return f"TubeCLI: {node} · Tunnel: {tun} · {self.conf.get('url', '')}"
+        running = bool(self.tunnel and self.tunnel.poll() is None)
+        tun = "đang chạy" if running else "TẮT"
+        line = f"TubeCLI: {node} · Tunnel: {tun} · {self.conf.get('url', '')}"
+        why = "" if running else tunnel_problem()
+        # Tunnel tắt mà biết lý do thì NÓI RA ngay ở dòng trạng thái (14/11/2026: «Tunnel: TẮT» trơ trọi suốt một ngày).
+        return line + (f"\n⚠ Tunnel: {why}" if why else "")
 
     def watch(self) -> None:
         while not self.stop.is_set():
@@ -2764,7 +2860,7 @@ def status_window(bridge: "Bridge") -> None:
     lbl_name.grid(column=0, row=0, sticky="w")
     lbl_url = ttk.Label(frm, text=conf.get("url") or "", foreground="#5276EB")
     lbl_url.grid(column=0, row=1, sticky="w", pady=(0, 8))
-    state = ttk.Label(frm, text="", font=("Consolas", 9))
+    state = ttk.Label(frm, text="", font=("Consolas", 9), wraplength=620, justify="left")
     state.grid(column=0, row=2, sticky="w", pady=(0, 10))
 
     bar = ttk.Frame(frm)
