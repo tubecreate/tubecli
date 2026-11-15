@@ -159,10 +159,19 @@ class FileService:
         # Add data dir
         data_dir = os.environ.get("TUBECLI_DATA_DIR", "data")
         self.allowed_roots.append(os.path.abspath(data_dir))
+        # Thư mục data THẬT của TubeCLI (15/11/2026). «data» ở trên tính theo thư mục đang đứng lúc khởi động: server do
+        # TubeCLI Connect mở đứng ở C:\Users\<tên>\TubeCLI, nên vùng cho phép là …\TubeCLI\data (không có gì) còn
+        # video Content Studio nằm ở <repo>\data — agent được giao «sao lưu video lên Drive» bị từ chối «nằm ngoài vùng
+        # cho phép» ở MỌI file. Các thư mục con chứa bí mật của data thật vẫn bị chặn (ai_blocked bên dưới tính cả hai).
+        try:
+            from tubecli.config import DATA_DIR as _real_data_dir
+            self.allowed_roots.append(os.path.abspath(str(_real_data_dir)))
+        except Exception:
+            pass
         if extra_roots:
             self.allowed_roots.extend(extra_roots)
         # Normalize all paths
-        self.allowed_roots = [os.path.normpath(r) for r in self.allowed_roots]
+        self.allowed_roots = list(dict.fromkeys(os.path.normpath(r) for r in self.allowed_roots))
         # Both data roots get the protected subfolders: the one this sandbox
         # exposes (cwd-relative, like the allowlist entry above) and the one
         # the package writes the manifests under. They coincide when the
