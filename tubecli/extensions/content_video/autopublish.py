@@ -467,6 +467,11 @@ def _maybe_publish(agent_id: str, run_id: str, outcome: str, trigger: str = "") 
     # Đường API cần token + kênh (videos.insert đăng vào kênh của token). Đường TRÌNH DUYỆT (10/10/2026) thì không:
     # hồ sơ đã đăng nhập YouTube là đủ, kênh bỏ trống = kênh mặc định của tài khoản trong hồ sơ.
     publish = publish_on and (method != "api" or (bool(token_id) and bool(channel_id)))
+    # Vì sao lượt này CHỈ DỰNG (15/11/2026): trước đây ghi chú chỉ nói «render only, waiting for review» — chủ thấy
+    # auto_publish vẫn bật mà không hiểu vì sao 76 video nằm ở review.
+    why_render_only = "" if publish_on else "auto-publish is off for this agent"
+    if publish_on and not publish:
+        why_render_only = "auto-publish uses the API but no YouTube %s is chosen" % ("token" if not token_id else "channel")
     if publish_on and not publish:
         # Công tắc đăng bật mà chưa chọn kênh là LỖI CẤU HÌNH, không phải "chưa tới
         # lượt": người dùng đang tin rằng video vẫn được đăng. Kêu to. Có bật «tự dựng
@@ -488,6 +493,10 @@ def _maybe_publish(agent_id: str, run_id: str, outcome: str, trigger: str = "") 
                         "(YouTube takes at most 15 min); verify the channel and untick «Channel not verified», "
                         "or shorten the template" % _mmss(paused.get("seconds")))
             publish = False
+            why_render_only = ("publishing paused itself: the last video was %s long and this agent's channel is marked "
+                               "«not verified» (YouTube takes at most 15 min) — verify the channel and untick «Channel "
+                               "not verified», or PATCH /api/v1/codex/autopublish/%s {\"publish\": true}"
+                               % (_mmss(paused.get("seconds")), agent_id))
         else:
             save_mark(agent_id, paused={})
 
@@ -606,8 +615,8 @@ def _maybe_publish(agent_id: str, run_id: str, outcome: str, trigger: str = "") 
                   last_task_id=task_id,
                   last_fired_at=time.time())
     if not publish:
-        return "queued: task #%s from %d new page(s) — render only, waiting for review" % (
-            (task or {}).get("seq", "?"), count)
+        return "queued: task #%s from %d new page(s) — render only, waiting for review%s" % (
+            (task or {}).get("seq", "?"), count, (" (%s)" % why_render_only) if why_render_only else "")
     return "queued: task #%s from %d new page(s) to %s" % (
         (task or {}).get("seq", "?"), count,
         options["publish_channel_name"] or channel_id or "the profile's default channel")
@@ -738,10 +747,41 @@ def status(agent) -> Dict[str, Any]:
         "paused_for_length": bool(paused),
         "paused_detail": ("the last video was %s long and the channel is not verified (YouTube takes at most 15 min)"
                           % _mmss(paused.get("seconds"))) if paused else "",
+        # Khi nào video lên kênh: "now" = ngay sau khi dựng; "slots" = tải lên ngay sau khi dựng và HẸN GIỜ trên YouTube
+        # vào khung trống kế tiếp của `slots` (không có bộ đăng riêng chạy theo giờ).
+        "when": str(getattr(agent, "publish_when", "now") or "now"),
+        "when_choices": list(_when_choices()),
+        "slots": str(getattr(agent, "publish_slots", "") or ""),
+        **_will_publish(agent, mark, bool(paused)),
     }
 
 
-def set_publish(agent_id: str, publish: bool, daily_limit=None) -> Dict[str, Any]:
+def _when_choices():
+    from tubecli.core.agent import PUBLISH_WHEN_CHOICES
+    return PUBLISH_WHEN_CHOICES
+
+
+def _will_publish(agent, mark: Dict[str, Any], paused: bool) -> Dict[str, Any]:
+    """{will_publish, why_not}: lượt tự động KẾ TIẾP của agent này có đăng lên kênh không — cùng luật với trigger."""
+    why = ""
+    if mark.get("agent_paused"):
+        why = "the agent is paused (POST /api/v1/agents/{id}/resume)"
+    elif not bool(getattr(agent, "auto_publish", False)):
+        why = "auto-publish is off for this agent"
+    elif str(getattr(agent, "publish_method", "script") or "script") == "api" and not (
+            getattr(agent, "publish_token_id", "") and getattr(agent, "publish_channel_id", "")):
+        why = "auto-publish uses the API but no YouTube token / channel is chosen"
+    elif paused:
+        why = ("publishing paused itself: the last video was over 15 minutes and the channel is marked «not verified» — "
+               "send {\"publish\": true} to clear it, or {\"channel_unverified\": false} if the channel is verified")
+    elif mark.get("published_today", 0) >= int(getattr(agent, "publish_max_per_day", 2) or 0):
+        why = "today's limit is reached (%d of %d)" % (mark.get("published_today", 0),
+                                                       int(getattr(agent, "publish_max_per_day", 2) or 0))
+    return {"will_publish": not why, "why_not": why}
+
+
+def set_publish(agent_id: str, publish: bool, daily_limit=None, channel_unverified=None, when=None,
+                slots=None) -> Dict[str, Any]:
     """Bật / tắt bước Publish của tự đăng cho MỘT agent (+ trần mỗi ngày). Bật lại thì gỡ luôn lần tự dừng vì video dài
     (người bật là người chịu trách nhiệm kênh). Ném ValueError khi agent không có hay trần sai."""
     from tubecli.core.agent import agent_manager
@@ -758,8 +798,26 @@ def set_publish(agent_id: str, publish: bool, daily_limit=None) -> Dict[str, Any
         if not 1 <= n <= 20:
             raise ValueError("daily_limit must be a number from 1 to 20")
         fields["publish_max_per_day"] = n
+    # 15/11/2026: cờ «kênh chưa xác minh» tự bật sau MỘT lần tải lên hỏng của video > 15 phút (pipeline
+    # _pause_autopublish) — kênh đã xác minh cũng dính (Radhika: 04/11 vẫn đăng video 19:52). Cho gỡ / đặt qua đây.
+    if channel_unverified is not None:
+        fields["publish_unverified"] = bool(channel_unverified)
+    if when is not None:
+        w = str(when).strip().lower()
+        if w not in _when_choices():
+            raise ValueError("when must be one of: " + ", ".join(_when_choices()))
+        fields["publish_when"] = w
+    if slots is not None:
+        from tubecli.extensions.content_video.publish_schedule import parse_slots
+        got = parse_slots(slots)
+        if str(slots).strip() and not got:
+            raise ValueError("slots must be times like \"12:00, 19:00\"")
+        fields["publish_slots"] = ", ".join(got)
+    if fields.get("publish_when", str(getattr(agent, "publish_when", "now") or "now")) == "slots" and not (
+            fields.get("publish_slots", str(getattr(agent, "publish_slots", "") or ""))):
+        raise ValueError("when = slots needs at least one time in slots, for example \"12:00, 19:00\"")
     agent = agent_manager.update(str(agent_id), **fields)
-    if publish:
+    if publish or channel_unverified is False:
         save_mark(str(agent_id), paused={})
     return status(agent)
 

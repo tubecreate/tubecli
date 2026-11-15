@@ -262,5 +262,49 @@ check("F3 tiêu đề mới → đi tiếp", fresh_ok)
 from tubecli.extensions.codex import manager as CM  # noqa: E402
 check("F4 META_KEYS nhận topic_query + bank_topic (trước bị bỏ lặng lẽ)", {"topic_query", "bank_topic"} <= set(CM.META_KEYS))
 
+# ── G. trạng thái nói RÕ có đăng không + sửa «kênh chưa xác minh» / when / slots qua API (15/11/2026) ─────────────
+AGENTS["agG"] = Agent(id="agG", publish_when="slots", publish_slots="12:00, 19:00")
+AP.save_mark("agG", paused=dict(old, cap_words=P.UNVERIFIED_SAFE_WORDS))
+g = AP.status(AGENTS["agG"])
+check("G1 auto_publish BẬT mà đang tự dừng → will_publish False + lý do + cách gỡ", g["publish"] is True and g["will_publish"] is False
+      and "not verified" in g["why_not"] and "channel_unverified" in g["why_not"], g)
+check("G2 status trả when / when_choices / slots", g["when"] == "slots" and g["when_choices"] == ["now", "slots"] and g["slots"] == "12:00, 19:00", g)
+g = AP.set_publish("agG", True, None, channel_unverified=False)
+check("G3 channel_unverified=false → gỡ cờ của agent + gỡ lần tự dừng → sẽ đăng", AGENTS["agG"].publish_unverified is False
+      and g["channel_unverified"] is False and not g["paused_for_length"] and g["will_publish"] is True and g["why_not"] == "", g)
+for bad in ("later", "slot", ""):
+    try:
+        AP.set_publish("agG", True, None, when=bad)
+        ok = False
+    except ValueError as e:
+        ok = "now, slots" in str(e)
+    check(f"G4 when sai ({bad!r}) bị từ chối, kể tên giá trị hợp lệ", ok)
+g = AP.set_publish("agG", True, None, when="now")
+check("G5 when=now nhận", g["when"] == "now" and AGENTS["agG"].publish_when == "now")
+g = AP.set_publish("agG", True, None, when="slots", slots="19h, 7am")
+check("G6 when=slots + slots được chuẩn hoá", g["when"] == "slots" and g["slots"] == "07:00, 19:00", g)
+AGENTS["agG2"] = Agent(id="agG2", publish_when="now", publish_slots="")
+try:
+    AP.set_publish("agG2", True, None, when="slots")
+    ok = False
+except ValueError as e:
+    ok = "needs at least one time" in str(e)
+check("G7 when=slots mà không có khung giờ nào → từ chối (không lặng lẽ đăng ngay)", ok and AGENTS["agG2"].publish_when == "now")
+try:
+    AP.set_publish("agG", True, None, slots="sáng mai")
+    ok = False
+except ValueError:
+    ok = True
+check("G8 slots không đọc được → từ chối", ok and AGENTS["agG"].publish_slots == "07:00, 19:00")
+AGENTS["agG3"] = Agent(id="agG3", auto_publish=False)
+g = AP.status(AGENTS["agG3"])
+check("G9 auto_publish tắt → will_publish False, lý do «off»", g["will_publish"] is False and "off" in g["why_not"], g)
+trig = (ROOT / "tubecli" / "extensions" / "content_video" / "autopublish.py").read_text(encoding="utf-8")
+check("G10 ghi chú lượt chạy «render only» kèm LÝ DO", 'render only, waiting for review%s' in trig and "why_render_only" in trig
+      and "publishing paused itself" in trig)
+croutes = (ROOT / "tubecli" / "extensions" / "codex" / "routes.py").read_text(encoding="utf-8")
+check("G11 PATCH /codex/autopublish nhận channel_unverified / when / slots", "channel_unverified: Optional[bool] = None" in croutes
+      and "req.channel_unverified, req.when, req.slots" in croutes)
+
 print(f"\n{passed}/{passed + failed} PASS")
 sys.exit(1 if failed else 0)

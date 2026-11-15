@@ -234,6 +234,9 @@ async def get_stats():
 class AutopublishPatch(BaseModel):
     publish: Optional[bool] = None
     daily_limit: Optional[int] = None
+    channel_unverified: Optional[bool] = None       # false = kênh ĐÃ xác minh: gỡ cờ + gỡ lần tự dừng vì video dài
+    when: Optional[str] = None                      # "now" | "slots"
+    slots: Optional[str] = None                     # "12:00, 19:00"
 
 
 def _autopublish_agent(agent_id: str):
@@ -256,11 +259,13 @@ async def patch_autopublish(agent_id: str, req: AutopublishPatch):
     """Bật / tắt bước Publish của tự đăng cho một agent, và / hoặc đổi trần video mỗi ngày (1–20)."""
     from tubecli.extensions.content_video import autopublish
     agent = _autopublish_agent(agent_id)
-    if req.publish is None and req.daily_limit is None:
-        raise HTTPException(400, "Send publish (true/false) and/or daily_limit (1-20).")
+    if all(v is None for v in (req.publish, req.daily_limit, req.channel_unverified, req.when, req.slots)):
+        raise HTTPException(400, "Send at least one of: publish (true/false), daily_limit (1-20), channel_unverified "
+                                 "(true/false), when (now | slots), slots (\"12:00, 19:00\").")
     publish = bool(getattr(agent, "auto_publish", False)) if req.publish is None else bool(req.publish)
     try:
-        return {"status": "updated", **autopublish.set_publish(agent_id, publish, req.daily_limit)}
+        return {"status": "updated", **autopublish.set_publish(agent_id, publish, req.daily_limit,
+                                                               req.channel_unverified, req.when, req.slots)}
     except ValueError as e:
         raise HTTPException(400, str(e))
 
@@ -565,6 +570,16 @@ async def publish_task(task_id: str, body: Optional[Dict[str, Any]] = None):
     job = await asyncio.to_thread(_job_call, pj.request_publish, task["id"], body,
                                   str(body.get("actor") or "user"))
     return JSONResponse(status_code=202, content={"status": "queued", "job": job})
+
+
+@router.post("/tasks/{task_id}/published")
+async def mark_task_published(task_id: str, body: Optional[Dict[str, Any]] = None):
+    """Video của task đã được đăng TAY ngoài TubeCLI: ghi link, chuyển done, tính vào trần ngày. Không tải gì lên."""
+    task = _require(task_id)
+    pj = _publish_jobs()
+    body = body if isinstance(body, dict) else {}
+    out = await asyncio.to_thread(_job_call, pj.mark_published, task["id"], body, str(body.get("actor") or "user"))
+    return {"status": "marked", **out}
 
 
 @router.get("/tasks/{task_id}/publish")
