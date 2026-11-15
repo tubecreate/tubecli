@@ -1781,6 +1781,7 @@ async function mountCloudPasswordCard() {
                 <div><h3>${esc(T('cloudpw.title'))}</h3><small>${esc(T('cloudpw.desc'))}</small></div>
             </div>
             <div id="cloud-pw-status" style="margin:0 0 14px;font-size:.85rem;color:var(--text-muted);line-height:1.5"></div>
+            <div id="cloud-key-row" style="display:none;margin:0 0 14px;font-size:.85rem;color:var(--text-muted);line-height:1.5"></div>
             <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px">
                 <div>
                     <div style="font-weight:600;margin-bottom:8px">${esc(T('cloudpw.change_title'))}</div>
@@ -1819,11 +1820,39 @@ async function mountCloudPasswordCard() {
         if (syncBox) { syncBox.checked = false; syncBox.disabled = true; }
         if (syncBtn) syncBtn.disabled = true;
     }
+    // KHOÁ CLOUD (13/11/2026, core/auth.py): máy ghép nối bằng khoá thì cloud KHÔNG dùng mật khẩu dashboard —
+    // không có gì để đồng bộ (gửi mật khẩu lên chỉ làm cloud bỏ khoá, quay về kiểu cũ). Hiện trạng thái + nút thu hồi.
+    const keyRow = document.getElementById('cloud-key-row');
+    const ck = _cloudLink.cloud_key;
+    if (keyRow && ck && ck.set) {
+        const when = ck.created_at ? new Date(ck.created_at * 1000).toLocaleDateString() : '';
+        keyRow.style.display = '';
+        keyRow.innerHTML = `<span style="color:var(--green)">●</span> ${esc(T('cloudpw.key_on', { date: when }))}
+            <button class="btn-secondary" style="margin-left:10px;padding:4px 10px;font-size:.8rem" onclick="cloudKeyRevoke(this)">${esc(T('cloudpw.key_revoke_btn'))}</button>`;
+        if (syncBox) { syncBox.checked = false; syncBox.disabled = true; }
+        if (syncBtn) syncBtn.disabled = true;
+    } else if (keyRow) {
+        keyRow.style.display = 'none';
+    }
+}
+
+async function cloudKeyRevoke(btn) {
+    if (!confirm(T('cloudpw.key_revoke_confirm'))) return;
+    btn.disabled = true;
+    try {
+        const r = await apiPost('/api/v1/auth/cloud-key/revoke', {});
+        cloudPwShow([r && r.ok ? { ok: true, text: T('cloudpw.key_revoked') }
+                               : { ok: false, text: (r && (r.detail || r.error)) || T('cloudpw.r_error') }]);
+        if (r && r.ok) mountCloudPasswordCard();
+    } finally {
+        btn.disabled = false;
+    }
 }
 
 // Câu cho một kết quả đồng bộ của lõi ({ok, code, error}).
 function cloudPwSyncText(r) {
     if (!r) return { ok: false, text: T('cloudpw.r_error') };
+    if (r.code === 'cloud_key') return { ok: true, text: T('cloudpw.r_cloud_key') };
     const map = { synced: 'cloudpw.r_synced', not_linked: 'cloudpw.r_not_linked', token_unreadable: 'cloudpw.r_unreadable',
                   not_recognised: 'cloudpw.r_not_recognised', cloud_login_failed: 'cloudpw.r_login_failed' };
     if (r.ok) return { ok: true, text: T('cloudpw.r_synced') };

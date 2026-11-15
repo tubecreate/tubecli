@@ -754,5 +754,10 @@
   "cloudpw.r_not_recognised": "TubeCLI Cloud không nhận ra máy này. Kết nối lại máy từ cloud (Servers → Connect).",
   "cloudpw.r_login_failed": "TubeCLI Cloud chưa đăng nhập được vào máy bằng mật khẩu này nên vẫn giữ mật khẩu cũ. Kiểm tra tunnel đang chạy rồi thử lại.",
   "cloudpw.r_unreachable": "Không gọi được TubeCLI Cloud: ",
+  "cloudpw.key_on": "TubeCLI Cloud đăng nhập máy này bằng khoá riêng (tạo ngày {date}), không dùng mật khẩu này. Đổi mật khẩu không làm mất kết nối cloud.",
+  "cloudpw.key_revoke_btn": "Thu hồi khoá cloud",
+  "cloudpw.key_revoke_confirm": "Thu hồi khoá cloud? TubeCLI Cloud sẽ không mở được máy này cho tới khi bạn kết nối lại bằng TubeCLI Connect.",
+  "cloudpw.key_revoked": "Đã thu hồi khoá cloud. Kết nối lại bằng TubeCLI Connect để dùng máy từ cloud.",
+  "cloudpw.r_cloud_key": "Không cần gửi: TubeCLI Cloud dùng khoá riêng, không dùng mật khẩu này.",
   "cloudpw.r_error": "TubeCLI Cloud từ chối: "
 }

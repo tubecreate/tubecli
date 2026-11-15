@@ -242,6 +242,9 @@ class Scheduler:
         from tubecli.core.agent import agent_manager
 
         launches_this_tick = 0
+        # Dọn phiên quá giờ / Muse ẩn rảnh lâu TRƯỚC khi đếm chỗ (browser/session_reaper, 10/11/2026) — tự giới hạn
+        # một vòng mỗi phút, không bao giờ ném.
+        self._sweep_stale_browsers()
 
         for agent in agent_manager.get_all():
             if not getattr(agent, "schedule_enabled", False):
@@ -324,13 +327,14 @@ class Scheduler:
                         continue
 
                     # Concurrency gate: don't pile browsers on top of each other.
-                    running_count = self._count_running_agent_browsers()
                     limit = max_concurrent_browsers()
+                    running_count = self._count_running_agent_browsers()
                     if running_count >= limit:
                         self._defer_agent(agent, anow, reason=f"{running_count} browser session(s) already running")
+                        who = self._busy_holders_text()
                         self._log_skip(agent, "busy",
                                        f"{running_count} browser session(s) already running "
-                                       f"(limit {limit}).")
+                                       f"(limit {limit})." + (f" Held by: {who}." if who else ""))
                         agent_manager._save()
                         continue
 
@@ -408,13 +412,38 @@ class Scheduler:
         print(f"[Scheduler] Deferred Agent {agent.name} by ~{delay_min} min ({reason}). Next attempt: {agent.schedule_next_run}")
 
     def _count_running_agent_browsers(self) -> int:
-        """Count currently running scheduled browser sessions. Returns 0 if the
-        browser extension is unavailable so scheduling never hard-blocks."""
+        """Chỗ đã chiếm trong trần lượt theo lịch. Returns 0 if the browser extension is unavailable so scheduling
+        never hard-blocks.
+
+        Phiên Muse ẨN chỉ chiếm tối đa (trần − 1) chỗ (session_reaper.counted_for_cap, 10/11/2026): 7 phiên Muse vẽ ảnh
+        trên contabo từng chiếm trọn trần 5 hàng giờ ⇒ lượt nghiên cứu của agent bị bỏ «busy» cả ngày. Luôn còn một chỗ
+        cho lượt theo lịch; RAM chỉ thêm tối đa một trình duyệt (mỗi nhịp mở một lượt, nhịp sau đã đủ trần)."""
+        try:
+            from tubecli.extensions.browser import session_reaper
+            hs = session_reaper.running_holders()
+            return session_reaper.counted_for_cap(hs, max_concurrent_browsers())
+        except Exception:
+            pass
         try:
             from tubecli.extensions.browser.process_manager import browser_process_manager
             return len(browser_process_manager.list_running())
         except Exception:
             return 0
+
+    def _busy_holders_text(self) -> str:
+        """«profile (kind, tuổi); …» — ai đang giữ chỗ, cho dòng bỏ qua «busy». "" khi không đọc được."""
+        try:
+            from tubecli.extensions.browser import session_reaper
+            return session_reaper.describe_holders(session_reaper.running_holders())
+        except Exception:
+            return ""
+
+    def _sweep_stale_browsers(self) -> None:
+        try:
+            from tubecli.extensions.browser import session_reaper
+            session_reaper.sweep()
+        except Exception as e:
+            print(f"[Scheduler] browser sweep failed: {e}")
 
     def _log_skip(self, agent, reason: str, detail: str) -> None:
         """Record why an agent that was due did not run.

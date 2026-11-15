@@ -2218,10 +2218,17 @@ def _niche_cfg(state: Dict) -> Dict[str, Any]:
     if "niche_cfg" not in state:
         cfg, warns = N.effective(state["agent"])
         state["niche_cfg"] = cfg
-        if warns:
+        if N.UNCONFIGURED in warns:
             state.setdefault("warnings", []).append(
                 "This agent has no niche set up yet (agent settings › Niche) — the niche check used its research "
                 "brief instead. Add the niche, the must-relate-to list and blocked terms for a sharper check.")
+        elif getattr(N, "FROM_PROMPT", "") in warns:
+            # Không phải lỗi: ô Niche trống nhưng system prompt có khối NICHE CONFIG — chỉ ghi nhật ký, không làm bẩn
+            # đầu đề kết quả.
+            _task_event(state.get("task_id"), "Niche settings read from the NICHE CONFIG block of the system prompt "
+                        f"(must relate to: {', '.join(cfg.get('must_relate_to') or [])[:200]}; minimum score "
+                        f"{cfg.get('min_niche_score')}/10) — fill agent settings › Niche to override.")
+        if warns:
             _task_meta(state.get("task_id"), niche_warnings=warns)
     return state["niche_cfg"]
 
@@ -2255,35 +2262,157 @@ def _step_niche(state: Dict, options: Dict) -> None:
     if any(c.get("source") in ("pasted", "youtube") for c in corpus) or state.get("youtube_sources"):
         say("niche", "running", "content given for this video — the script is checked after it is written")
         return
-    judged = [c for c in corpus if c.get("content")]
-    kept, rejects, unavailable = [], [], 0
+    agent = state["agent"]
+    # Lọc RẺ trước khi gọi model (10/11/2026): bài quá NICHE_FRESH_DAYS ngày và bài đã bị bộ lọc loại ở lượt trước thì
+    # không chấm lại — kênh Kinh Thánh từng chấm lại đúng 30 bài công nghệ mỗi ngày, lần nào cũng 0/30.
+    from . import niche_memory as NM
+    rejected_before = NM.rejected_urls(str(agent.id))
+    judged, stale_n, seen_n = [], 0, 0
+    for c in corpus:
+        if not c.get("content"):
+            continue
+        if c.get("url") and c["url"] in rejected_before:
+            seen_n += 1
+            continue
+        if _older_than(c.get("scraped_at"), NICHE_FRESH_DAYS):
+            stale_n += 1
+            continue
+        judged.append(c)
+    if stale_n or seen_n:
+        say("niche", "running", f"skipped {stale_n} source(s) older than {NICHE_FRESH_DAYS} days and {seen_n} "
+                                f"rejected on an earlier run")
+    kept, rejects, unavailable, rejected_urls = [], [], 0, []
     for i, c in enumerate(judged, 1):
         if state["_cancelled"]():
             raise _cancel_exc()
         say("niche", "running", f"checking source {i}/{len(judged)}")
-        r = N.niche_gate(state["agent"], f"{c.get('title') or ''}\n{str(c.get('content') or '')[:3000]}",
+        r = N.niche_gate(agent, f"{c.get('title') or ''}\n{str(c.get('content') or '')[:3000]}",
                          kind="source", cfg=cfg)
         if r["pass"]:
             kept.append(c)
             continue
-        unavailable += 1 if r.get("unavailable") else 0
+        if r.get("unavailable"):
+            unavailable += 1
+        elif c.get("url"):
+            rejected_urls.append(c["url"])        # chấm được mà trượt ⇒ đánh dấu, khỏi đọc lại mỗi ngày
         line = f"GATE_REJECT: {(c.get('title') or c.get('url') or '?')[:90]} — {r['reason'] or 'off the niche'}"
         rejects.append(line)
         _task_event(state.get("task_id"), line)
+    if rejected_urls:
+        NM.mark_rejected(str(agent.id), rejected_urls)
     state["corpus"] = kept + [c for c in corpus if not c.get("content")]
     keep_ids = {id(c) for c in kept}
     state["videos"] = [v for v in (state.get("videos") or []) if id(v) in keep_ids or not v.get("content")]
     state["gate_rejects"] = rejects
     _task_meta(state.get("task_id"), gate_rejects=rejects[:30] or None, niche_sources=len(kept))
     say("niche", "running", f"{len(kept)} of {len(judged)} sources fit the niche")
-    if len(kept) < NICHE_MIN_SOURCES:
-        if judged and unavailable == len(judged) - len(kept) and unavailable:
-            raise NicheHold(f"⚠ OFF-NICHE CHECK UNAVAILABLE — the niche check could not reach its AI model "
-                            f"({len(kept)} of {len(judged)} sources confirmed)", rejects[0] if rejects else "",
-                            unavailable=True)
+    if len(kept) >= NICHE_MIN_SOURCES:
+        _task_meta(state.get("task_id"), source="corpus", keyword_source="ai")
+        return
+    if judged and unavailable and unavailable == len(judged) - len(kept):
+        raise NicheHold(f"⚠ OFF-NICHE CHECK UNAVAILABLE — the niche check could not reach its AI model "
+                        f"({len(kept)} of {len(judged)} sources confirmed)", rejects[0] if rejects else "",
+                        unavailable=True)
+    # Ít hơn NICHE_MIN_SOURCES nguồn đúng ngách: KHÔNG dừng task (10/11/2026, kênh không ra video nhiều ngày liền) — lấy
+    # chủ đề trong kho từ khoá của agent, viết từ Kinh Thánh / kiến thức nền + chính những nguồn đúng ngách còn lại.
+    # Không bao giờ viết từ nguồn lạc ngách.
+    topic, free_n = _bank_topic(state, cfg)
+    if not topic:
         raise NicheHold(f"⚠ OFF-NICHE SOURCES — only {len(kept)} of {len(judged)} sources fit the niche "
-                        f"(at least {NICHE_MIN_SOURCES} needed)",
-                        "Nothing was written from off-niche material.")
+                        f"(at least {NICHE_MIN_SOURCES} needed) and the keyword bank has no unused on-niche topic",
+                        "Nothing was written from off-niche material. BANK_LOW: the agent's daily keywords are "
+                        "all used in the last %d days, blocked, or off the niche." % int(cfg.get("cooldown_days") or 0))
+    NM.mark_topic_used(str(agent.id), topic, state.get("task_id") or "")
+    state["bank_topic"] = topic
+    state["corpus"] = [_bank_brief(topic, cfg, kept)] + state["corpus"]
+    meta = {"source": "bank", "keyword_source": "bank", "bank_topic": topic[:200],
+            "fallback": f"only {len(kept)} on-niche source(s) of {len(judged)}"}
+    if free_n < BANK_LOW_TOPICS:
+        meta["bank_low"] = free_n
+        state.setdefault("warnings", []).append(
+            f"BANK_LOW: only {free_n} unused on-niche topic(s) left in this agent's keyword bank — let the daily "
+            f"keywords refresh, or add topics to the research brief.")
+    _task_meta(state.get("task_id"), **meta)
+    _task_event(state.get("task_id"), f"Only {len(kept)} on-niche source(s) — topic taken from the keyword bank: "
+                                      f"«{topic[:160]}» (keyword_source: bank).")
+    say("niche", "running", f"{len(kept)} of {len(judged)} sources fit — writing the bank topic «{topic[:80]}»")
+
+
+NICHE_FRESH_DAYS = 30          # nguồn cũ hơn thì không đưa vào bộ lọc (tin đã nguội, và chắc chắn đã từng bị chấm)
+BANK_LOW_TOPICS = 10           # ít hơn chừng này chủ đề chưa dùng → cảnh báo BANK_LOW
+BANK_TOPICS_TRIED = 3          # chấm tối đa chừng này chủ đề trong kho mỗi lượt (mỗi chủ đề = một lượt gọi model)
+_OPEN_STATUSES = ("backlog", "queued", "running", "review", "pending_approval")
+
+
+def _older_than(stamp: Any, days: int) -> bool:
+    """True khi mốc thu thập đọc được VÀ cũ hơn `days` ngày. Không đọc được mốc → không coi là cũ."""
+    try:
+        from tubecli.core.scraped_store import _parse_utc
+        dt = _parse_utc(str(stamp or ""))
+    except Exception:       # noqa: BLE001
+        return False
+    if dt is None:
+        return False
+    import datetime as _dt
+    return (_dt.datetime.now(_dt.timezone.utc) - dt).days > days
+
+
+def _open_bank_topics(agent_id: str, exclude: str = "") -> set:
+    """Khoá chủ đề của các task CÒN MỞ của agent này (hàng đợi, đang chạy, chờ duyệt) — đừng làm trùng chủ đề."""
+    from . import niche_memory as NM
+    try:
+        from tubecli.extensions.codex.manager import codex_manager
+        tasks = codex_manager.list_tasks(limit=500) or []
+    except Exception:       # noqa: BLE001
+        return set()
+    out = set()
+    for t in tasks:
+        if str(t.get("id")) == str(exclude) or str(t.get("status") or "") not in _OPEN_STATUSES:
+            continue
+        if str(t.get("assignee_id") or "") != str(agent_id):
+            continue
+        topic = str((t.get("meta") or {}).get("bank_topic") or "")
+        if topic:
+            out.add(NM.topic_key(topic))
+    return out
+
+
+def _bank_topic(state: Dict, cfg: Dict[str, Any]) -> Tuple[str, int]:
+    """(chủ đề lấy từ kho từ khoá, số chủ đề còn dùng được). Bỏ: dùng trong cooldown_days ngày, đang có task mở, chứa từ
+    cấm; rồi chấm qua bộ lọc ngách (tối đa BANK_TOPICS_TRIED chủ đề). Không có → ("", n)."""
+    from tubecli.core import niche as N
+    from . import niche_memory as NM
+
+    agent = state["agent"]
+    used = NM.used_topics(str(agent.id), int(cfg.get("cooldown_days") or 0))
+    busy = _open_bank_topics(str(agent.id), exclude=str(state.get("task_id") or ""))
+    free = [q for q in NM.bank_candidates(agent)
+            if NM.topic_key(q) not in used and NM.topic_key(q) not in busy and not N.deny_hit(cfg, q)]
+    for q in free[:BANK_TOPICS_TRIED]:
+        if state["_cancelled"]():
+            raise _cancel_exc()
+        r = N.niche_gate(agent, q, kind="topic", cfg=cfg)
+        if r["pass"]:
+            return q, len(free)
+        _task_event(state.get("task_id"), f"GATE_REJECT (bank topic): {q[:90]} — {r.get('reason') or 'off the niche'}")
+    return "", len(free)
+
+
+def _bank_brief(topic: str, cfg: Dict[str, Any], kept: List[Dict]) -> Dict[str, Any]:
+    """Mục corpus đứng đầu khi chủ đề lấy từ kho: nói rõ viết VỀ cái gì và dựa vào đâu."""
+    niche = str(cfg.get("niche_description") or "").strip()
+    return {
+        "title": f"VIDEO TOPIC (chosen from the channel's keyword bank): {topic}",
+        "url": "", "source": "bank", "scraped_at": "",
+        "content": (
+            f"Make this video about: {topic}\n"
+            + (f"Channel niche: {niche}\n" if niche else "")
+            + "Build the script on the primary text this topic names — quote the exact passage(s) (e.g. the Bible "
+              "verses) accurately, explain their meaning and context — and on the other on-niche sources below "
+            + ("(there are none: rely on the primary text and well-established background knowledge only). "
+               if not kept else f"({len(kept)} of them). ")
+            + "Use nothing else from collected material; never invent quotes, numbers or dates."),
+    }
 
 
 def _user_gave_content(state: Dict, options: Dict) -> bool:
@@ -2441,7 +2570,10 @@ def _step_script(state: Dict, options: Dict) -> None:
         words, words_from = resolve_words(opts_len, state.get("preset"))
         # Kênh chưa xác minh số điện thoại nhận tối đa 15 phút: lượt TỰ ĐĂNG viết vừa khung ngay từ đầu, thay vì dựng
         # một video 17 phút rồi mới thấy không đăng được (VPS 49, 22/10/2026: #35/#41/#42/#43 kẹt nháp trên YouTube).
-        if options.get("publish") and options.get("publish_unverified") and words > UNVERIFIED_SAFE_WORDS:
+        # 14/11/2026: áp cho MỌI lượt tự động của kênh chưa xác minh, kể cả lượt chỉ dựng (publish tắt / đang tự dừng) —
+        # video dựng xong mà dài 18 phút thì có bật đăng lại cũng không đăng được (contabo: 78 video nằm ở review).
+        if ((options.get("publish") or options.get("autopublish")) and options.get("publish_unverified")
+                and words > UNVERIFIED_SAFE_WORDS):
             state.setdefault("warnings", []).append(
                 f"This channel is marked “not verified”, and YouTube takes at most 15 minutes from it — so the script "
                 f"is written at ~{UNVERIFIED_SAFE_WORDS} words (~{minutes_of(UNVERIFIED_SAFE_WORDS)} min) instead of "
@@ -2624,6 +2756,9 @@ def _step_script(state: Dict, options: Dict) -> None:
     if long_warn:
         state.setdefault("warnings", []).append(long_warn)
 
+    if state.get("words_capped") and not verbatim:
+        text = fit_unverified(state, text)
+
     title = str(options.get("title") or "").strip()
     lines = text.splitlines()
     if lines and lines[0].upper().startswith("TITLE:"):
@@ -2636,6 +2771,7 @@ def _step_script(state: Dict, options: Dict) -> None:
     state["script"] = text
     state["title"] = title[:120]
     _task_title(state.get("task_id"), state["title"], options)
+    _refuse_duplicate_title(state, options)
     _task_meta(state.get("task_id"), language=state.get("language"))
     # Checkpoint the script: a revision round reads it back, and a restart
     # between plan and render must not lose an accepted text.
@@ -2691,6 +2827,52 @@ def _step_script_manga(state: Dict, options: Dict, agent, blocks: List[str], pas
     state["estimated_minutes"] = _ms.minutes_of_script(text)
     state["_say"]("script", "running", f"{_ms.dialogue_chars(text)} characters of dialogue · ~{state['estimated_minutes']} "
                                        f"min · {text.count('[SHOW:')} panels")
+
+
+def fit_unverified(state: Dict, text: str) -> str:
+    """Kịch bản của kênh CHƯA XÁC MINH phải ra video dưới 15 phút. Model hay viết lố mức xin: quá UNVERIFIED_HARD_WORDS
+    chữ lời đọc thì bỏ bớt cảnh ở GIỮA-CUỐI (giữ mở đầu và cảnh kết) cho tới khi vừa. Không gọi model — một lượt «rút
+    gọn» nữa có thể lại lố, còn cắt cảnh thì chắc chắn vừa."""
+    if narration_words(text) <= UNVERIFIED_HARD_WORDS:
+        return text
+    head = ""
+    lines = text.splitlines()
+    if lines and lines[0].upper().startswith("TITLE:"):
+        head, body = lines[0], "\n".join(lines[1:])
+    else:
+        body = text
+    blocks = [b for b in re.split(r"\n(?=\[SHOW:)", body.strip()) if b.strip()]
+    if len(blocks) < 4:
+        return text                     # không tách được cảnh: để nguyên, cảnh báo độ dài sẵn có sẽ nói
+    before = narration_words(text)
+    dropped = 0
+    while len(blocks) > 3 and narration_words("\n".join(blocks)) > UNVERIFIED_HARD_WORDS:
+        del blocks[-2]                  # cảnh ngay TRƯỚC cảnh kết — mở đầu và câu chốt giữ nguyên
+        dropped += 1
+    out = (head + "\n\n" if head else "") + "\n\n".join(b.strip() for b in blocks)
+    state.setdefault("warnings", []).append(
+        f"The draft was ~{before} words (~{minutes_of(before)} min read aloud), over the 15-minute limit of a channel "
+        f"that is not verified — {dropped} scene(s) before the closing one were dropped to fit "
+        f"(~{narration_words(out)} words). Verify the channel at {VERIFY_URL} for full-length videos.")
+    return out
+
+
+def _refuse_duplicate_title(state: Dict, options: Dict) -> None:
+    """Lưới thứ hai chống trùng (lưới đầu ở autopublish, so câu tìm kiếm): lượt TỰ ĐỘNG viết ra một tiêu đề trùng / gần
+    trùng với video đã có của chính agent này ⇒ dừng ở review TRƯỚC storyboard, ảnh, dựng (mỗi lượt ~3 giờ máy)."""
+    if not options.get("autopublish") or (state.get("feedback") or []):
+        return
+    try:
+        from . import autopublish
+        dup = autopublish.duplicate_task(str(state["agent"].id), [state.get("title") or ""],
+                                         exclude=str(state.get("task_id") or ""))
+    except Exception as e:      # noqa: BLE001
+        logger.info(f"[ContentVideo] duplicate check unavailable: {e}")
+        return
+    if dup:
+        raise NicheHold(f"⚠ DUPLICATE TOPIC — «{state.get('title')}» was already made as task #{dup.get('seq', '?')}",
+                        f"Task #{dup.get('seq', '?')} «{str(dup.get('title') or '')[:100]}» of this agent covers the "
+                        "same topic. Nothing was rendered. Cancel this task, or Request changes with a different angle.")
 
 
 # ── Stage 2 steps ────────────────────────────────────────────────────
@@ -4030,9 +4212,12 @@ def _step_images(state: Dict, options: Dict) -> None:
         # Chỉ chặn khi KHÔNG shot nào vẽ được. Bản đầu chặn cả khi 9/10 shot đã có
         # ảnh sẵn và chỉ một shot thiếu (tập 302, 11/9/2026) — đúng lượt đó còn
         # dựng được, và lẽ ra phải đi tiếp.
-        if missing and not res.get("with_prompt"):
+        # Chỉ khi Studio NÓI RÕ không shot nào có prompt (trường with_prompt có mặt và bằng 0). Content Studio cũ không
+        # trả with_prompt / no_prompt: thiếu trường KHÔNG có nghĩa là 0 — bản trước coi là 0 và chặn oan lượt dựng.
+        # Con số trong câu là SỐ shot (no_prompt của Studio), không phải danh sách số thứ tự (từng in «[1, 3, 4, 5]/14»).
+        if missing and "with_prompt" in res and not res.get("with_prompt"):
             raise RuntimeError(
-                f"{missing}/{res.get('shots', '?')} shots have no image prompt, "
+                f"{res.get('no_prompt') or len(missing)}/{res.get('shots', '?')} shots have no image prompt, "
                 "so there is nothing to draw. The storyboard step produced shots without "
                 "an `image_prompt` field — re-run the storyboard, or fill the prompts in "
                 "Content Studio before rendering.")
@@ -4127,11 +4312,52 @@ def _library_image_warnings(data: Dict) -> List[str]:
             + ". They match the scene's tags, not its exact prompt — check those scenes before publishing."]
 
 
+_CODEX_DRIVER_RE = re.compile(r"The '([\w.\-]+)' model is not supported when using Codex with a ChatGPT account", re.I)
+
+
+def codex_image_driver_hint(reason: str) -> str:
+    """Câu người đọc được cho lỗi 400 của `cx/gpt-image-*` qua 9Router (14/11/2026, contabo: «The 'gpt-5.6-sol' model is
+    not supported when using Codex with a ChatGPT account»), hay "" khi không phải lỗi đó.
+
+    TubeCLI chỉ gửi `model: cx/gpt-image-2`; chính 9Router bọc lời xin vẽ trong một lượt chat Codex bằng một model
+    «lái» nó tự chọn (bản 0.5.95: gpt-5.5; bản trên contabo: gpt-5.6-sol). Gói ChatGPT đăng nhập trong 9Router không có
+    model lái ấy thì MỌI ảnh hỏng — không phải hết lượt, đợi cũng không khỏi (đoạn «reset after …» là giờ 9Router tự
+    khoá model sau lỗi). Sửa ở 9Router (đổi tài khoản / gói, hay đổi bản 9Router), không sửa được từ TubeCLI."""
+    m = _CODEX_DRIVER_RE.search(str(reason or ""))
+    if not m:
+        return ""
+    return (f"9Router draws it through the Codex chat model «{m.group(1)}», and the ChatGPT plan signed in to 9Router "
+            f"does not include that model, so every image fails (waiting does not help). In 9Router, sign in a "
+            f"ChatGPT account whose plan has «{m.group(1)}», or install a 9Router version that drives images with a "
+            f"model your plan has.")
+
+
 def _fallback_image_warnings(data: Dict) -> List[str]:
     """Ảnh vẽ bằng ĐƯỜNG LÙI (21/10/2026, user «khi làm ảnh với đường lùi thì hiện thêm thông tin ở phần duyệt để người
     dùng biết là video sử dụng model fallback để hoàn thành»). Studio ghi `fallback_images` {count, total, drew, from}
     vào lượt vẽ; Studio cũ không ghi → []."""
     fb = data.get("fallback_images") if isinstance(data, dict) and isinstance(data.get("fallback_images"), dict) else {}
+    # Model ảnh HỎNG HẲN (10/11/2026: model của mẫu trả 400 «model not supported», 70/79 shot vẽ bằng đường lùi sau khi
+    # mỗi shot thử lại 6 lần): Studio mới đánh dấu model đó chết một lần (6 giờ) và ghi `dead_image_models`
+    # [{model, reason, shots}] — một dòng cho MỖI model, thay cho câu chung bên dưới.
+    dead = data.get("dead_image_models") if isinstance(data, dict) else None
+    if not isinstance(dead, list):
+        dead = fb.get("dead_models") if isinstance(fb.get("dead_models"), list) else []
+    dead_lines = []
+    for d in dead[:5]:
+        if not isinstance(d, dict) or not d.get("model"):
+            continue
+        shots = d.get("shots")
+        hint = codex_image_driver_hint(str(d.get("reason") or ""))
+        dead_lines.append(
+            f"Image model {d['model']} is not usable — "
+            + (hint or f"{' '.join(str(d.get('reason') or 'permanent error').split())[:200]}.")
+            + " It was marked failed (not retried for 6 hours)"
+            + (f"; {shots} shot(s) went straight to the fallback" if shots else "")
+            + (" — fix it in 9Router, or change the template's image model in Content Studio." if hint
+               else " — fix or change it in Settings → AI image, or in the template."))
+    if dead_lines:
+        return dead_lines
     try:
         n = int(fb.get("count") or 0)
     except (TypeError, ValueError):
@@ -5184,8 +5410,11 @@ def _dub_user_file(state: Dict, options: Dict) -> None:
         if not path:
             raise ValueError("the voice file is missing on this machine")
         st = os.stat(path)
+        # phụ đề .srt / .vtt dán kèm (14/11/2026) → cắt theo mốc của nó, không dò lại bằng Whisper
+        cues = load_voice_cues(path)
         key = hashlib.sha1(json.dumps([path, st.st_size, int(st.st_mtime), [[s.get("id"), p] for s, p in
-                                                                          zip(voiced, paragraphs)]],
+                                                                          zip(voiced, paragraphs)]]
+                                      + ([len(cues)] if cues else []),
                                       ensure_ascii=False).encode("utf-8")).hexdigest()
         from tubecli.config import DATA_DIR
         out_dir = os.path.join(str(DATA_DIR), "content_video", "audio", f"ep{ep_id}_user")
@@ -5198,8 +5427,12 @@ def _dub_user_file(state: Dict, options: Dict) -> None:
             for s in voiced:
                 f0 = _shot_audio_file(str(s.get("tts_audio_url") or ""))
                 guides.append(media_seconds(f0) if f0 and os.path.isfile(f0) else 0.0)
-            say("dub", "running", f"listening to your voice file {name} to find where each of the {len(voiced)} "
-                                  "scenes starts", 0)
+            if cues:
+                say("dub", "running", f"cutting your voice file {name} into {len(voiced)} scenes by the times in "
+                                      f"your subtitles ({len(cues)} lines)", 0)
+            else:
+                say("dub", "running", f"listening to your voice file {name} to find where each of the {len(voiced)} "
+                                      "scenes starts", 0)
             last = {"t": 0.0, "at": 0.0}
 
             def heard(sec: float, total: float) -> None:
@@ -5216,7 +5449,8 @@ def _dub_user_file(state: Dict, options: Dict) -> None:
             info = _nd.split_by_paragraph(path, paragraphs, out_dir, language=str(state.get("language") or ""),
                                           names=[f"shot{int(s.get('storyboard_number') or i + 1):03d}"
                                                  for i, s in enumerate(voiced)],
-                                          guides=guides, progress=heard)
+                                          guides=guides, progress=heard, cues=cues, install_whisper=True,
+                                          notice=lambda msg: say("dub", "running", msg))
             files = [str(f.get("path") or "") for f in info["files"]]
             if len(files) != len(voiced) or not all(files):
                 raise ValueError("some scenes of the script were not found in the voice file")
@@ -5243,7 +5477,8 @@ def _dub_user_file(state: Dict, options: Dict) -> None:
     _task_meta(state.get("task_id"), voice={"engine": "file", "id": "user-file", "name": name[:80]})
     _audio_check(state)
     m = ck.get("match")
-    how = (f"subtitles follow your voice (Whisper match {float(m):.0%})" if ck.get("engine") == "whisper" and m
+    how = ("cut by the times in your subtitles; subtitles keep those times" if ck.get("engine") == "subtitles"
+           else f"subtitles follow your voice (Whisper match {float(m):.0%})" if ck.get("engine") == "whisper" and m
            else "cut by the temporary voice's timing at the pauses; subtitles are estimated" if ck.get("engine") == "guide"
            else "cut at the pauses; subtitles are estimated")
     say("dub", "running", f"{len(files)} scene(s) voiced from your file ({changed} updated) — {how}")
@@ -5806,6 +6041,33 @@ def _profile_identities(agent) -> List[Tuple[str, List[str]]]:
     return out
 
 
+def _profile_matches_channel(agent, profile: str, name: str) -> bool:
+    """Hồ sơ `profile` có mang tên kênh `name` không (tên hồ sơ, bí danh nhóm, tài khoản Google, ghi chú) — cùng luật so
+    với _profile_for_channel. Hồ sơ ngoài phạm vi agent vẫn được xét theo dữ liệu của chính nó."""
+    want = _ident_key(name)
+    if not want or not profile:
+        return False
+    labels = next((labs for prof, labs in _profile_identities(agent) if prof == profile), None)
+    if labels is None:
+        labels = [profile]
+        try:
+            from tubecli.extensions.browser.profile_manager import get_profile
+            p = get_profile(profile) or {}
+            ga = p.get("google_account") or {}
+            if isinstance(ga, dict):
+                email = str(ga.get("email") or "")
+                labels += [email, email.split("@")[0] if "@" in email else "", str(ga.get("label") or ""),
+                           str(ga.get("name") or ""), str(ga.get("display_name") or "")]
+            labels.append(str(p.get("notes") or ""))
+        except Exception as e:      # noqa: BLE001
+            logger.debug(f"[ContentVideo] profile {profile}: {e}")
+    for lab in labels:
+        k = _ident_key(lab)
+        if k and (k == want or ((want in k or k in want) and min(len(k), len(want)) >= 4)):
+            return True
+    return False
+
+
 def _profile_for_channel(agent, name: str) -> str:
     """Hồ sơ trình duyệt mà tên kênh trỏ tới (bí danh nhóm, tên hồ sơ, tài khoản
     Google gắn với hồ sơ), hay "". Kênh không có token API vẫn đăng được qua đúng
@@ -5851,16 +6113,25 @@ def _resolve_channel(state: Dict, options: Dict) -> Dict[str, str]:
         # Không token API nào quản lý kênh này → tìm HỒ SƠ TRÌNH DUYỆT mang tên/tài
         # khoản đó (bí danh nhóm, tên hồ sơ, google_account). Ví dụ thật: "mai le" là
         # tài khoản đang đăng nhập trong hồ sơ test2 của nhóm, không có token.
-        prof = "" if options.get("publish_profile") else _profile_for_channel(agent, name)
+        forced = str(options.get("publish_profile") or "").strip()
+        # Hồ sơ đăng đã chọn sẵn (publish_profile) cũng phải KHỚP tên kênh (10/11/2026): trước đây có publish_profile là
+        # bỏ qua hẳn phép so, rồi chỉ cảnh báo và đăng vào kênh mặc định của hồ sơ — video công khai lên nhầm kênh
+        # không có nút hoàn tác.
+        prof = (forced if _profile_matches_channel(agent, forced, name) else "") if forced \
+            else _profile_for_channel(agent, name)
         if prof:
-            options["publish_profile"] = prof
+            if not forced:
+                options["publish_profile"] = prof
             state["channel_profile"] = prof
             state["_say"]("publish", "running", f"channel “{name}” → browser profile “{prof}”") if callable(state.get("_say")) else None
         else:
-            state.setdefault("warnings", []).append(
-                f"Channel “{name}” has no API token here and no browser profile is named/aliased/logged in as it — "
-                "publishing to the default channel of the profile picked for this agent. Give the group's "
-                "profile the alias “{name}” (or add a Google token) to pin it.")
+            state["channel_mismatch"] = (
+                f"Publishing stopped: channel “{name}” matches no YouTube API token here and no browser profile "
+                + (f"— the publish profile “{forced}” is not named, aliased or logged in as it" if forced
+                   else "is named, aliased or logged in as it")
+                + ", so the video would land on the profile's default channel instead. Fix it by giving the profile "
+                f"the alias “{name}” in its Flow group (or writing “{name}” in the profile's notes), choosing the "
+                "channel id in the agent's Data collection tab, or adding a Google token for that channel.")
     res = {"id": str(options.get("publish_channel_id") or ""),
            "name": str(options.get("publish_channel_name") or name),
            "token_id": str(options.get("publish_token_id") or ""),
@@ -5975,14 +6246,107 @@ def _seo_sources(state: Dict) -> List[Dict]:
     return [r for r in rows if str(r.get("title") or "").strip() or str(r.get("url") or "").strip()]
 
 
-def _seo_fallback(state: Dict) -> Dict[str, Any]:
-    """Bản dự phòng khi model im lặng: vẫn đăng được, chỉ là không có SEO."""
+_SEO_FIELD_RE = {
+    "keyword": re.compile(r'"keyword"\s*:\s*"(.*?)"\s*,\s*"(?:title|description|tags|chapters)"', re.S),
+    "title": re.compile(r'"title"\s*:\s*"(.*?)"\s*,\s*"(?:keyword|description|tags|chapters)"', re.S),
+    "description": re.compile(r'"description"\s*:\s*"(.*?)"\s*,\s*"(?:keyword|title|tags|chapters)"\s*:', re.S),
+}
+_SEO_LABEL_RE = re.compile(r"^\s*\**\s*(keyword|title|description|tags)\s*\**\s*[:：]\s*\**\s*(.*)$", re.I)
+_SEO_STOP = frozenset("""about above after again against because before being below between could doing during every
+from further having himself herself itself other ought ourselves should their theirs themselves there these those
+through under until where which while would yourself yourselves really means meaning what when with that this have
+will your they them then than into also just more most some such only over very still para como pero porque cuando
+donde sobre entre desde hasta todos todas esta este estos estas cada mucho muchos tiene tienen puede pueden
+nhung nhieu cung trong ngoai nhu vay khong duoc chung minh nguoi nhung""".split())
+
+
+def _seo_unescape(s: str) -> str:
+    return (s.replace('\\n', "\n").replace('\\"', '"').replace("\\/", "/").replace("\\t", " ")).strip()
+
+
+def _seo_lenient(raw: str) -> Optional[Dict[str, Any]]:
+    """Đọc câu trả lời SEO KHÔNG phải JSON hợp lệ. Hai dạng gặp thật: (1) gần-JSON mà dấu nháy / xuống dòng trong mô tả
+    không thoát (model qua phiên trình duyệt — Muse) → lấy từng trường theo mốc tên trường kế tiếp; (2) văn bản có
+    nhãn «Title: … / Description: … / Tags: …». Không đọc ra đủ tiêu đề + mô tả → None."""
+    s = str(raw or "").strip()
+    if not s:
+        return None
+    out: Dict[str, Any] = {}
+    if '"title"' in s and '"description"' in s:
+        for key, rx in _SEO_FIELD_RE.items():
+            m = rx.search(s)
+            if m:
+                out[key] = _seo_unescape(m.group(1))
+        tm = re.search(r'"tags"\s*:\s*\[(.*?)\]', s, re.S)
+        if tm:
+            out["tags"] = [_seo_unescape(x) for x in re.findall(r'"((?:[^"\\]|\\.)*)"', tm.group(1))]
+        if "description" not in out:
+            # mô tả là trường CUỐI: lấy tới dấu nháy đóng trước «}» cuối cùng
+            dm = re.search(r'"description"\s*:\s*"(.*)"\s*\}?\s*$', s, re.S)
+            if dm:
+                out["description"] = _seo_unescape(dm.group(1))
+    else:
+        cur = None
+        for line in s.splitlines():
+            m = _SEO_LABEL_RE.match(line)
+            if m:
+                cur = m.group(1).lower()
+                out[cur] = m.group(2).strip()
+            elif cur == "description":
+                out[cur] = (out[cur] + "\n" + line.rstrip()).strip()
+        if isinstance(out.get("tags"), str):
+            out["tags"] = [t for t in re.split(r"[,\n]", out["tags"]) if t.strip()]
+    if not str(out.get("title") or "").strip() or not str(out.get("description") or "").strip():
+        return None
+    return out
+
+
+def _seo_fallback_tags(title: str, script: str, channel_name: str = "", limit: int = 12) -> List[str]:
+    """Tag dựng KHÔNG cần AI: tiêu đề và các vế của nó, tên kênh, rồi những từ lặp nhiều nhất trong kịch bản."""
+    tags: List[str] = []
+
+    def add(t: str) -> None:
+        t = " ".join(str(t or "").replace("#", " ").split()).strip(" -–—:|,.?!\"“”'")
+        if 3 <= len(t) <= 60 and t.lower() not in [x.lower() for x in tags]:
+            tags.append(t)
+
+    for part in re.split(r"\s*[:|–—]\s*|\s+-\s+", title):
+        add(part)
+    add(title)
+    add(channel_name)
+    words = re.findall(r"[^\W\d_]{5,}", f"{title} {script}".lower())
+    freq: Dict[str, int] = {}
+    for w in words:
+        if w not in _SEO_STOP:
+            freq[w] = freq.get(w, 0) + 1
+    for w, n in sorted(freq.items(), key=lambda kv: (-kv[1], kv[0])):
+        if len(tags) >= limit or n < 2:
+            break
+        add(w)
+    return tags[:limit]
+
+
+def _seo_fallback(state: Dict, channel: Optional[Dict] = None) -> Dict[str, Any]:
+    """Bản dự phòng khi KHÔNG model nào trả lời (14/11/2026): tiêu đề của chính video; mô tả = đoạn mở của kịch bản
+    (cắt ở cuối câu) + link nguồn + hashtag; tag dựng từ tiêu đề / kịch bản / tên kênh. Trước đây: 300 ký tự kịch bản,
+    0 tag — video lên kênh gần như không có SEO."""
     script = " ".join(_CUE_RE.sub(" ", str(state.get("script") or "")).split())
+    title = str(state.get("title") or "")[:YT_TITLE_MAX]
+    ch_name = str((channel or {}).get("name") or "").strip()
     urls = [str(r.get("url") or "") for r in _seo_sources(state)
             if str(r.get("url") or "").startswith("http")]
-    desc = script[:300] + (("\n\nSources:\n" + "\n".join(urls[:5])) if urls else "")
-    return {"title": str(state.get("title") or "")[:YT_TITLE_MAX],
-            "description": _clamp_desc(desc), "tags": []}
+    lead = script[:700]
+    if len(script) > 700:
+        cut = max(lead.rfind(". "), lead.rfind("? "), lead.rfind("! "), lead.rfind("。"))
+        lead = lead[:cut + 1] if cut >= 250 else lead.rsplit(" ", 1)[0] + "…"
+    tags = _seo_fallback_tags(title, script, ch_name)
+    blocks = [b for b in (title if title and title.lower() not in lead.lower()[:200] else "", lead) if b]
+    if urls:
+        blocks.append("Sources:\n" + "\n".join(urls[:5]))
+    hs = _hashtags_from(tags)
+    if hs:
+        blocks.append(" ".join(hs))
+    return {"title": title, "description": _clamp_desc("\n\n".join(blocks)), "tags": _clean_tags(tags)}
 
 
 # ── Tiêu chí SEO khi đăng (19/10/2026) ───────────────────────────────
@@ -6376,27 +6740,37 @@ def _seo_write(state: Dict, options: Dict, channel: Dict, rules: Optional[Dict] 
                         + "\n".join(own) + "\n")
     if retry:
         user_prompt += "\n" + retry + "\n"
-    raw = ""
-    try:
-        raw = AgentBrain._call_llm(
-            agent.to_dict(),
-            [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-            temperature=0.6,
-        ) or ""
-    except Exception as e:
-        logger.warning(f"[ContentVideo] SEO model call failed: {e}")
-    data = _json_object(raw) if (raw and not str(raw).startswith("❌") and not is_llm_error(str(raw))) else None
+    # Model của agent trước, rồi model của nhà khác đang dùng được (14/11/2026, contabo: agent chạy muse-spark trả JSON
+    # hỏng — dấu nháy trong mô tả không thoát — nên MỌI video lên kênh với tiêu đề trơn, không tag). Mỗi câu trả lời
+    # được đọc khoan dung (_seo_lenient) trước khi coi là «không trả lời».
+    data, tried = None, []
+    messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}]
+    for cand in _model_chain(agent, max_alternates=2):
+        raw = ""
+        tried.append(_model_label(cand) or "default model")
+        try:
+            raw = AgentBrain._call_llm(cand.to_dict(), messages, temperature=0.6) or ""
+        except Exception as e:
+            logger.warning(f"[ContentVideo] SEO model call failed ({tried[-1]}): {e}")
+        if not raw or str(raw).startswith("❌") or is_llm_error(str(raw)):
+            continue
+        got = _json_object(raw) or _seo_lenient(str(raw))
+        if got and str(got.get("title") or "").strip() and str(got.get("description") or "").strip():
+            data = got
+            break
     title = str((data or {}).get("title") or "").strip().strip("\"“” ")
     desc = str((data or {}).get("description") or "").strip()
     tags = _clean_tags((data or {}).get("tags"))
     keyword = str((data or {}).get("keyword") or "").strip().strip("\"“” ")
     fell_back = not title or not desc
     if fell_back:
-        state.setdefault("warnings", []).append(
-            "The SEO model did not answer, so the video was published with a plain title and no "
-            "tags — edit its title, description and tags on YouTube if you want the reach.")
-        seo = _seo_fallback(state)
+        seo = _seo_fallback(state, channel)
         title, desc, tags = seo["title"], seo["description"], seo["tags"]
+        state.setdefault("warnings", []).append(
+            "The SEO model did not answer"
+            + (f" (tried {', '.join(tried[:3])})" if tried else "")
+            + f", so the title is the video's own title and the description and {len(tags)} tag(s) were built from "
+              "the script without AI — edit them on YouTube if you want more reach.")
     elif "#" not in desc and tags:
         # Model quên hashtag: dựng từ chính tag của nó, đừng để mô tả cụt đuôi.
         hs = _hashtags_from(tags)
@@ -6409,8 +6783,8 @@ def _seo_write(state: Dict, options: Dict, channel: Dict, rules: Optional[Dict] 
     if ov_tags:
         tags = ov_tags
     if fell_back:
-        # Model câm: đúng như câu cảnh báo — tiêu đề trơn, không tag, không bịa từ khoá / chương.
-        return {"title": title[:YT_TITLE_MAX], "description": _clamp_desc(desc), "tags": tags}
+        # Model câm: tiêu đề trơn, mô tả + tag dựng từ kịch bản (không bịa chương).
+        return {"title": title[:YT_TITLE_MAX], "description": _clamp_desc(desc), "tags": _clean_tags(tags)}
     # Model đôi khi vẫn chép mốc vào mô tả: bỏ dòng «0:00 …» của nó, chương hợp lệ do _seo_polish chèn.
     if not ov_desc:
         desc = "\n".join(ln for ln in desc.splitlines() if not re.match(r"^\s*(?:\d+:)?\d{1,2}:\d{2}\s", ln))
@@ -6696,15 +7070,56 @@ CLEAR_OVERLAYS_CODE = (
 PUBLISH_CLICK_LABEL = "t2:publish-click — bấm Xuất bản bằng JS nếu chuột không bấm được"
 # Chỉ bấm khi nút VẪN CÒN ở bước Hiển thị của hộp tải lên: nút còn nghĩa là chưa ai
 # bấm được nó. Ở màn khác thì nút ấy là "Lưu" — bấm vào đúng là tự tay tạo bản nháp.
+# Chữ «xuất bản» trên nút của hộp XÁC NHẬN PHỤ (Studio hỏi lại khi còn đang kiểm tra nội dung…) theo ngôn ngữ giao diện.
+_PUBLISH_WORDS = ("publish|xuất bản|đăng|publicar|publier|veröffentlichen|pubblica|公開|发布|發布|게시|опубликовать|"
+                  "yayınla|terbitkan|เผยแพร่|نشر")
+# JS dùng chung: những dòng LỖI / hộp phụ đang hiện trên trang — thứ giải thích vì sao bấm Xuất bản không ăn.
+_PUBLISH_DIAG_JS = (
+    "const diag = () => { const vis = (e) => !!e && e.getBoundingClientRect().width > 0; const out = []; "
+    "const push = (t) => { t = (t || '').replace(/\\s+/g, ' ').trim(); if (t && !out.includes(t)) out.push(t.slice(0, 160)); }; "
+    "for (const e of document.querySelectorAll(\"ytcp-uploads-dialog .error-short, ytcp-uploads-dialog .error-area, "
+    "ytcp-uploads-dialog [role='alert'], ytcp-uploads-dialog ytcp-form-input-container[invalid], "
+    "ytcp-uploads-dialog .ytcp-thumbnails-compact-editor-uploader-old[error], ytcp-uploads-dialog #error-message, "
+    "ytcp-uploads-dialog ytcp-banner, tp-yt-paper-toast, ytcp-toast-manager\")) if (vis(e)) push(e.textContent); "
+    "for (const d of document.querySelectorAll('ytcp-prechecks-warning-dialog, ytcp-confirmation-dialog, ytcp-dialog, "
+    "tp-yt-paper-dialog')) { if (!vis(d) || d.querySelector('#done-button') || d.closest('ytcp-uploads-dialog') "
+    "|| d.closest('ytcp-video-share-dialog')) continue; push('[' + d.tagName.toLowerCase() + '] ' + d.textContent); } "
+    "return out.slice(0, 5).join(' ¦ '); }; "
+)
+
+# 14/11/2026 (tuan4, 3 trong 30 lượt đăng ra NHÁP: lượt 678 / 693 / 700): nút Xuất bản BẬT, đúng bước Hiển thị, đã bấm 4
+# lần (3 chuột + 1 JS) mà Studio đứng yên — lượt thành công thì sau cú bấm đầu nút mờ đi rồi hiện «Video published».
+# Bản cũ bấm MỘT lần rồi đi tiếp, không nhìn hộp nào khác. Nay sau khi bấm: chờ tới ~30 s; có hộp xác nhận phụ với nút
+# mang chữ «xuất bản» thì bấm nó; nút vẫn bật thì bấm lại ở giây 10 và 20; vẫn không ăn thì trả lý do đọc được trên trang.
 PUBLISH_CLICK_CODE = (
-    "(() => { const btn = [...document.querySelectorAll('#done-button')]"
-    ".find((e) => e.getBoundingClientRect().width > 0); "
-    "if (!btn) return 'gone'; "
+    "(async () => { const vis = (e) => !!e && e.getBoundingClientRect().width > 0; "
+    "const sleep = (ms) => new Promise((go) => setTimeout(go, ms)); "
+    "const RX = new RegExp('" + _PUBLISH_WORDS + "', 'i'); "
+    + _PUBLISH_DIAG_JS +
+    "const btnOf = () => [...document.querySelectorAll('#done-button')].find(vis); "
+    "const shared = () => vis(document.querySelector('ytcp-video-share-dialog, ytcp-uploads-still-processing-dialog')); "
+    "const press = (b) => (b.querySelector('button') || b).click(); "
+    "const confirm = () => { for (const d of document.querySelectorAll('ytcp-prechecks-warning-dialog, "
+    "ytcp-confirmation-dialog, ytcp-dialog, tp-yt-paper-dialog')) { "
+    "if (!vis(d) || d.querySelector('#done-button') || d.closest('ytcp-uploads-dialog') "
+    "|| d.closest('ytcp-video-share-dialog')) continue; "
+    "const b = [...d.querySelectorAll('ytcp-button, tp-yt-paper-button, button')].filter(vis)"
+    ".find((x) => RX.test((x.textContent || '').trim())); "
+    "if (b) { press(b); return (b.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 30); } } return ''; }; "
+    "if (shared()) return 'published'; "
+    "const btn = btnOf(); if (!btn) return 'gone'; "
     "const dlg = btn.closest('ytcp-uploads-dialog'); if (!dlg) return 'no-dialog'; "
     "if (!dlg.querySelector(\"#privacy-radios, tp-yt-paper-radio-button[name='PUBLIC'], ytcp-video-visibility-select\")) "
     "return 'not-visibility-step'; "
     "if (btn.getAttribute('aria-disabled') === 'true') return 'disabled'; "
-    "(btn.querySelector('button') || btn).click(); return 'clicked'; })()"
+    "press(btn); let confirmed = ''; "
+    "for (let i = 1; i <= 30; i++) { await sleep(1000); "
+    "if (shared()) return confirmed ? 'clicked+confirmed: ' + confirmed : 'clicked'; "
+    "const c = confirm(); if (c) { confirmed = c; continue; } "
+    "const b = btnOf(); if (!b) return confirmed ? 'clicked+confirmed: ' + confirmed : 'clicked'; "
+    "if (b.getAttribute('aria-disabled') === 'true') return confirmed ? 'clicked+confirmed: ' + confirmed : 'clicked'; "
+    "if (i === 10 || i === 20) press(b); } "
+    "return 'no-effect: ' + (diag() || 'the Publish button stayed enabled and nothing on the page explains why'); })()"
 )
 
 VERIFY_PUBLISH_LABEL = "t2:verify-publish — đọc trạng thái thật sau khi bấm Xuất bản"
@@ -6713,10 +7128,15 @@ VERIFY_PUBLISH_VAR = "t2_publish"
 # tải lên với nút Xuất bản nghĩa là video mới chỉ được LƯU NHÁP. Chờ tối đa ~25 s.
 VERIFY_PUBLISH_CODE = (
     "(async () => { const vis = (e) => !!e && e.getBoundingClientRect().width > 0; "
+    + _PUBLISH_DIAG_JS +
     "const look = () => { "
     "const share = document.querySelector('ytcp-video-share-dialog, ytcp-uploads-still-processing-dialog'); "
-    "if (vis(share)) { const a = share.querySelector('a[href*=\"youtu\"]'); "
-    "return {state: 'published', url: a ? a.href : '', "
+    # Link VIDEO, không phải link đầu tiên có chữ «youtu»: hộp thoại có cả link trợ giúp
+    # support.google.com/youtube?p=upload_videos — bản cũ lấy nhầm nó và báo «Published: <link trợ giúp>» (10/11/2026).
+    "if (vis(share)) { const a = Array.from(share.querySelectorAll('a[href]')).find((x) => "
+    "/(youtu\\.be\\/|youtube\\.com\\/(watch\\?v=|shorts\\/))[A-Za-z0-9_-]{6,}/.test(x.href)); "
+    "const m = (share.textContent || '').match(/youtu\\.be\\/[A-Za-z0-9_-]{6,}/); "
+    "return {state: 'published', url: a ? a.href : (m ? 'https://' + m[0] : ''), "
     "note: (share.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 120)}; } "
     "const dlg = document.querySelector('ytcp-uploads-dialog'); "
     "if (!vis(dlg)) return {state: 'closed', url: '', note: ''}; return null; }; "
@@ -6724,7 +7144,7 @@ VERIFY_PUBLISH_CODE = (
     "await new Promise((go) => setTimeout(go, 1000)); } "
     "const dlg = document.querySelector('ytcp-uploads-dialog'); "
     "const btn = document.querySelector('#done-button'); "
-    "return {state: 'draft', url: '', note: ((btn ? btn.textContent : '') + ' | ' + "
+    "return {state: 'draft', url: '', why: diag(), note: ((btn ? btn.textContent : '') + ' | ' + "
     "(dlg ? dlg.textContent : '')).replace(/\\s+/g, ' ').trim().slice(0, 160)}; })()"
 )
 
@@ -7268,6 +7688,24 @@ def _run_upload_script(state: Dict, options: Dict, slug: str, variables: Dict, p
                            headless=True, timeout=PUBLISH_SCRIPT_TIMEOUT)
 
 
+_VIDEO_ID_RE = re.compile(r"[A-Za-z0-9_-]{6,20}")
+_VIDEO_URL_RE = re.compile(r"^https?://(?:www\.|m\.)?(?:youtu\.be/|youtube\.com/(?:watch\?(?:.*&)?v=|shorts/|live/))"
+                           r"([A-Za-z0-9_-]{6,20})(?![A-Za-z0-9_-])")
+
+
+def youtube_video_id(url: str) -> str:
+    """Id video khi `url` THẬT SỰ là link một video YouTube (youtu.be/<id>, watch?v=<id>, shorts/<id>), ngược lại "".
+    support.google.com/youtube?p=upload_videos, trang kênh, studio.youtube.com… đều ra ""."""
+    m = _VIDEO_URL_RE.match(str(url or "").strip())
+    return m.group(1) if m else ""
+
+
+def _step_final(state: Dict, sid: str, status: str, message: str = "") -> None:
+    """Bước tự chọn trạng thái KẾT THÚC của mình (vd. «warning» khi xong mà chưa xác minh được) — _run_steps dùng nó
+    thay cho «success» mặc định."""
+    state.setdefault("_step_final", {})[sid] = (status, message)
+
+
 def _publish_verdict(state: Dict, res) -> Dict[str, str]:
     """Bước t2:verify-publish nói gì về video vừa đăng. Ném khi Studio giữ lại bản
     NHÁP: script vẫn "chạy xong" trong ca đó (bấm Lưu lúc file còn đang tải rồi đóng
@@ -7286,11 +7724,17 @@ def _publish_verdict(state: Dict, res) -> Dict[str, str]:
         return {}
     st = str(raw.get("state") or "").strip().lower()
     note = " ".join(str(raw.get("note") or "").split())[:200]
+    # Lý do đọc được trên trang (14/11/2026): dòng lỗi / hộp phụ đang hiện, từ bước verify hay từ bước bấm («no-effect: …»).
+    why = " ".join(str(raw.get("why") or "").split())[:400]
+    click = str(res.get("t2_publish_click") or "") if isinstance(res, dict) else ""
+    if not why and click.startswith("no-effect: "):
+        why = " ".join(click[len("no-effect: "):].split())[:400]
     if st == "draft":
         raise RuntimeError(
             "YouTube kept the video as a DRAFT — the upload dialog was still open when the "
-            "script finished, which is what happens when Publish is pressed while the file is "
-            "still uploading. Nothing was published" + (f" (dialog said: {note})" if note else "") + ".")
+            "script finished: the Publish button was pressed but YouTube Studio did not publish. "
+            + (f"On the page: {why}. " if why else "The page showed no error message. ")
+            + "Nothing was published" + (f" (dialog said: {note})" if note else "") + ".")
     if st == "closed":
         state.setdefault("warnings", []).append(
             "The upload dialog closed without YouTube's “video published” confirmation — "
@@ -7378,16 +7822,25 @@ def _publish_via_script(state: Dict, options: Dict, privacy: str) -> None:
     # Script CÓ THỂ trả về id/link nếu người dùng cho nó xuất biến; không có thì
     # cũng không được bịa. Video đã lên, chỉ là ta không cầm được đường dẫn.
     vid = str(res.get("video_id") or res.get("videoId") or "").strip()
-    url = str(res.get("video_url") or res.get("url") or "").strip() or str(verdict.get("url") or "")
-    if not vid and url:
-        m = re.search(r"(?:youtu\.be/|[?&]v=)([A-Za-z0-9_-]{6,})", url)
-        vid = m.group(1) if m else ""
-    if vid and not url:
-        url = "https://www.youtube.com/watch?v=%s" % vid
-    if not vid and not url:
+    if not _VIDEO_ID_RE.fullmatch(vid):
+        vid = ""
+    url = ""
+    for cand in (res.get("video_url"), res.get("url"), verdict.get("url")):
+        cid = youtube_video_id(str(cand or ""))
+        if cid:
+            vid, url = vid or cid, str(cand).strip()
+            break
+    if vid:
+        url = url or "https://youtu.be/%s" % vid
+    else:
+        # Không cầm được id video thì KHÔNG báo đăng thành công (10/11/2026: kết quả ghi «Published:
+        # https://support.google.com/youtube?p=upload_videos» — link trợ giúp trong hộp thoại, không xác minh được gì).
+        state["publish_unverified_url"] = True
+        _step_final(state, "publish", "warning",
+                    "UNVERIFIED — YouTube Studio finished but no video link (youtu.be/<id>) was found")
         state.setdefault("warnings", []).append(
-            "Published through YouTube Studio, but the script returned no video id — "
-            "open the channel to confirm the upload.")
+            "UNVERIFIED: the upload script finished but returned no video id — no video link (youtu.be/<id>) could be "
+            "read from YouTube Studio — open the channel and check the video is there (and not a draft) before counting it.")
     state["published"] = {
         "video_id": vid,
         "url": url,
@@ -7412,6 +7865,9 @@ def _publish_now(state: Dict, options: Dict) -> None:
     sched = _publish_schedule(state, options, privacy)
     state["publish_schedule"] = sched
     try:
+        _resolve_channel(state, options)
+        if state.get("channel_mismatch"):
+            raise RuntimeError(state["channel_mismatch"])
         if method == "api":
             _publish_via_api(state, options, privacy)
         else:
@@ -8206,7 +8662,10 @@ THUMB_LOOKUP_DELAY = 20
 # kẹt ở bước Hiển thị, task «xong kèm cảnh báo», mốc corpus đứng yên ⇒ lượt thu thập sau dựng lại nguyên video dài.
 UNVERIFIED_MAX_SEC = 15 * 60
 # Kịch bản tự đăng cho kênh chưa xác minh: ~2000 chữ ≈ 13 phút đọc (video đo thật ~155–165 chữ/phút ⇒ 12–13 phút).
-UNVERIFIED_SAFE_WORDS = 2000
+# 14/11/2026 đo trên contabo: xin 2000 chữ → model viết 2430 (lố ~20%), CapCut đọc ~132 chữ/phút → 18:20, quá 15 phút.
+# 1600 chữ xin × 1,2 = ~1920 chữ ≈ 14,5 phút; UNVERIFIED_HARD_WORDS là trần CỨNG cắt sau khi viết (xem fit_unverified).
+UNVERIFIED_SAFE_WORDS = 1600
+UNVERIFIED_HARD_WORDS = 1850          # ≈ 14 phút ở 132 chữ/phút — quá mức này thì bỏ bớt cảnh
 # Lượt TỰ ĐĂNG mà kịch bản dưới chừng này phần độ dài đã định thì dựng nhưng KHÔNG đăng (chờ duyệt).
 AUTOPUBLISH_MIN_RATIO = 0.5
 VERIFY_URL = "https://www.youtube.com/verify"
@@ -9387,7 +9846,11 @@ def _run_steps(steps, state: Dict, options: Dict, say, cancelled,
                 notes.append(f"- **{label}** failed: {str(e)[:200]}")
                 continue
             raise
-        say(sid, "success", "")
+        final = (state.get("_step_final") or {}).pop(sid, None)
+        if final:
+            say(sid, final[0], final[1])
+        else:
+            say(sid, "success", "")
 
 
 # ── Xoá file của một task (nút Xoá của Codex → "xoá cả file") ──────────────────
@@ -9500,12 +9963,12 @@ def _sub_seconds(stamp: str) -> float:
         return 0.0
 
 
-def subtitle_to_text(text: str) -> str:
-    """Bài dán là phụ đề .srt/.vtt → lời đọc liền mạch; không phải phụ đề thì trả NGUYÊN."""
+def subtitle_cues(text: str) -> List[Tuple[float, float, str]]:
+    """Bài dán là phụ đề .srt/.vtt → [(giây đầu, giây cuối, lời)]; không phải phụ đề (< 3 dòng mốc) → []."""
     raw = str(text or "")
     lines = raw.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     if sum(1 for l in lines if _SUB_TIME_RE.match(l)) < 3:
-        return text
+        return []
     cues: List[Tuple[float, float, str]] = []
     cur: List[str] = []
     start = end = None
@@ -9530,6 +9993,14 @@ def subtitle_to_text(text: str) -> str:
             continue
         if not skip:
             cur.append(_SUB_TAG_RE.sub("", st))
+    return cues
+
+
+def subtitle_to_text(text: str) -> str:
+    """Bài dán là phụ đề .srt/.vtt → lời đọc liền mạch; không phải phụ đề thì trả NGUYÊN."""
+    cues = subtitle_cues(text)
+    if not cues:
+        return text
     paras: List[List[str]] = []
     prev_end = None
     for s, e, words in cues:
@@ -9553,12 +10024,51 @@ def subtitle_to_text(text: str) -> str:
     return "\n\n".join(out) if out else text
 
 
+# Mốc giờ của phụ đề dán kèm FILE GIỌNG (14/11/2026, user «nếu người dùng nhập dạng srt thì ko cần phải dò lại»): ghi cạnh
+# file giọng `<file>.cues.json` lúc tạo task (bài dán chỉ còn lời sau subtitle_to_text, chặng dựng không mang bài dán) →
+# bước dub cắt file theo đúng mốc này, không cần Whisper.
+def voice_cues_path(voice_path: str) -> str:
+    return f"{voice_path}.cues.json" if voice_path else ""
+
+
+def save_voice_cues(options: Dict, raw_text: str) -> int:
+    """Bài dán là phụ đề + task có file giọng hợp lệ → ghi mốc cạnh file giọng. Trả số câu đã ghi (0 = không ghi)."""
+    path = voice_file_path(options)
+    cues = subtitle_cues(raw_text) if path else []
+    if not cues:
+        return 0
+    side = voice_cues_path(path)
+    try:
+        with open(side, "w", encoding="utf-8", newline="\n") as f:
+            json.dump([[round(s, 3), round(e, 3), t] for s, e, t in cues], f, ensure_ascii=False)
+    except OSError as e:
+        logger.warning(f"[ContentVideo] could not save subtitle timings next to {path}: {e}")
+        return 0
+    return len(cues)
+
+
+def load_voice_cues(voice_path: str) -> List[List[Any]]:
+    side = voice_cues_path(voice_path)
+    if not side or not os.path.isfile(side):
+        return []
+    try:
+        with open(side, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return []
+    return data if isinstance(data, list) else []
+
+
 def _prepare(payload: Dict[str, Any], report, is_cancelled, needs: tuple) -> Dict[str, Any]:
     """Shared setup for both stages: options, agent, callbacks, state."""
     options: Dict[str, Any] = {**DEFAULTS, **(payload.get("options") or {})}
-    if options.get("source_text"):
-        options["source_text"] = subtitle_to_text(options["source_text"])
+    raw_source = str(options.get("source_text") or "")
+    if raw_source:
+        options["source_text"] = subtitle_to_text(raw_source)
     apply_voice_file(options)
+    if raw_source and options.get("voice_file") and not load_voice_cues(voice_file_path(options)):
+        # lời gọi không qua /run (skill, MCP) mang nguyên phụ đề → vẫn giữ mốc cho bước dub
+        save_voice_cues(options, raw_source)
     if payload.get("sources") and not options.get("sources"):
         options["sources"] = list(payload["sources"])
     if payload.get("high_water_prev"):
@@ -10960,6 +11470,10 @@ def _render_result(state: Dict, options: Dict, notes: List[str], skipped_jobs: L
         lines.append(f"- **Published**: {published['url']} "
                      f"({'scheduled — private until then' if published.get('scheduled_label') else published.get('privacy', '')})"
                      + (f" → {published['channel_name']}" if published.get("channel_name") else ""))
+    elif state.get("publish_unverified_url") and published:
+        lines.append("- **Published**: ⚠️ UNVERIFIED — YouTube Studio finished but returned no video link "
+                     "(youtu.be/<id>); check the channel" + (f" → {published['channel_name']}"
+                                                             if published.get("channel_name") else ""))
     if published.get("scheduled_label"):
         lines.append(f"- **Goes public**: {published['scheduled_label']} — uploaded now, YouTube publishes it then")
     if state.get("video_path"):

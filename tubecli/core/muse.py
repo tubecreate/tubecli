@@ -78,6 +78,7 @@ _ALERTED: Dict[str, float] = {}
 _POOL = threading.Condition()
 _BUSY: Dict[str, str] = {}          # khoá chỗ ngồi → hồ sơ đang chạy ở đó
 _LAST_USED: Dict[str, float] = {}
+_LAST_RELEASED: Dict[str, float] = {}   # hồ sơ → lúc trả lượt gần nhất (session_reaper đo thời gian rảnh)
 # NGƯỜI GÁC TREO (user 10/10/2026: «cơ chế xem lần tạo thành công gần nhất của profile, nếu lâu hơn 15 phút có nghĩa là
 # trình duyệt đó bị treo và tự xoá phiên khởi động lại»): mỗi WATCH_EVERY giây, hồ sơ CỤC BỘ đang bận mà đã HANG_SECONDS
 # không có lần thành công nào (tính từ lúc nhận lượt hoặc lần thành công gần nhất, cái nào muộn hơn) → đóng hẳn phiên
@@ -1050,9 +1051,22 @@ def _acquire(pool: List[str], lanes: int, want: str = "", timeout: float = QUEUE
             _POOL.wait(min(left, 5))
 
 
+def last_active_by_profile() -> Dict[str, float]:
+    """Hồ sơ → lần cuối có lượt Muse (nhận lượt hay trả lượt, cái muộn hơn). Bộ dọn phiên (browser/session_reaper)
+    đóng phiên Muse ẩn rảnh lâu dựa vào đây; hồ sơ đang bận thì xem _busy_by_profile."""
+    with _POOL:
+        out = dict(_LAST_USED)
+        for p, t in _LAST_RELEASED.items():
+            if t > out.get(p, 0.0):
+                out[p] = t
+        return out
+
+
 def _release(key: str) -> None:
     with _POOL:
-        _BUSY.pop(key, None)
+        prof = _BUSY.pop(key, None)
+        if prof:
+            _LAST_RELEASED[prof] = time.time()
         _BUSY_SINCE.pop(key, None)
         _HUNG_RESET.pop(key, None)
         _HANG_LIMIT.pop(key, None)
@@ -1273,8 +1287,8 @@ def ask(prompt: str, *, want_images: bool = False, files: Optional[List[str]] = 
         return ask(prompt, want_images=want_images, files=files, image_dir=image_dir, max_images=max_images,
                    timeout=timeout, fresh=(fresh or not own), launch=launch, want_videos=want_videos, video_dir=video_dir,
                    max_videos=max_videos, thread_id=thread_id, _failover=_failover, _attempt=_attempt + 1,
-                   avoid=(avoid if pinned else (set(avoid or ()) | {prof})), want_audio=want_audio,
-                   audio_dir=audio_dir, max_audios=max_audios)
+                   avoid=(avoid if pinned else (set(avoid or ()) | {prof})),
+                   want_audio=want_audio, audio_dir=audio_dir, max_audios=max_audios)
     if (failed.kind == "browser" and launch) or failed.kind == "auth":
         # hết đường thử lại — báo người vận hành (user 8/10/2026: «nếu 3 lần lỗi báo cho telegram»)
         _alert(f"{failed.kind}:{prof}", _alert_text(failed, prof, _attempt))

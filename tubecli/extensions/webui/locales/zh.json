@@ -580,5 +580,10 @@
   "cloudpw.r_not_recognised": "TubeCLI Cloud 无法识别这台机器。请从云端重新连接（Servers → Connect）。",
   "cloudpw.r_login_failed": "TubeCLI Cloud 用此密码无法登录这台机器，因此保留了旧密码。请确认隧道正在运行后重试。",
   "cloudpw.r_unreachable": "无法连接 TubeCLI Cloud：",
+  "cloudpw.key_on": "TubeCLI Cloud 使用专属密钥（创建于 {date}）登录这台机器，不使用这个密码。修改密码不会断开云端连接。",
+  "cloudpw.key_revoke_btn": "移除云端密钥",
+  "cloudpw.key_revoke_confirm": "要移除云端密钥吗？在你用 TubeCLI Connect 重新连接之前，TubeCLI Cloud 将无法打开这台机器。",
+  "cloudpw.key_revoked": "已移除云端密钥。请用 TubeCLI Connect 重新连接，才能从云端使用这台机器。",
+  "cloudpw.r_cloud_key": "无需发送：TubeCLI Cloud 使用专属密钥，不使用这个密码。",
   "cloudpw.r_error": "TubeCLI Cloud 拒绝："
 }

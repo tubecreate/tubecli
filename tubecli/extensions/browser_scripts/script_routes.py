@@ -829,11 +829,20 @@ async def stop_execution(exec_id: int):
     return {"status": "not_running"}
 
 @router.get("/executions/history")
-async def execution_history(limit: int = 50):
+async def execution_history(limit: int = 50, include_log: bool = True, log_tail: int = 0,
+                            script_id: str = ""):
     # Bảng executions từng giữ nguyên văn mật khẩu/2FA mà /run tự bơm vào biến
     # chạy, và chính endpoint này đọc chúng lên. Che ở DB rồi vẫn che lại ở đây:
     # xem _safe_variables.
-    return {"executions": [_safe_execution(r) for r in _db().list_executions(limit=limit)]}
+    # include_log=false bỏ hẳn trường log; log_tail=N chỉ giữ N ký tự cuối (10/11/2026: log một lượt từng > 1,2
+    # triệu ký tự). Mặc định giữ nguyên như cũ — Script Studio đang đọc log đầy đủ từ đây.
+    log_chars = None
+    if not include_log:
+        log_chars = 0
+    elif log_tail and log_tail > 0:
+        log_chars = min(int(log_tail), 2_000_000)
+    rows = _db().list_executions(script_id=script_id or None, limit=limit, log_chars=log_chars)
+    return {"executions": [_safe_execution(r) for r in rows]}
 
 
 # ── Browser Preview ──

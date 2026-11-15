@@ -202,7 +202,9 @@ check("đồng bộ riêng gọi /api/v1/auth/cloud-sync", "apiPost('/api/v1/aut
 KEYS = ["title", "desc", "status_unknown", "linked_connect", "linked_vps", "linked_env", "not_linked", "unreadable",
         "change_title", "current", "new", "confirm", "sync_too", "change_btn", "sync_title", "sync_hint", "sync_btn",
         "fill", "mismatch", "changed", "working", "r_synced", "r_not_linked", "r_unreadable", "r_not_recognised",
-        "r_login_failed", "r_unreachable", "r_error"]
+        "r_login_failed", "r_unreachable", "r_error",
+        # khoá cloud (13/11/2026)
+        "key_on", "key_revoke_btn", "key_revoke_confirm", "key_revoked", "r_cloud_key"]
 used = set(__import__("re").findall(r"T\('cloudpw\.([a-z_]+)'", APP))
 check("mọi khoá cloudpw.* app.js dùng đều có trong danh sách", used <= set(KEYS), used - set(KEYS))
 en = json.load(io.open(ROOT / "tubecli/extensions/webui/locales/en.json", encoding="utf-8"))

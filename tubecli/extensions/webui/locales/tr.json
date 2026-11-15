@@ -580,5 +580,10 @@
   "cloudpw.r_not_recognised": "TubeCLI Cloud bu makineyi tanımadı. Buluttan yeniden bağlayın (Servers → Connect).",
   "cloudpw.r_login_failed": "TubeCLI Cloud bu parolayla makineye giriş yapamadı, bu yüzden eskisini korudu. Tünelin çalıştığını kontrol edip yeniden deneyin.",
   "cloudpw.r_unreachable": "TubeCLI Cloud'a ulaşılamadı: ",
+  "cloudpw.key_on": "TubeCLI Cloud bu makineye bu parolayla değil, kendi anahtarıyla ({date} tarihinde oluşturuldu) giriş yapar. Parolayı değiştirmek bulut bağlantısını kesmez.",
+  "cloudpw.key_revoke_btn": "Bulut anahtarını kaldır",
+  "cloudpw.key_revoke_confirm": "Bulut anahtarı kaldırılsın mı? TubeCLI Connect ile yeniden bağlayana kadar TubeCLI Cloud bu makineyi açamaz.",
+  "cloudpw.key_revoked": "Bulut anahtarı kaldırıldı. Buluttan kullanmak için makineyi TubeCLI Connect ile yeniden bağlayın.",
+  "cloudpw.r_cloud_key": "Gönderilecek bir şey yok: TubeCLI Cloud bu parolayı değil, kendi anahtarını kullanır.",
   "cloudpw.r_error": "TubeCLI Cloud reddetti: "
 }

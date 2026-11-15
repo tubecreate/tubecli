@@ -35,7 +35,24 @@ from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 ROOT = Path(__file__).resolve().parent.parent
-CS = ROOT / "data" / "extensions_external" / "content_studio"
+
+
+def _find_studio(root):
+    """Thư mục Content Studio để đọc mã: trong cây này → biến TUBECLI_STUDIO_DIR → checkout chính nằm cạnh (worktree
+    phát hành không mang theo data/). None khi không có — Studio là extension cài từ Chợ, không nằm trong repo lõi."""
+    import os as _os
+    cands = [root / "data" / "extensions_external" / "content_studio"]
+    if _os.environ.get("TUBECLI_STUDIO_DIR"):
+        cands.append(Path(_os.environ["TUBECLI_STUDIO_DIR"]))
+    cands.append(root.parent / "tubecli" / "data" / "extensions_external" / "content_studio")
+    return next((c for c in cands if (c / "engines" / "api_image_engine.py").is_file()), None)
+
+
+CS = _find_studio(ROOT)
+if CS is None:
+    print("SKIP: không có mã nguồn Content Studio (data/extensions_external/content_studio, TUBECLI_STUDIO_DIR hay "
+          "checkout chính nằm cạnh) — bài test này đọc ffmpeg_video_engine.py + studio_routes.py của Studio")
+    sys.exit(0)
 TMP = Path(tempfile.mkdtemp(prefix="cv_scene_clips_"))
 PASS = FAIL = 0
 
@@ -132,7 +149,10 @@ ok('"Scene video"' in pipe_src and 'links.get(f"clip:{i}", "")' in pipe_src,
    "Sheet có cột «Scene video» trỏ đúng cảnh")
 ok('"Scenes": {1: 320, 2: 460, 3: 420, 5: 220, 6: 220, 7: 220}' in pipe_src, "cột mới đủ rộng để thấy link")
 keep_call = seg(eng_src, "    # Video TỪNG CẢNH (bản thô)", "    if progress_callback:")
-ok("raw=two_pass" in keep_call and "(m or {}).get(\"path\") for m in metas" in keep_call,
+# Studio viết đoạn này theo hai cách qua các bản: `raw=two_pass` (cũ) hay nhánh `if two_pass: clips, raw = […], True`
+# (từ khi có «bản sạch» từng cảnh) — cùng một hành vi: hai lượt thì lấy file của metas và đánh dấu là bản thô.
+ok(("raw=two_pass" in keep_call or "for m in metas], True" in keep_call)
+   and "(m or {}).get(\"path\") for m in metas" in keep_call,
    "hai lượt lấy bản CHƯA phủ bố cục; một lượt lấy bản đã ghép")
 ok("except Exception as e:" in keep_call, "giữ cảnh hỏng thì video vẫn xuất bình thường")
 

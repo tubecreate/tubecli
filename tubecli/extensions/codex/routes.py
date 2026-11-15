@@ -228,6 +228,43 @@ async def get_stats():
     return codex_manager.get_stats()
 
 
+# ── Tự đăng theo TỪNG agent (14/11/2026) ─────────────────────────────────────
+# Contabo: 78 video dựng xong nằm ở review vì bước Publish của tự đăng bị tắt, mà connector không sửa được
+# /codex/settings lẫn agent. Hai route hẹp này chỉ đọc / đổi đúng công tắc đăng + trần mỗi ngày của một agent.
+class AutopublishPatch(BaseModel):
+    publish: Optional[bool] = None
+    daily_limit: Optional[int] = None
+
+
+def _autopublish_agent(agent_id: str):
+    from tubecli.core.agent import agent_manager
+    agent = agent_manager.get(agent_id)
+    if not agent:
+        raise HTTPException(404, f"Agent {agent_id} not found")
+    return agent
+
+
+@router.get("/autopublish/{agent_id}")
+async def get_autopublish(agent_id: str):
+    """Tình trạng tự đăng của một agent: công tắc, trần ngày, đã đăng hôm nay, đang tự dừng vì sao."""
+    from tubecli.extensions.content_video import autopublish
+    return autopublish.status(_autopublish_agent(agent_id))
+
+
+@router.patch("/autopublish/{agent_id}")
+async def patch_autopublish(agent_id: str, req: AutopublishPatch):
+    """Bật / tắt bước Publish của tự đăng cho một agent, và / hoặc đổi trần video mỗi ngày (1–20)."""
+    from tubecli.extensions.content_video import autopublish
+    agent = _autopublish_agent(agent_id)
+    if req.publish is None and req.daily_limit is None:
+        raise HTTPException(400, "Send publish (true/false) and/or daily_limit (1-20).")
+    publish = bool(getattr(agent, "auto_publish", False)) if req.publish is None else bool(req.publish)
+    try:
+        return {"status": "updated", **autopublish.set_publish(agent_id, publish, req.daily_limit)}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
 # Trường CHỈ dùng khi mở thẻ ra (kế hoạch AI, kết quả) — đo 20/9/2026 trên 50 task: cả gói 790 KB, riêng `plan`
 # 582 KB (74 %) và `result` 47 KB. Bảng đóng chỉ cần title/goal/status/steps. Bỏ hai trường này cho lần tải danh
 # sách, rồi mở thẻ nào tải chi tiết thẻ ấy: gói còn ~160 KB, và trang trong node Flow (đi qua tunnel) hết cảm giác treo.
@@ -281,6 +318,33 @@ async def list_tasks(request: Request = None, status: str = "", limit: int = 50,
 async def resume_lane(lane: str):
     """Mở lại làn đã tạm dừng (hết quota) ngay, không chờ hạn."""
     return {"ok": True, "lane": lane, "resumed": codex_manager.resume_lane(lane, actor="user")}
+
+
+class BulkAcceptRequest(BaseModel):
+    actor: str = "user"
+    dry_run: bool = False
+
+
+class BulkCloseRequest(BaseModel):
+    older_than_days: float = 7
+    actor: str = "user"
+    dry_run: bool = False
+
+
+# Dọn bảng hàng loạt (10/11/2026). LUỒNG PHỤ: duyệt mọi task + đọc sổ sự kiện của từng task review là việc đĩa, không
+# được làm trên vòng sự kiện (cả máy chủ đứng trong lúc đó).
+@router.post("/bulk/accept-published")
+async def bulk_accept_published(req: BulkAcceptRequest = BulkAcceptRequest()):
+    """Nhận mọi task TỰ ĐĂNG đang ở Review mà video đã lên kênh thật (checkpoint có video id). dry_run → chỉ đếm."""
+    return await asyncio.to_thread(_guard, codex_manager.bulk_accept_published, actor=req.actor,
+                                   dry_run=req.dry_run)
+
+
+@router.post("/bulk/close-failed")
+async def bulk_close_failed(req: BulkCloseRequest = BulkCloseRequest()):
+    """Đóng (huỷ — giữ dữ liệu, Chạy lại được) mọi task hỏng cũ hơn older_than_days ngày. dry_run → chỉ đếm."""
+    return await asyncio.to_thread(_guard, codex_manager.bulk_close_failed, req.older_than_days,
+                                   actor=req.actor, dry_run=req.dry_run)
 
 
 @router.post("/tasks")
@@ -480,6 +544,50 @@ async def review_task(task_id: str, req: ReviewRequest):
         codex_manager.complete_review,
         task["id"], req.accepted, actor=req.actor, feedback=req.feedback,
     )}
+
+
+# ── Đăng video ĐÃ DỰNG của một task đang ở Review (14/11/2026) ───────────────
+# contabo: 74 task «Auto video» nằm Review với bước Publish tắt; Accept chỉ đóng task. Route này xếp MỘT việc đăng vào
+# hàng đợi trình duyệt an toàn RAM của content_video (publish_jobs.py) rồi trả về ngay — đăng mất nhiều phút. Đăng
+# xong: link thật vào kết quả + checkpoint, task sang DONE, KHÔNG gọi hook on_accept. Thân request là dict tự do để
+# người gọi (connector) gửi đúng các trường đã hẹn: title, description, tags, category_id, privacy, channel (+ profile,
+# when, force).
+def _publish_jobs():
+    try:
+        from tubecli.extensions.content_video import publish_jobs
+        return publish_jobs
+    except Exception as e:      # noqa: BLE001
+        raise HTTPException(501, f"Publishing needs the Content Video extension: {e}")
+
+
+def _job_call(fn, *args, **kwargs):
+    pj = _publish_jobs()
+    try:
+        return fn(*args, **kwargs)
+    except pj.JobError as e:
+        raise HTTPException(e.status, {"error": e.message, "code": e.code, **e.extra})
+
+
+@router.post("/tasks/{task_id}/publish")
+async def publish_task(task_id: str, body: Optional[Dict[str, Any]] = None):
+    """Đăng video đã dựng của task lên YouTube qua hồ sơ trình duyệt. Trả việc đã xếp hàng (202)."""
+    task = _require(task_id)
+    pj = _publish_jobs()
+    body = body if isinstance(body, dict) else {}
+    job = await asyncio.to_thread(_job_call, pj.request_publish, task["id"], body,
+                                  str(body.get("actor") or "user"))
+    return JSONResponse(status_code=202, content={"status": "queued", "job": job})
+
+
+@router.get("/tasks/{task_id}/publish")
+async def publish_task_status(task_id: str):
+    """Việc đăng mới nhất của task + video đã đăng (nếu có)."""
+    task = _require(task_id)
+    pj = _publish_jobs()
+    job = pj.job_for_task(task["id"])
+    return {"task": {"id": task["id"], "seq": task.get("seq"), "status": task.get("status")},
+            "published": await asyncio.to_thread(codex_manager.published_video, task["id"]) or None,
+            "job": pj.public(job) if job else None}
 
 
 @router.post("/tasks/{task_id}/plan")

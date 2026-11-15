@@ -214,7 +214,12 @@
                 </div>
                 <div class="form-group">
                     <label><span data-i18n="auth.creds.client_secret">Client Secret</span></label>
-                    <input id="cred-client-secret" type="password" placeholder="GOCSPX-xxx">
+                    <div style="display:flex;gap:6px;align-items:center">
+                        <input id="cred-client-secret" type="password" placeholder="GOCSPX-xxx" style="flex:1">
+                        <button type="button" class="am-btn-sm" id="cred-secret-eye" onclick="toggleCredSecret()"
+                                title="Show / hide" aria-label="Show or hide the secret">👁</button>
+                    </div>
+                    <small id="cred-saved-hint" style="display:none;color:var(--text-muted);font-size:.78rem;line-height:1.4"></small>
                 </div>
             </div>
     

@@ -171,6 +171,9 @@ def set_password(password: str, _is_default: bool = False) -> None:
     """
     if not isinstance(password, str) or len(password) < 6:
         raise ValueError("Mật khẩu phải có ít nhất 6 ký tự.")
+    if password.startswith(CLOUD_KEY_PREFIX):
+        # `tck_…` là dạng của KHOÁ CLOUD: cửa đăng nhập phân biệt hai thứ bằng tiền tố này.
+        raise ValueError("Mật khẩu không được bắt đầu bằng «tck_».")
     salt = secrets.token_bytes(16)
     payload = {
         "version": 1,
@@ -182,6 +185,7 @@ def set_password(password: str, _is_default: bool = False) -> None:
     }
     _write_private(_auth_file(), payload)
     _sessions.clear()
+    _cloud_sessions.clear()
 
 
 def verify_password(password: str) -> bool:
@@ -253,9 +257,13 @@ def is_configured() -> bool:
 
 # ── Sessions ─────────────────────────────────────────────────────────
 
-def create_session() -> str:
+def create_session(cloud_key_hash: str = "") -> str:
+    """Phiên mới. `cloud_key_hash` = phiên mở bằng KHOÁ CLOUD (xem dưới): nó chết ngay khi khoá ấy bị
+    thu hồi hay xoay, kể cả khi việc đó làm bằng lệnh `tubecli cloud-key` ở tiến trình khác."""
     token = secrets.token_urlsafe(32)
     _sessions[token] = time.time() + SESSION_TTL_SECONDS
+    if cloud_key_hash:
+        _cloud_sessions[token] = cloud_key_hash
     return token
 
 
@@ -267,6 +275,12 @@ def session_valid(token: Optional[str]) -> bool:
         return False
     if expiry < time.time():
         _sessions.pop(token, None)
+        _cloud_sessions.pop(token, None)
+        return False
+    made_with = _cloud_sessions.get(token)
+    if made_with and made_with != _cloud_key_hash():
+        _sessions.pop(token, None)
+        _cloud_sessions.pop(token, None)
         return False
     return True
 
@@ -274,6 +288,102 @@ def session_valid(token: Optional[str]) -> bool:
 def destroy_session(token: Optional[str]) -> None:
     if token:
         _sessions.pop(token, None)
+        _cloud_sessions.pop(token, None)
+
+
+# ── Khoá cloud (13/11/2026) ───────────────────────────────────────────
+# TubeCLI Cloud cần một thứ để đăng nhập hộ chủ máy qua tunnel (Flow, live view, connector). Trước đây đó là
+# MẬT KHẨU DASHBOARD: cửa sổ ghép nối bắt người dùng gõ đúng nó, cloud lưu nó, và hễ chủ đổi mật khẩu trên máy
+# là cloud mất đường vào («Mật khẩu dashboard TubeCLI không đúng», «TubeCLI login failed»). Người dùng: «cái phần
+# ghép nối và mật khẩu này nó phức tạp quá cứ lỗi hoài».
+#
+# Nay TubeCLI Connect — chạy ngay trên máy, cùng quyền với người mở terminal gõ `tubecli password` — tự xin một
+# KHOÁ CLOUD bằng lệnh `tubecli cloud-key --new` rồi giao cho cloud lúc đổi mã ghép nối. Khoá:
+#   * là chuỗi ngẫu nhiên 256 bit có tiền tố `tck_` — không đoán, không dò được (vẫn chung bộ đếm sai với mật khẩu);
+#   * dùng ở ĐÚNG cửa đăng nhập cũ (/api/v1/auth/login, trường password) nên cloud và trình duyệt không đổi gì;
+#   * chỉ lưu SHA-256 trên máy (cloud_key.json, 0600) — đọc được file cũng không lấy lại được khoá;
+#   * độc lập với mật khẩu dashboard: đổi / quên mật khẩu không cắt cloud, và cloud không còn giữ mật khẩu ấy;
+#   * thu hồi / xoay được; phiên mở bằng khoá cũ chết ngay.
+# Máy còn mật khẩu mặc định thì luật default_password_refusal vẫn áp cho MỌI phiên từ xa, kể cả phiên của khoá.
+CLOUD_KEY_PREFIX = "tck_"
+_cloud_sessions: dict = {}     # token phiên -> hash của khoá cloud đã mở nó
+_cloud_key_cache: dict = {"mtime": None, "hash": ""}
+
+
+def _cloud_key_file():
+    from tubecli.config import DATA_DIR
+
+    return DATA_DIR / "cloud_key.json"
+
+
+def is_cloud_key_shape(candidate) -> bool:
+    return isinstance(candidate, str) and candidate.startswith(CLOUD_KEY_PREFIX) and 30 <= len(candidate) <= 200
+
+
+def _key_digest(key: str) -> str:
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()
+
+
+def _cloud_key_hash() -> str:
+    """Hash của khoá đang có hiệu lực ("" = không có). Đọc lại file khi nó đổi (mtime) — rẻ, và nhờ vậy lệnh
+    CLI ở tiến trình khác thu hồi khoá là máy chủ đang chạy biết ngay."""
+    path = _cloud_key_file()
+    try:
+        mtime = path.stat().st_mtime_ns
+    except OSError:
+        _cloud_key_cache.update(mtime=None, hash="")
+        return ""
+    if _cloud_key_cache["mtime"] != mtime:
+        value = ""
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            value = str(data.get("hash") or "") if isinstance(data, dict) else ""
+        except Exception:
+            value = ""          # file hỏng = không có khoá (cửa ĐÓNG), không bao giờ là «khoá nào cũng được»
+        _cloud_key_cache.update(mtime=mtime, hash=value)
+    return _cloud_key_cache["hash"]
+
+
+def mint_cloud_key() -> str:
+    """Tạo khoá cloud MỚI (thay khoá cũ nếu có) và trả về nó — lần duy nhất khoá hiện ra ở dạng đọc được."""
+    key = CLOUD_KEY_PREFIX + secrets.token_urlsafe(32)
+    _write_private(_cloud_key_file(), {"version": 1, "hash": _key_digest(key), "created_at": int(time.time())})
+    _cloud_key_cache.update(mtime=None, hash="")
+    return key
+
+
+def verify_cloud_key(candidate) -> bool:
+    if not is_cloud_key_shape(candidate):
+        return False
+    stored = _cloud_key_hash()
+    return bool(stored) and hmac.compare_digest(_key_digest(candidate), stored)
+
+
+def cloud_key_info() -> dict:
+    """{set, created_at} — không bao giờ trả khoá hay hash."""
+    if not _cloud_key_hash():
+        return {"set": False, "created_at": 0}
+    try:
+        with open(_cloud_key_file(), "r", encoding="utf-8") as f:
+            created = int((json.load(f) or {}).get("created_at") or 0)
+    except Exception:
+        created = 0
+    return {"set": True, "created_at": created}
+
+
+def revoke_cloud_key() -> bool:
+    """Thu hồi khoá cloud: cloud mất đường đăng nhập ngay, phiên mở bằng khoá ấy cũng chết. True nếu có khoá."""
+    had = bool(_cloud_key_hash())
+    try:
+        os.unlink(str(_cloud_key_file()))
+    except OSError:
+        pass
+    _cloud_key_cache.update(mtime=None, hash="")
+    for token in [t for t in _cloud_sessions]:
+        _sessions.pop(token, None)
+        _cloud_sessions.pop(token, None)
+    return had
 
 
 # ── Throttling ───────────────────────────────────────────────────────

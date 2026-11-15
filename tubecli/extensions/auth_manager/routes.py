@@ -105,6 +105,25 @@ async def api_update_credential(cred_id: str, req: UpdateCredentialRequest):
     return result
 
 
+@router.get("/credentials/{cred_id}/reveal")
+async def api_reveal_credential(cred_id: str, request: Request):
+    """Client ID + Client Secret nguyên văn, cho nút mắt ở form Edit — CHỈ khi dashboard mở ngay trên máy.
+
+    Danh sách credential luôn che Client ID và không bao giờ trả Secret (rà soát bảo mật 13/10/2026: khoá và token
+    chỉ chủ máy đọc được). Người ngồi tại máy đã đọc được tệp chứa chúng; qua tunnel / cloud / trình kết nối thì
+    KHÔNG — is_local_request loại cả kết nối loopback do proxy hay tunnel chuyển tới."""
+    from tubecli.core import auth
+    from .extension import auth_manager
+    host = request.client.host if request.client else ""
+    if not auth.is_local_request(host, request.headers):
+        raise HTTPException(403, "The secret can only be shown when the dashboard is opened on the machine itself "
+                                 "(http://127.0.0.1:5295), not through the tunnel or TubeCLI Cloud.")
+    got = auth_manager.reveal_credential(cred_id)
+    if got is None:
+        raise HTTPException(404, f"Credential '{cred_id}' not found.")
+    return got
+
+
 @router.delete("/credentials/{cred_id}")
 async def api_delete_credential(cred_id: str):
     """Delete a credential and its token."""

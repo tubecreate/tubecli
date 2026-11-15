@@ -500,11 +500,26 @@ class AuthManager:
             if key in kwargs and kwargs[key] is not None:
                 if key in ["client_id", "client_secret"] and isinstance(kwargs[key], str) and kwargs[key].startswith("***"):
                     continue
+                # Ô BÍ MẬT để trống = GIỮ khoá đang lưu (15/11/2026). Form Edit không bao giờ hiện lại Client ID /
+                # Secret (API che chúng), nên nó gửi "" cho cả hai — bản cũ ghi "" đè lên: đổi tên một credential là
+                # MẤT luôn khoá đã nhập, lượt cấp quyền sau báo lỗi mà không ai hiểu vì sao.
+                if key in ("client_id", "client_secret", "credentials_json") and isinstance(kwargs[key], str) \
+                        and not kwargs[key].strip():
+                    continue
                 cred[key] = kwargs[key]
 
         cred["updated_at"] = datetime.now().isoformat()
         self._save()
         return {"status": "success", "message": f"Credential '{cred_id}' updated."}
+
+    def reveal_credential(self, cred_id: str) -> Optional[dict]:
+        """Client ID + Client Secret ĐÚNG NGUYÊN VĂN của một credential — chỉ route kiểm «đang ngồi tại máy» mới gọi.
+        None khi không có credential."""
+        self._load()
+        cred = self._data["credentials"].get(cred_id)
+        if not cred:
+            return None
+        return {"client_id": str(cred.get("client_id") or ""), "client_secret": str(cred.get("client_secret") or "")}
 
     def remove_credential(self, cred_id: str) -> dict:
         """Remove a credential and its associated token."""
@@ -531,6 +546,7 @@ class AuthManager:
                 "provider": cred.get("provider"),
                 "name": cred.get("name"),
                 "client_id": self._mask(cred.get("client_id", "")),
+                "has_secret": bool(cred.get("client_secret")),      # form Edit: «đã lưu — để trống thì giữ»
                 "has_json": bool(cred.get("credentials_json")),
                 "service_account_email": cred.get("service_account_email"),
                 "scopes": cred.get("scopes", []),

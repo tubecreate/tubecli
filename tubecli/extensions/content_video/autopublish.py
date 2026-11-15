@@ -181,6 +181,8 @@ def get_mark(agent_id: str) -> Dict[str, Any]:
         "last_commit_key": str(row.get("last_commit_key") or ""),
         "last_video_url": str(row.get("last_video_url") or ""),
         "paused": dict(row.get("paused") or {}) if isinstance(row.get("paused"), dict) else {},
+        # Chủ / connector bấm «tạm dừng agent» (pause_agent) — khác `paused` ở trên (tự dừng vì video dài).
+        "agent_paused": dict(row.get("agent_paused") or {}) if isinstance(row.get("agent_paused"), dict) else {},
     }
 
 
@@ -290,7 +292,7 @@ def pause_for_length(agent_id: str, seconds: float, preset: str = "", capped: bo
     try:
         return save_mark(aid, paused={"reason": PAUSE_LONG_UNVERIFIED, "at": time.time(),
                                       "seconds": int(seconds or 0), "preset": str(preset or ""),
-                                      "capped": bool(capped),
+                                      "capped": bool(capped), "cap_words": _safe_words(),
                                       "preset_sig": _preset_sig(str(preset or ""))})
     except Exception as e:      # noqa: BLE001
         logger.error("[AutoPublish] could not pause %s (%s)", aid, e)
@@ -306,6 +308,11 @@ def _pause_holds(agent, paused: Dict[str, Any]) -> bool:
     # Từ .213 kịch bản tự đăng của kênh chưa xác minh được viết vừa 15 phút: dừng vì một video dài KHÔNG giới hạn (sổ cũ,
     # Retry kịch bản cũ) không còn lý do giữ — lượt sau tự ngắn. Chỉ giữ khi chính kịch bản đã giới hạn vẫn ra video dài.
     if not paused.get("capped"):
+        return False
+    # 14/11/2026 (contabo, 78 video dựng xong không đăng): mức giới hạn cũ 2000 chữ vẫn ra video 18 phút (model viết lố
+    # ~20%, giọng đọc ~130 chữ/phút) ⇒ «đã giới hạn mà vẫn dài» ⇒ dừng VĨNH VIỄN, mỗi ngày vẫn dựng một video không đăng
+    # được. Lần dừng ghi theo mức giới hạn CŨ không còn giá trị khi mức giới hạn đã đổi: lượt sau viết theo mức mới.
+    if int(paused.get("cap_words") or 0) != _safe_words():
         return False
     preset = str(getattr(agent, "content_video_preset", "") or "")
     return preset == str(paused.get("preset") or "") and _preset_sig(preset) == str(paused.get("preset_sig") or "")
@@ -449,6 +456,8 @@ def _maybe_publish(agent_id: str, run_id: str, outcome: str, trigger: str = "") 
         return "skip: agent %s not found" % agent_id
     # Hai công tắc (10/10/2026): auto_publish = dựng + ĐĂNG lên kênh đã chọn; auto_video = dựng video dù chưa chọn
     # kênh (không đăng gì, video chờ duyệt trên Codex). Bật cái nào cũng đủ để lượt thu thập châm ngòi.
+    if get_mark(agent_id).get("agent_paused"):
+        return "skip: this agent is paused — resume it to make videos again"
     publish_on = bool(getattr(agent, "auto_publish", False))
     video_on = bool(getattr(agent, "auto_video", False))
     if not publish_on and not video_on:
@@ -528,6 +537,16 @@ def _maybe_publish(agent_id: str, run_id: str, outcome: str, trigger: str = "") 
             # ở mọi lượt sau cho tới khi cạn trần ngày.
             return "skip: %d new page(s) but none has a usable timestamp" % count
 
+        # Chống trùng (14/11/2026 — «Seek First: What Matthew 6:33 Really Means» dựng 5 lần, mỗi lần ~3 giờ): lượt thu
+        # thập vừa xong tìm đúng chủ đề của một video ĐÃ CÓ ⇒ không xếp việc, và gác cửa sổ bài này lại để lượt sau
+        # không gom chúng vào một video khác.
+        topic_query = _run_query(agent_id, run_id)
+        dup = duplicate_task(agent_id, [topic_query]) if topic_query else None
+        if dup:
+            skip_window(agent_id, newest)
+            return "skip: duplicate topic — «%s» was already made as task #%s («%s»); the new pages were set aside" % (
+                topic_query[:100], dup.get("seq", "?"), str(dup.get("title") or "")[:80])
+
         options: Dict[str, Any] = {
             # "publish" cũng là id của bước upload trong RENDER_STEPS, và _run_steps
             # đọc options[<step id>] làm công tắc bật/tắt bước — nên một khoá này
@@ -590,6 +609,11 @@ def _maybe_publish(agent_id: str, run_id: str, outcome: str, trigger: str = "") 
             return "error: could not queue (%s)" % e
 
         task_id = str((task or {}).get("id") or "")
+        if topic_query and task_id:
+            try:        # để lượt sau so chủ đề với cả task chưa có tiêu đề (đang viết kịch bản)
+                _codex().set_meta(task_id, {"topic_query": topic_query[:200]})
+            except Exception as e:      # noqa: BLE001
+                logger.debug("[AutoPublish] could not note the topic on %s (%s)", task_id, e)
         # Chỉ ghi phần dành cho CỬA CHỐNG DỘI. `high_water` thật và bộ đếm ngày
         # nằm yên cho tới khi commit_published() báo là video đã lên kênh: cái
         # task này còn có thể chết ở bước dựng, ở lúc upload, hay theo server
@@ -604,3 +628,204 @@ def _maybe_publish(agent_id: str, run_id: str, outcome: str, trigger: str = "") 
     return "queued: task #%s from %d new page(s) to %s" % (
         (task or {}).get("seq", "?"), count,
         options["publish_channel_name"] or channel_id or "the profile's default channel")
+
+# ── 14/11/2026: gác cửa sổ, chống trùng chủ đề, bật / tắt Publish, tạm dừng agent ─────────────
+def _safe_words() -> int:
+    try:
+        from tubecli.extensions.content_video.pipeline import UNVERIFIED_SAFE_WORDS
+        return int(UNVERIFIED_SAFE_WORDS)
+    except Exception:       # noqa: BLE001
+        return 0
+
+
+def skip_window(agent_id: str, high_water: str = "") -> bool:
+    """Dời mốc kho qua một cửa sổ bài KHÔNG làm video (nguồn lạc ngách, chủ đề trùng) để lượt thu thập sau không châm
+    ngòi lại đúng mớ bài ấy. pipeline._skip_window_after_hold gọi hàm này từ 4/11 nhưng nó chưa từng tồn tại — lệnh
+    gọi nằm trong try/except nên cửa sổ không bao giờ được gác. Chỉ tiến, không lùi."""
+    aid, hw = str(agent_id or ""), str(high_water or "")
+    if not aid or not hw:
+        return False
+    with _LOCK:
+        if hw <= get_mark(aid)["high_water"]:
+            return False
+        return save_mark(aid, high_water=hw)
+
+
+# Chữ không mang chủ đề (en / es / vi) + chữ vỏ mà bộ dựng câu tìm kiếm quấn quanh từ khoá.
+_TOPIC_STOP = frozenset("""
+a an the of in on at to for and or is are was were be what whats does do did mean means meaning really actually
+explained explain why how who when where this that it its his her their your our with from by as about into
+latest news today best practices guide tutorial top new vs
+que qué el la los las de del en y o es son un una lo como cómo sobre por para con su sus al mejores prácticas guía
+la lá của và là những các một cho về trong khi với có không gì nào thế
+""".split())
+DUP_DAYS = 21
+DUP_STATUSES = ("pending_approval", "backlog", "queued", "running", "review", "done")
+_GENERIC_TITLE = ("auto publish:", "auto video:", "auto publish ·", "auto video ·")
+
+
+def topic_tokens(text: str) -> frozenset:
+    import re
+    import unicodedata
+    s = unicodedata.normalize("NFKD", str(text or "")).casefold()
+    s = "".join(ch for ch in s if not unicodedata.combining(ch))
+    return frozenset(t for t in re.split(r"[^0-9a-z]+", s) if t and t not in _TOPIC_STOP)
+
+
+def similar_topic(a: str, b: str) -> bool:
+    """Hai câu cùng MỘT chủ đề: ≥ 3 chữ mang nghĩa chung và chúng phủ ≥ 75% câu ngắn hơn.
+    «latest What does "seek first the kingdom of God" mean in Matthew 6:33? news» ≈ «Seek First: What Matthew 6:33
+    Really Means»; «Matthew 6:33» và «Matthew 6:34» thì KHÔNG (số câu khác nhau)."""
+    ta, tb = topic_tokens(a), topic_tokens(b)
+    if not ta or not tb:
+        return False
+    common = ta & tb
+    small = min(len(ta), len(tb))
+    # Số (chương, câu) lệch nhau là bài khác dù chữ giống: «Matthew 6:33» ≠ «Matthew 6:34».
+    na, nb = {t for t in ta if t.isdigit()}, {t for t in tb if t.isdigit()}
+    if na and nb and na != nb:
+        return False
+    return len(common) >= 3 and len(common) / small >= 0.75
+
+
+def _run_query(agent_id: str, run_id: str) -> str:
+    """Câu tìm kiếm của lượt thu thập vừa xong (run_log) — chủ đề mà video sắp dựng sẽ nói tới. "" khi không đọc được."""
+    if not run_id:
+        return ""
+    try:
+        from tubecli.core import run_log
+        for r in run_log.list_for_agent(str(agent_id), days=2, limit=40):
+            if r.get("run_id") == run_id:
+                return " ".join(str(r.get("query") or "").split())
+    except Exception as e:      # noqa: BLE001
+        logger.debug("[AutoPublish] could not read the run query (%s)", e)
+    return ""
+
+
+def _age_days(stamp: Any) -> float:
+    try:
+        dt = datetime.datetime.fromisoformat(str(stamp or ""))
+        now = datetime.datetime.now(dt.tzinfo) if dt.tzinfo else datetime.datetime.now()
+        return (now - dt).total_seconds() / 86400.0
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def duplicate_task(agent_id: str, texts, exclude: str = "", days: int = DUP_DAYS):
+    """Task video CÒN MỞ hay ĐÃ XONG của agent này (trong `days` ngày) nói cùng chủ đề với một trong `texts` — so với
+    tiêu đề và câu tìm kiếm đã ghi (meta.topic_query). None khi không có. Task bị huỷ / hỏng không tính."""
+    wanted = [t for t in (texts or []) if topic_tokens(t)]
+    if not wanted:
+        return None
+    try:
+        tasks = _codex().list_tasks(limit=500) or []
+    except Exception as e:      # noqa: BLE001
+        logger.debug("[AutoPublish] could not list tasks (%s)", e)
+        return None
+    for t in tasks:
+        if str(t.get("id") or "") == str(exclude or "") or str(t.get("assignee_id") or "") != str(agent_id):
+            continue
+        if str(t.get("status") or "").lower() not in DUP_STATUSES or _age_days(t.get("created_at")) > days:
+            continue
+        title = str(t.get("title") or "")
+        have = [str((t.get("meta") or {}).get("topic_query") or "")]
+        if not title.casefold().startswith(_GENERIC_TITLE):
+            have.append(title)
+        if any(similar_topic(w, h) for w in wanted for h in have if h):
+            return t
+    return None
+
+
+def status(agent) -> Dict[str, Any]:
+    """Tình trạng tự đăng của một agent — thứ GET /api/v1/codex/autopublish/{agent_id} trả về."""
+    aid = str(getattr(agent, "id", "") or "")
+    mark = get_mark(aid)
+    paused = mark["paused"] if _pause_holds(agent, mark["paused"]) else {}
+    return {
+        "agent_id": aid, "agent_name": str(getattr(agent, "name", "") or ""),
+        "publish": bool(getattr(agent, "auto_publish", False)),
+        "auto_video": bool(getattr(agent, "auto_video", False)),
+        "daily_limit": int(getattr(agent, "publish_max_per_day", 2) or 0),
+        "published_today": mark["published_today"],
+        "method": str(getattr(agent, "publish_method", "script") or "script"),
+        "profile": str(getattr(agent, "publish_profile", "") or ""),
+        "channel": str(getattr(agent, "publish_channel_name", "") or ""),
+        "channel_unverified": bool(getattr(agent, "publish_unverified", False)),
+        "agent_paused": bool(mark.get("agent_paused")),
+        "paused_for_length": bool(paused),
+        "paused_detail": ("the last video was %s long and the channel is not verified (YouTube takes at most 15 min)"
+                          % _mmss(paused.get("seconds"))) if paused else "",
+    }
+
+
+def set_publish(agent_id: str, publish: bool, daily_limit=None) -> Dict[str, Any]:
+    """Bật / tắt bước Publish của tự đăng cho MỘT agent (+ trần mỗi ngày). Bật lại thì gỡ luôn lần tự dừng vì video dài
+    (người bật là người chịu trách nhiệm kênh). Ném ValueError khi agent không có hay trần sai."""
+    from tubecli.core.agent import agent_manager
+
+    agent = agent_manager.get(str(agent_id or ""))
+    if not agent:
+        raise ValueError("agent not found")
+    fields: Dict[str, Any] = {"auto_publish": bool(publish)}
+    if daily_limit is not None:
+        try:
+            n = int(daily_limit)
+        except (TypeError, ValueError):
+            raise ValueError("daily_limit must be a number from 1 to 20")
+        if not 1 <= n <= 20:
+            raise ValueError("daily_limit must be a number from 1 to 20")
+        fields["publish_max_per_day"] = n
+    agent = agent_manager.update(str(agent_id), **fields)
+    if publish:
+        save_mark(str(agent_id), paused={})
+    return status(agent)
+
+
+def pause_agent(agent_id: str, by: str = "") -> Dict[str, Any]:
+    """Tạm dừng một agent nghiên cứu: tắt lịch chạy và không cho lượt nào châm ngòi dựng video."""
+    from tubecli.core.agent import agent_manager
+
+    agent = agent_manager.get(str(agent_id or ""))
+    if not agent:
+        raise ValueError("agent not found")
+    was = bool(getattr(agent, "schedule_enabled", False))
+    if not (get_mark(str(agent_id)).get("agent_paused") or {}):
+        save_mark(str(agent_id), agent_paused={"at": time.time(), "by": str(by or "")[:40], "schedule_was": was})
+    agent_manager.update(str(agent_id), schedule_enabled=False)
+    return {"agent_id": str(agent_id), "paused": True, "schedule_enabled": False}
+
+
+def resume_agent(agent_id: str) -> Dict[str, Any]:
+    """Tiếp tục: bật lại lịch chạy NẾU trước khi tạm dừng nó đang bật."""
+    from tubecli.core.agent import agent_manager
+
+    agent = agent_manager.get(str(agent_id or ""))
+    if not agent:
+        raise ValueError("agent not found")
+    held = (get_mark(str(agent_id)).get("agent_paused") or {})
+    turn_on = bool(held.get("schedule_was", True)) if held else bool(getattr(agent, "schedule_enabled", False))
+    save_mark(str(agent_id), agent_paused={})
+    agent_manager.update(str(agent_id), schedule_enabled=turn_on)
+    return {"agent_id": str(agent_id), "paused": False, "schedule_enabled": turn_on}
+
+def count_published(agent_id: str, video_url: str = "", task_id: str = "") -> str:
+    """Một video được đăng TAY (POST /codex/tasks/{id}/publish) → tính vào trần ngày của agent, KHÔNG dời mốc kho.
+    Cùng một task / link gọi lại chỉ tính một lần. Không bao giờ ném."""
+    aid = str(agent_id or "")
+    if not aid:
+        return "no agent id"
+    try:
+        with _LOCK:
+            row = get_mark(aid)
+            key = str(task_id or "") or str(video_url or "")
+            if key and row["last_commit_key"] == key:
+                return "already counted"
+            fields: Dict[str, Any] = {"published_today": row["published_today"] + 1, "day": _today(),
+                                      "last_video_url": str(video_url or "")}
+            if key:
+                fields["last_commit_key"] = key
+            save_mark(aid, **fields)
+            return "counted %d" % fields["published_today"]
+    except Exception as e:      # noqa: BLE001
+        logger.error("[AutoPublish] could not count the publish for %s (%s)", aid, e)
+        return "error: %s" % e

@@ -87,6 +87,9 @@ def fake_poll(status_path, timeout_sec, state, step, done_statuses=("completed",
 
 P._post = fake_post
 P._poll_studio = fake_poll
+# Bài test này kiểm «Studio quên việc vẽ», không kiểm «shot thiếu hình»: shot giả ở đây chỉ có đường dẫn ảnh, không có
+# image_prompt, nên phép đếm shot-không-có-hình (thêm sau khi test này được viết) báo oan cả 20 shot.
+P._shots_without_media = lambda ep: []
 counts = iter([10, 14, 14, 14])
 P._storyboards = lambda ep: shots_with(next(counts, 14))
 said.clear()

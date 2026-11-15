@@ -287,6 +287,10 @@ class BrowserProcessManager:
                 "log_file": str(log_file_path),
                 "_process": process,
                 "_log_file": log_file,
+                # Bộ dọn phiên (session_reaper, 10/11/2026) cần biết hạn giờ + loại phiên (Muse ẩn / mở tay).
+                "_max_duration": max_duration,
+                "_url": url or "",
+                "_headless": bool(headless),
                 # Underscore-prefixed so the existing filters in get_status/
                 # list_all/list_running keep them out of API responses.
                 "_run_id": run_id,
@@ -949,8 +953,25 @@ class BrowserProcessManager:
                     reason = autopublish.maybe_publish_after_run(
                         agent_id or "", run_id, outcome)
             logger.info("[Browser] auto-publish: %s", reason)
+            self._note_autopublish(run_id, agent_id or "", reason)
         except Exception as e:
             logger.warning(f"[Browser] auto-publish check failed: {e}")
+            self._note_autopublish(run_id, agent_id or "", f"error: auto-publish check failed: {e}")
+
+    @staticmethod
+    def _note_autopublish(run_id, agent_id, reason) -> None:
+        """Lý do tự tạo/đăng video (hay KHÔNG) vào chính lượt chạy trong run_log (10/11/2026): trước đây chỉ có
+        logger.info, nên «Momento bíblico» thu thập 46 bài mà không ra video nào suốt 6 ngày (auto_video + auto_publish
+        đều tắt) và GET /agents/{id}/runs không nói vì sao. run_log.note do nhánh khác thêm — chưa có thì bỏ qua."""
+        if not run_id or not reason:
+            return
+        try:
+            from tubecli.core import run_log
+            note = getattr(run_log, "note", None)
+            if note:
+                note(run_id, agent_id, str(reason), kind="autopublish")
+        except Exception as e:      # noqa: BLE001
+            logger.debug(f"[Browser] could not note the auto-publish decision: {e}")
 
     def _log_group_failure(self, agent_id, profile, outcome, return_code, tail, note=""):
         """Một dòng trên bảng của mọi nhóm agent này thuộc về, nói phiên hỏng thế nào.

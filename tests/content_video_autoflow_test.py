@@ -99,7 +99,9 @@ assert P._resolve_channel(st, {}) is res, "nhớ trong state, không tra lại"
 st2 = {"agent": _Agent()}
 o2 = {"publish_channel_name": "Nope"}
 P._resolve_channel(st2, o2)
-assert not o2.get("publish_channel_id") and any("no api token here" in w.lower() for w in st2["warnings"]), st2
+# 10/11/2026: tên kênh không khớp token / hồ sơ nào ⇒ DỪNG đăng (channel_mismatch), không còn «cảnh báo rồi đăng vào
+# kênh mặc định của hồ sơ».
+assert not o2.get("publish_channel_id") and "matches no youtube api token" in st2.get("channel_mismatch", "").lower(), st2
 # 3b. Không token nhưng có HỒ SƠ TRÌNH DUYỆT mang tên kênh: bí danh nhóm / tên hồ sơ / google_account
 from tubecli.core import group_context as G0
 from tubecli.extensions.browser import profile_manager as PM0

@@ -251,6 +251,19 @@ def end(run_id: str, agent_id: str, outcome: str, return_code: Optional[int] = N
     _append(event)
 
 
+NOTE_MAX = 10           # ghi chú tối đa gắn vào một lượt khi đọc
+
+
+def note(run_id: Optional[str], agent_id: str, text: str, kind: str = "info") -> None:
+    """Một dòng ghi chú gắn vào lượt chạy (10/11/2026): việc xảy ra BÊN TRONG lượt mà không phải launch/end — sinh từ
+    khoá hằng ngày hỏng, cò tự tạo video quyết định gì. Trước đây những câu này chỉ `print` ra console máy chủ, nên trên
+    dashboard một agent «chạy xong» mà không bao giờ ra video trông y như agent khoẻ."""
+    if not run_id or not str(text or "").strip():
+        return
+    _append({"kind": "note", "run_id": run_id, "ts": _now(), "agent_id": agent_id,
+             "note_kind": str(kind or "info")[:32], "text": redact(" ".join(str(text).split()))[:500]})
+
+
 def skip(agent_id: str, agent_name: str, reason: str, detail: str = "",
          next_attempt: Optional[str] = None) -> None:
     """The scheduler declined to run. This is the answer to 'why didn't it run'."""
@@ -369,6 +382,11 @@ def list_for_agent(agent_id: str, days: int = 14, limit: int = 100) -> List[Dict
                 run["launch"] = e
             elif kind == "end":
                 run["end"] = e
+            elif kind == "note":
+                notes = run.setdefault("notes", [])
+                if len(notes) < NOTE_MAX:
+                    notes.append({"ts": e.get("ts"), "kind": e.get("note_kind") or "info",
+                                  "text": e.get("text") or ""})
 
         out: List[Dict[str, Any]] = []
         for run in runs.values():

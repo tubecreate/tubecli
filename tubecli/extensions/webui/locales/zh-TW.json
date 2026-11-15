@@ -580,5 +580,10 @@
   "cloudpw.r_not_recognised": "TubeCLI Cloud 無法辨識這台機器。請從雲端重新連線（Servers → Connect）。",
   "cloudpw.r_login_failed": "TubeCLI Cloud 用此密碼無法登入這台機器，因此保留了舊密碼。請確認通道正在執行後重試。",
   "cloudpw.r_unreachable": "無法連上 TubeCLI Cloud：",
+  "cloudpw.key_on": "TubeCLI Cloud 使用專屬金鑰（建立於 {date}）登入這台機器，不使用這組密碼。變更密碼不會中斷雲端連線。",
+  "cloudpw.key_revoke_btn": "移除雲端金鑰",
+  "cloudpw.key_revoke_confirm": "要移除雲端金鑰嗎？在你用 TubeCLI Connect 重新連線之前，TubeCLI Cloud 將無法開啟這台機器。",
+  "cloudpw.key_revoked": "已移除雲端金鑰。請用 TubeCLI Connect 重新連線，才能從雲端使用這台機器。",
+  "cloudpw.r_cloud_key": "不需傳送：TubeCLI Cloud 使用專屬金鑰，不使用這組密碼。",
   "cloudpw.r_error": "TubeCLI Cloud 拒絕："
 }

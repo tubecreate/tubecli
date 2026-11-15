@@ -580,5 +580,10 @@
   "cloudpw.r_not_recognised": "TubeCLI Cloud がこのマシンを認識できませんでした。クラウドから再接続してください（Servers → Connect）。",
   "cloudpw.r_login_failed": "TubeCLI Cloud はこのパスワードでマシンにログインできなかったため、古いパスワードのままです。トンネルが動いているか確認して再試行してください。",
   "cloudpw.r_unreachable": "TubeCLI Cloud に接続できません：",
+  "cloudpw.key_on": "TubeCLI Cloud はこのパスワードではなく専用のキー（{date} 作成）でこのマシンにログインします。パスワードを変更してもクラウドとの接続は切れません。",
+  "cloudpw.key_revoke_btn": "クラウドキーを削除",
+  "cloudpw.key_revoke_confirm": "クラウドキーを削除しますか？TubeCLI Connect で接続し直すまで、TubeCLI Cloud はこのマシンを開けなくなります。",
+  "cloudpw.key_revoked": "クラウドキーを削除しました。クラウドから使うには TubeCLI Connect で接続し直してください。",
+  "cloudpw.r_cloud_key": "送信不要：TubeCLI Cloud はこのパスワードではなく専用のキーを使います。",
   "cloudpw.r_error": "TubeCLI Cloud が拒否しました："
 }
