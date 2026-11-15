@@ -230,6 +230,32 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
 .sidebar.collapsed .nav-icon { margin-right: 0; font-size: 1.2rem; }
 .sidebar.collapsed .sidebar-footer { justify-content: center; padding: 16px 0; }
 
+/* Dải biểu tượng gọn gàng (15/11/2026) — áp cho cả «collapsed» lẫn điện thoại (xem khối @media bên dưới):
+   - ô logo có display:flex viết thẳng trong thẻ nên luật ẩn cũ không ăn → nút ba gạch bị đẩy ra NGOÀI dải 68px;
+   - mục trong nhóm vẫn thụt lề + viền trái, tên nhóm lòi một chữ, dải có thanh cuộn ngang. */
+.sidebar.collapsed .sidebar-logo-container { display: none !important; }
+/* Hộp «Update now» được JS bật bằng display:flex viết thẳng trong thẻ → tràn ra ngoài dải 68px. Trong dải nó thu thành MỘT
+   biểu tượng 44px; bấm vào thì mở menu đầy đủ (app.js) để thấy phiên bản + nút Update now. */
+.sidebar.collapsed .sidebar-update { width: 44px; height: 44px; margin: 8px auto 0 !important; padding: 0 !important; align-items: center; justify-content: center; cursor: pointer; }
+.sidebar.collapsed .sidebar-update > button, .sidebar.collapsed .sidebar-update > div:last-child, .sidebar.collapsed #update-text { display: none !important; }
+.sidebar.collapsed .sidebar-update .update-info { padding: 0 !important; }
+.sidebar.collapsed .sidebar-update .update-info .material-symbols-outlined { font-size: 22px !important; }
+.sidebar.collapsed .sidebar-head { padding: 12px 0 10px !important; }
+.sidebar.collapsed .sidebar-head-row { justify-content: center !important; }
+.sidebar.collapsed .sidebar-menu-btn { width: 44px !important; height: 44px; margin: 0 auto !important; border-radius: 10px; }
+.sidebar-menu-btn:hover { background: var(--bg3) !important; color: var(--text) !important; }
+.sidebar.collapsed .sidebar-nav { overflow-x: hidden; }
+.sidebar.collapsed .sidebar-group-items { padding-left: 0; margin-left: 0; border-left: none; }
+.sidebar.collapsed .sidebar-group-header { justify-content: center; padding: 8px 0; }
+.sidebar.collapsed .sidebar-group-chevron { display: none; }
+.sidebar.collapsed .sidebar-group-items .nav-item { padding: 10px; }
+/* Menu nhiều cấp trong dải biểu tượng: nhóm là MỘT KHỐI nền riêng, biểu tượng nhóm màu nhấn — trước đây mục con thụt lề
+   lệch hàng và không biết mục nào thuộc nhóm nào. Bấm biểu tượng nhóm để gập / mở nhóm. */
+.sidebar.collapsed .sidebar-group { margin: 4px 0; padding: 2px 0; border-radius: 12px; background: var(--bg3); }
+.sidebar.collapsed .sidebar-group-header { color: var(--primary); border-radius: 10px; }
+.sidebar.collapsed .sidebar-group-header-left { gap: 0; }
+.sidebar-shade { display: none; }
+
 /* On a phone the sidebar has to give the content room. It was a fixed 240px
    with flex-shrink:0 and no breakpoint touching it, so on a 390px screen an
    extension iframe received 150px — narrower than any layout in the product is
@@ -237,18 +263,43 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
    Reuses the collapsed rules above rather than inventing a second mode; the
    iframe goes from 150px to 322px. */
 @media (max-width: 720px) {
-  .sidebar { width: 68px; }
-  .sidebar .sidebar-logo,
-  .sidebar .sidebar-logo-container,
-  .sidebar .nav-section-label,
-  .sidebar .nav-text,
-  .sidebar .sidebar-footer span:not(.status-dot):not(.material-symbols-outlined),
-  .sidebar .sidebar-version,
-  .sidebar .sidebar-update { display: none; }
-  .sidebar .nav-item { padding: 10px; justify-content: center; }
-  .sidebar .nav-icon { margin-right: 0; font-size: 1.2rem; }
-  .sidebar .sidebar-footer { justify-content: center; padding: 16px 0; }
-  .sidebar .sidebar-menu-btn { width: 100%; text-align: center; justify-content: center; margin: 0 auto; display: flex; }
+  /* Dải biểu tượng: mọi luật chỉ áp khi menu KHÔNG mở (mobile-open = menu đầy đủ đè lên trang, xem app.js toggleSidebar) */
+  .sidebar:not(.mobile-open) { width: 68px; }
+  .sidebar:not(.mobile-open) .sidebar-logo,
+  .sidebar:not(.mobile-open) .nav-section-label,
+  .sidebar:not(.mobile-open) .nav-text,
+  .sidebar:not(.mobile-open) .sidebar-footer span:not(.status-dot):not(.material-symbols-outlined),
+  .sidebar:not(.mobile-open) .sidebar-version { display: none; }
+  .sidebar:not(.mobile-open) .sidebar-logo-container { display: none !important; }
+  .sidebar:not(.mobile-open) .sidebar-update { width: 44px; height: 44px; margin: 8px auto 0 !important; padding: 0 !important; align-items: center; justify-content: center; cursor: pointer; }
+  .sidebar:not(.mobile-open) .sidebar-update > button, .sidebar:not(.mobile-open) .sidebar-update > div:last-child, .sidebar:not(.mobile-open) #update-text { display: none !important; }
+  .sidebar:not(.mobile-open) .sidebar-update .update-info { padding: 0 !important; }
+  .sidebar:not(.mobile-open) .sidebar-update .update-info .material-symbols-outlined { font-size: 22px !important; }
+  .sidebar:not(.mobile-open) .sidebar-head { padding: 12px 0 10px !important; }
+  .sidebar:not(.mobile-open) .sidebar-head-row { justify-content: center !important; }
+  .sidebar:not(.mobile-open) .sidebar-menu-btn { width: 44px !important; height: 44px; margin: 0 auto !important; border-radius: 10px; display: flex; justify-content: center; }
+  .sidebar:not(.mobile-open) .nav-item { padding: 10px; justify-content: center; min-height: 44px; }
+  .sidebar:not(.mobile-open) .nav-icon { margin-right: 0; font-size: 1.2rem; }
+  .sidebar:not(.mobile-open) .sidebar-footer { justify-content: center; padding: 16px 0; }
+  .sidebar:not(.mobile-open) .sidebar-nav { overflow-x: hidden; }
+  .sidebar:not(.mobile-open) .sidebar-group-items { padding-left: 0; margin-left: 0; border-left: none; }
+  .sidebar:not(.mobile-open) .sidebar-group-header { justify-content: center; padding: 8px 0; min-height: 40px; }
+  .sidebar:not(.mobile-open) .sidebar-group-chevron { display: none; }
+  .sidebar:not(.mobile-open) .sidebar-group-items .nav-item { padding: 10px; }
+  .sidebar:not(.mobile-open) .sidebar-group { margin: 4px 0; padding: 2px 0; border-radius: 12px; background: var(--bg3); }
+  .sidebar:not(.mobile-open) .sidebar-group-header { color: var(--primary); border-radius: 10px; }
+  .sidebar:not(.mobile-open) .sidebar-group-header-left { gap: 0; }
+
+  /* Menu đầy đủ: đè lên trang, dải 68px vẫn giữ chỗ (đệm trái của #app) nên nội dung không nhảy */
+  .sidebar.mobile-open {
+    position: fixed; top: 0; bottom: 0; left: 0; z-index: 1200; width: min(280px, 86vw);
+    background: var(--bg2); box-shadow: 8px 0 32px rgba(0, 0, 0, 0.45); transition: none;
+  }
+  .sidebar.mobile-open .nav-item { min-height: 44px; }
+  .sidebar.mobile-open .sidebar-menu-btn { width: 40px; height: 40px; border-radius: 10px; }
+  #app.sidebar-mobile-open { padding-left: 68px; }
+  .sidebar-shade { display: block; position: fixed; inset: 0; z-index: 1190; background: rgba(0, 0, 0, 0.5); }
+  .sidebar-nav { -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
   .content { padding: 16px 12px; }
 }
 
