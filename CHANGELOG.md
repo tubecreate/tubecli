@@ -2,6 +2,17 @@
 
 Notable changes to TubeCLI. Versions match `tubecli/__init__.py`.
 
+## 2026.08.09.241 — 2026-11-15
+
+### Dashboard menu on a phone and when collapsed
+- On a phone (window under 720 px) the menu button now opens the full menu over the page. Choosing a page, tapping
+  outside or pressing Esc closes it. Before, the button did nothing there.
+- The menu button is centered in the collapsed menu. Before, it was pushed outside the 68 px strip.
+- Groups in the collapsed menu are shown as one block each, with no indent, and the strip no longer scrolls sideways.
+  Tap a group's icon to fold or unfold it.
+- The «Update now» box no longer overflows the collapsed menu. It becomes one icon; tapping it opens the menu.
+- Menu items in the strip are 44 px tall so they are easier to tap.
+
 ## 2026.08.09.240 — 2026-11-15
 
 ### Back up Content Studio videos to Google Drive from an AI app
