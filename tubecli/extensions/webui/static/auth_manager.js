@@ -489,6 +489,7 @@ function openAddCredentialModal() {
     document.getElementById('cred-client-id').value = '';
     document.getElementById('cred-client-secret').value = '';
     document.getElementById('cred-sa-email').value = '';
+    credSavedHint(null);            // credential MỚI: không có khoá nào đã lưu
     const manualIdInput = document.getElementById('cred-manual-id');
     if (manualIdInput) manualIdInput.value = '';
     const manualTokenInput = document.getElementById('cred-manual-token');
@@ -499,6 +500,50 @@ function openAddCredentialModal() {
     switchCredTab('oauth');
     goToCredStep(1);
     openModal('modal-credential');
+}
+
+// ── Khoá đã lưu: gợi ý + nút mắt (15/11/2026) ────────────────────────────────
+// User: «tôi nhập key rồi nhưng khi edit lại không thấy, và không có mắt để mở xem phần secret». Form Edit từng để
+// trống hai ô rồi GỬI chuỗi rỗng lên — máy chủ ghi đè, mất luôn khoá. Nay máy chủ coi ô trống là «giữ nguyên», form
+// ghi rõ khoá đã lưu, và nút mắt hiện / ẩn chữ đang gõ; ô trống thì lấy khoá đã lưu về (chỉ khi mở tại máy).
+function credSavedHint(cred) {
+    const hint = document.getElementById('cred-saved-hint');
+    const secret = document.getElementById('cred-client-secret');
+    if (secret) secret.type = 'password';
+    if (!hint) return;
+    if (!cred) { hint.style.display = 'none'; hint.textContent = ''; return; }
+    const id = cred.client_id ? `Client ID ${cred.client_id}` : '';
+    const sec = cred.has_secret === false ? '' : 'Client Secret ••••••';
+    const saved = [id, sec].filter(Boolean).join(' · ');
+    hint.textContent = saved
+        ? `Saved: ${saved}. Leave both fields empty to keep them, or type new values to replace them. 👁 shows the saved secret on this machine.`
+        : 'No Client ID / Secret saved yet for this credential.';
+    hint.style.display = '';
+}
+
+async function toggleCredSecret() {
+    const secret = document.getElementById('cred-client-secret');
+    const idBox = document.getElementById('cred-client-id');
+    if (!secret) return;
+    if (secret.type === 'text') { secret.type = 'password'; return; }
+    const editId = (document.getElementById('cred-edit-id') || {}).value || '';
+    if (!secret.value && editId) {
+        // Ô trống trong lúc sửa: lấy khoá ĐÃ LƯU về để xem. Máy chủ chỉ trả khi dashboard mở ngay trên máy.
+        try {
+            const r = await apiGet(`/credentials/${editId}/reveal`);
+            if (r && typeof r.client_secret === 'string') {
+                secret.value = r.client_secret;
+                if (idBox && !idBox.value) idBox.value = r.client_id || '';
+            } else {
+                showToast((r && (r.detail || r.message)) || 'The saved secret can only be shown on the machine itself.', 'error');
+                return;
+            }
+        } catch (e) {
+            showToast('The saved secret can only be shown when the dashboard is opened on the machine itself.', 'error');
+            return;
+        }
+    }
+    secret.type = 'text';
 }
 
 function editCredential(credId) {
@@ -513,6 +558,8 @@ function editCredential(credId) {
     document.getElementById('cred-client-id').value = ''; // masked
     document.getElementById('cred-client-secret').value = '';
     document.getElementById('cred-sa-email').value = cred.service_account_email || '';
+    // 15/11/2026: hai ô để trống KHÔNG có nghĩa là «chưa nhập» — khoá đã lưu, máy chủ che nó. Nói ra, và để trống thì giữ.
+    credSavedHint(cred);
     
     if (cred.provider === 'facebook') {
         // Recover manual ID (it might be masked, but better than nothing)
