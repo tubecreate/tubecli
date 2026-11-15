@@ -2,6 +2,49 @@
 
 Notable changes to TubeCLI. Versions match `tubecli/__init__.py`.
 
+## 2026.08.09.241 — 2026-11-15
+
+### Dashboard menu on a phone and when collapsed
+- On a phone (window under 720 px) the menu button now opens the full menu over the page. Choosing a page, tapping
+  outside or pressing Esc closes it. Before, the button did nothing there.
+- The menu button is centered in the collapsed menu. Before, it was pushed outside the 68 px strip.
+- Groups in the collapsed menu are shown as one block each, with no indent, and the strip no longer scrolls sideways.
+  Tap a group's icon to fold or unfold it.
+- The «Update now» box no longer overflows the collapsed menu. It becomes one icon; tapping it opens the menu.
+- Menu items in the strip are 44 px tall so they are easier to tap.
+
+## 2026.08.09.240 — 2026-11-15
+
+### Back up Content Studio videos to Google Drive from an AI app
+- New connector tools `drive_accounts`, `drive_backup`, `drive_backup_status` and `drive_backup_cancel`. An AI app
+  connected through TubeCLI Cloud can copy images and videos from a folder of Content Studio (for example
+  `outputs/exports`) to a Google account that is already authorized on the machine.
+- The owner turns this on per connection in TubeCLI Cloud › Connectors («Allow Google Drive backup»). It is off by
+  default.
+- A backup runs in the background, one file at a time, largest first. A file already in the Drive folder with the
+  same name and size is skipped, a failed file is retried twice, and the backup stops with a clear message when
+  Drive is full. Nothing is deleted on the machine and nothing is shared publicly.
+- When a backup ends it writes a report in `Documents/TubeCLI backups`: each file with its size, Drive file ID and
+  OK or ERROR, and the totals on the machine and on Drive.
+- The File Manager and Drive APIs stay closed to connected AI apps. Only files directly inside a Content Studio
+  folder that really are images or videos can be backed up.
+
+### File Manager
+- The filter and sort buttons (Video, Images, Recently edited…) and the search scope button are no longer white on
+  the dark theme.
+- On a narrow window or a phone, the path has its own row and scrolls to the folder you are in. Before, it was cut
+  to «C: › Users ›…» and hidden under 560 px.
+- New buttons next to the path: type or paste a path and press Enter to go there, and copy the current path.
+  Copying also works when the page is opened over http.
+- An agent on the machine can now upload files from TubeCLI's own data folder to Drive. Before, when TubeCLI was
+  started by TubeCLI Connect, every file there was refused as «outside the allowed area».
+- Uploading a file that is on the machine's disk to Drive now works up to 8 GB (was 512 MB).
+
+### Auth Manager
+- Pressing Authorize on a credential that only has a JSON file no longer opens Google's «Missing required
+  parameter: client_id» page. A service account key says it needs no authorization (and that Drive upload needs an
+  OAuth client). The JSON file of an OAuth client is read for its Client ID and Client Secret.
+
 ## 2026.08.09.239 — 2026-11-15
 
 ### Publish a video that is already rendered

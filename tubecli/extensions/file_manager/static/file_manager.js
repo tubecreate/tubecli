@@ -1788,6 +1788,36 @@
                 if (crumb) this.navigate(crumb.getAttribute('data-path'));
             }).bind(this));
 
+            // Ô đường dẫn (15/11/2026): nút bút mở ô gõ / dán đường dẫn (Enter = tới, Esc / bấm ra ngoài = thôi),
+            // nút chép lấy đường dẫn thư mục đang mở. Trên điện thoại thanh mục không đủ chỗ thì đây là lối đi.
+            var pathBox = byId('fm-path-input'), pathEdit = byId('fm-path-edit'), pathCopy = byId('fm-path-copy');
+            var pathWrap = pathBox && pathBox.parentNode;
+            var self = this;
+            function closePathBox() { if (pathWrap) pathWrap.classList.remove('is-editing'); }
+            if (pathBox && pathEdit) {
+                pathEdit.addEventListener('mousedown', function (e) { e.preventDefault(); });   // đừng làm ô mất focus trước
+                pathEdit.addEventListener('click', function () {
+                    if (pathWrap.classList.contains('is-editing')) { closePathBox(); return; }
+                    pathBox.value = self.currentPath || '';
+                    pathWrap.classList.add('is-editing');
+                    pathBox.focus();
+                    pathBox.select();
+                });
+                pathBox.addEventListener('keydown', function (e) {
+                    if (e.key === 'Enter') {
+                        var want = pathBox.value.trim();
+                        closePathBox();
+                        if (want && want !== self.currentPath) self.navigate(want);
+                    } else if (e.key === 'Escape') {
+                        closePathBox();
+                    }
+                });
+                pathBox.addEventListener('blur', closePathBox);
+            }
+            if (pathCopy) pathCopy.addEventListener('click', function () {
+                if (self.currentPath) FM.copyPath(self.currentPath);
+            });
+
             // Lối tắt: bấm hàng là tới thư mục; nút × đi qua data-fm-action (fm_actions.js)
             // nên phải bỏ qua ở đây, kẻo vừa bỏ ghim vừa nhảy tới thư mục ấy.
             var sc = byId('fmShortcuts');
@@ -2204,6 +2234,10 @@
                 }));
                 if (!last) bc.appendChild(h('span', { class: 'fm-crumb-sep', text: '›' }));
             });
+            // Đường dẫn dài hơn thanh: cuộn tới CUỐI để thấy thư mục đang mở (trước đây chỉ thấy «C: › Users ›…»).
+            var toEnd = function () { bc.scrollLeft = bc.scrollWidth; };
+            toEnd();
+            if (window.requestAnimationFrame) window.requestAnimationFrame(toEnd);
         },
 
         renderFiles(items) {
@@ -3062,8 +3096,20 @@
 
     FM.copyPath = async function (path) {
         try {
-            if (!navigator.clipboard) throw new Error(T('fm.clipboard_unavailable'));
-            await navigator.clipboard.writeText(path);
+            if (navigator.clipboard && window.isSecureContext !== false) {
+                await navigator.clipboard.writeText(path);
+            } else {
+                // Trang mở qua http trên điện thoại / trong khung Flow không có navigator.clipboard → chép kiểu cũ.
+                var ta = document.createElement('textarea');
+                ta.value = path;
+                ta.setAttribute('readonly', '');
+                ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+                document.body.appendChild(ta);
+                ta.select();
+                var done = false;
+                try { done = document.execCommand('copy'); } finally { document.body.removeChild(ta); }
+                if (!done) throw new Error(T('fm.clipboard_unavailable'));
+            }
             toast(T('fm.path_copied'), 'success');
         } catch (e) {
             toast(T('fm.path_copy_failed', { msg: e.message || e }), 'error');

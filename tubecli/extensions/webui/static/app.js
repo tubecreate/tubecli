@@ -612,7 +612,7 @@ function buildSidebar(extensions, groups) {
             <div class="sidebar-group-header" onclick="this.closest('.sidebar-group').classList.toggle('expanded')">
                 <div class="sidebar-group-header-left">
                     <span style="display:flex;align-items:center;font-size:18px;">${renderGroupIcon(g.icon)}</span>
-                    <span>${esc(g.name)}</span>
+                    <span class="nav-text">${esc(g.name)}</span>
                 </div>
                 <span class="material-symbols-outlined sidebar-group-chevron">expand_more</span>
             </div>
@@ -6939,7 +6939,47 @@ async function updateExtension(name, btn) {
 }
 
 // ═══ Sidebar Toggle ═══
-function toggleSidebar() { document.getElementById('sidebar').classList.toggle('collapsed'); }
+// Menu bên (15/11/2026). Màn rộng: ba gạch thu / mở như cũ. Màn hẹp (≤ 720px — điện thoại) menu LUÔN là dải biểu tượng
+// 68px; trước đây ba gạch ở đó không làm gì (CSS ép thu nhỏ bất kể lớp «collapsed»). Nay ba gạch mở menu ĐẦY ĐỦ đè
+// lên trang (có nền mờ), bấm một mục / bấm ra ngoài / Esc thì đóng — dải biểu tượng vẫn giữ chỗ nên trang không giật.
+const SIDEBAR_MOBILE = '(max-width: 720px)';
+function sidebarIsMobile() { return !!(window.matchMedia && window.matchMedia(SIDEBAR_MOBILE).matches); }
+function closeMobileSidebar() {
+    const sb = document.getElementById('sidebar');
+    if (sb) sb.classList.remove('mobile-open');
+    const app = document.getElementById('app');
+    if (app) app.classList.remove('sidebar-mobile-open');
+    const shade = document.getElementById('sidebar-shade');
+    if (shade) shade.remove();
+}
+function toggleSidebar() {
+    const sb = document.getElementById('sidebar');
+    if (!sb) return;
+    if (!sidebarIsMobile()) { closeMobileSidebar(); sb.classList.toggle('collapsed'); return; }
+    if (sb.classList.contains('mobile-open')) { closeMobileSidebar(); return; }
+    sb.classList.add('mobile-open');
+    document.getElementById('app').classList.add('sidebar-mobile-open');
+    const shade = document.createElement('div');
+    shade.id = 'sidebar-shade';
+    shade.className = 'sidebar-shade';
+    shade.addEventListener('click', closeMobileSidebar);
+    document.body.appendChild(shade);
+}
+document.addEventListener('click', (e) => {
+    // chọn một trang trong menu đang mở trên điện thoại → đóng menu để thấy trang
+    const sb = document.getElementById('sidebar');
+    if (sb && sb.classList.contains('mobile-open') && e.target.closest && e.target.closest('#sidebar .nav-item')) closeMobileSidebar();
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMobileSidebar(); });
+document.addEventListener('click', (e) => {
+    // hộp cập nhật đang thu thành một biểu tượng trong dải → bấm = mở menu đầy đủ để thấy phiên bản + nút Update now
+    const box = e.target.closest && e.target.closest('#sidebar-update');
+    const sb = document.getElementById('sidebar');
+    if (!box || !sb) return;
+    const rail = sidebarIsMobile() ? !sb.classList.contains('mobile-open') : sb.classList.contains('collapsed');
+    if (rail) toggleSidebar();
+});
+window.addEventListener('resize', () => { if (!sidebarIsMobile()) closeMobileSidebar(); });
 
 // ═══ Utility ═══
 function esc(s) { if(!s) return ''; const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }

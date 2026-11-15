@@ -230,6 +230,20 @@ body {
 ::-webkit-scrollbar-corner { background: transparent; }
 
 
+/* ── Biến màu của khối tìm kiếm / nút lọc (15/11/2026) ──
+   fm_search dùng --fm-line / --fm-panel / --fm-panel-2 / --fm-text / --fm-muted / --fm-accent nhưng CHƯA nơi nào khai
+   chúng, nên mọi chỗ rơi về giá trị dự phòng của giao diện sáng: nút lọc (Video, Images, Recently edited…) và nút
+   «This folder» trắng tinh trên nền tối. Khai theo token của trang — var() tính lại ở :root nên theo cả giao diện sáng. */
+:root {
+    --fm-line: var(--border);
+    --fm-panel: var(--bg3);
+    --fm-panel-2: var(--bg-hover);
+    --fm-text: var(--text);
+    --fm-muted: var(--text-muted);
+    --fm-accent: var(--primary);
+}
+
+
 /* ═══ App shell ═════════════════════════════════════════════════════════ */
 
 .fm-app {
@@ -265,7 +279,24 @@ body {
     gap: 8px;
     flex-shrink: 0;
 }
-.fm-header-center { flex: 1; min-width: 0; }
+.fm-header-center { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; }
+.fm-header-center .fm-breadcrumb { flex: 1; min-width: 0; }
+/* Ô gõ / dán đường dẫn + nút sửa, nút chép (15/11/2026) — màn hẹp không thấy hết các mục thì vẫn tới được thư mục. */
+.fm-path-input {
+    display: none; flex: 1; min-width: 0; height: 34px; padding: 0 10px;
+    background: var(--bg3); color: var(--text); border: 1px solid var(--primary); border-radius: 8px;
+    font-family: var(--fm-mono); font-size: 0.8rem; outline: none;
+}
+.fm-header-center.is-editing .fm-path-input { display: block; }
+.fm-header-center.is-editing .fm-breadcrumb { display: none; }
+.fm-path-btn {
+    flex: none; display: inline-flex; align-items: center; justify-content: center;
+    width: 34px; height: 34px; border-radius: 8px; cursor: pointer;
+    background: var(--bg3); color: var(--text2); border: 1px solid var(--border-subtle);
+}
+.fm-path-btn:hover { background: var(--bg-hover); color: var(--text); }
+.fm-path-btn .fm-ico { width: 15px; height: 15px; }
+.fm-breadcrumb[hidden] ~ .fm-path-btn, .fm-breadcrumb[hidden] ~ .fm-path-input { display: none; }
 
 .fm-back {
     display: inline-flex;
@@ -1768,6 +1799,15 @@ body {
 
     .fm-scope { display: none; }
     .fm-file-grid { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); }
+
+    /* Thanh đường dẫn xuống MỘT HÀNG RIÊNG, rộng hết màn (15/11/2026): chen giữa nút và ô tìm thì chỉ còn «C: › Users ›
+       Tu…», không bấm được mục nào; dưới 560px nó còn bị ẩn hẳn. Mục to hơn cho ngón tay. */
+    .fm-app { grid-template-rows: auto var(--fm-viewbar-h) auto 1fr var(--fm-status-h); }
+    .fm-header { flex-wrap: wrap; row-gap: 6px; padding-top: 8px; padding-bottom: 8px; min-height: var(--fm-header-h); }
+    .fm-header-right { margin-left: auto; }
+    .fm-header-center { order: 3; flex: 1 0 100%; }
+    .fm-crumb { padding: 6px 10px; }
+    .fm-place { max-width: 40vw; }
     .fm-cat-grid { grid-template-columns: 1fr; }
 
     /* The list layout's fixed columns do not fit; drop the timestamp column. */
@@ -1779,8 +1819,7 @@ body {
 }
 
 @media (max-width: 560px) {
-    .fm-header { gap: 8px; padding: 0 8px; }
-    .fm-header-center { display: none; }
+    .fm-header { gap: 8px; padding: 8px; }
     .fm-search input { width: 88px; }
     .fm-toasts { right: 10px; left: 10px; max-width: none; }
     .fm-selbar { gap: 8px; }

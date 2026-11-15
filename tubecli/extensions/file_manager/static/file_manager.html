@@ -37,7 +37,7 @@
     } catch (e) { /* no URLSearchParams / sandbox quirk: dark default stands */ }
 })();
 </script>
-<link rel="stylesheet" href="/file-manager-static/file_manager.css?v=16">
+<link rel="stylesheet" href="/file-manager-static/file_manager.css?v=17">
 <link rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
       media="print" onload="this.media='all'">
@@ -163,6 +163,16 @@
         <span class="fm-place-label" id="fm-place-label"></span>
       </span>
       <nav class="fm-breadcrumb fm-scroll-x" id="breadcrumb" data-i18n-aria-label="fm.common.path"></nav>
+      <input type="text" class="fm-path-input" id="fm-path-input" autocomplete="off" autocapitalize="off"
+             spellcheck="false" enterkeyhint="go" data-i18n-aria-label="fm.common.path">
+      <button type="button" class="fm-path-btn" id="fm-path-edit" data-i18n-title="fm.common.path"
+              data-i18n-aria-label="fm.common.path">
+        <svg class="fm-ico" aria-hidden="true"><use href="#i-edit"/></svg>
+      </button>
+      <button type="button" class="fm-path-btn" id="fm-path-copy" data-i18n-title="fm.copy_path"
+              data-i18n-aria-label="fm.copy_path">
+        <svg class="fm-ico" aria-hidden="true"><use href="#i-copy"/></svg>
+      </button>
     </div>
 
     <div class="fm-header-right">
@@ -1647,7 +1657,7 @@
 })();
 </script>
 
-<script src="/file-manager-static/file_manager.js?v=21"></script>
+<script src="/file-manager-static/file_manager.js?v=22"></script>
 
 <!--
   The [data-fm-action] modules. Classic scripts, so they run in document order.

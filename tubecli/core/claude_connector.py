@@ -33,7 +33,8 @@ LEVELS = ("read", "write")
 # Quyền THÊM chủ cấp cho từng kết nối trên TubeCLI Cloud › Connectors (cloud gửi kèm «perms»). «share» = chia sẻ ảnh/
 # video bằng link công khai (codex_gpt/tools.py share_*, core/public_share.py) — bật ô = đồng ý TRƯỚC cho mọi link của
 # kết nối đó (5/11/2026: không còn link duyệt từng link). Lạ thì bỏ.
-PERMS = ("share",)
+# «drive» (15/11/2026) = sao lưu ảnh/video của Content Studio lên Google Drive của chủ (core/drive_backup.py).
+PERMS = ("share", "drive")
 MAX_BODY = 256 * 1024                 # board_create nhận goal tới 20 000 ký tự, browser_type 5 000
 
 # Công cụ luôn nguy hiểm: đóng trình duyệt (cắt ngang phiên/việc đang chạy trên hồ sơ đó), cài mã mới, mở agent ra Town.

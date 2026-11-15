@@ -1147,6 +1147,11 @@ PERM_TEXT = {
                  "Connectors (\"Allow public share links\"); until then, ask the owner to share the file from the "
                  "File Manager."),
 }
+# Sao lưu lên Google Drive (15/11/2026) — cửa hẹp, xem core/drive_backup.py. File Manager / Drive vẫn trong BLOCK_ALL.
+DRIVE_PERM = "drive"
+PERM_TEXT[DRIVE_PERM] = (
+    "Backing up to Google Drive is turned off for this connection. The owner can allow it in TubeCLI Cloud › "
+    "Connectors (\"Allow Google Drive backup\"); until then, ask the owner to upload the files from the File Manager.")
 SHARE_DIRS = ("content_studio/outputs", "content_studio/exports", "content_studio/api_images",
               "content_studio/grok_images", "content_studio/grok_videos", "content_studio/hook_videos",
               "content_studio/veo3_videos", "content_studio/thumbs")      # chỉ còn để nhận link cũ (trước 5/11)
@@ -1367,6 +1372,57 @@ async def t_share_revoke(args, ctx):
     return text_result("Link revoked — it answers 410 Gone from now on.")
 
 
+def _backup():
+    from tubecli.core import drive_backup as DB
+    return DB
+
+
+async def t_drive_accounts(args, ctx):
+    DB = _backup()
+    rows = [{"email": a["email"], "status": a["status"]} for a in DB.accounts()]
+    return text_result(f"{len(rows)} Google account(s) on this server can write to Google Drive. Pass the email as "
+                       "`account` to drive_backup. Content Studio folder: " + DB.studio_root() + "\n" + _dump(rows))
+
+
+def _backup_summary(a) -> str:
+    return (f"Back up images/videos from Content Studio '{a.get('source')}' ({a.get('pattern') or '*'}) to Google "
+            f"Drive {a.get('account')} › {a.get('folder')}")
+
+
+async def t_drive_backup(args, ctx):
+    import asyncio
+    DB = _backup()
+    try:
+        job = await asyncio.to_thread(DB.start, _str(args, "account", True, 200), _str(args, "source", True, 600),
+                                      _str(args, "folder", True, 900), _str(args, "pattern", False, 200),
+                                      args.get("largest_first") is not False)
+    except DB.BackupRefused as e:
+        raise ToolError(str(e)) from None
+    return text_result(
+        f"Backup {job['id']} started in the background: {job['total']} file(s), {DB.summary(job)['total_size']}, "
+        f"one at a time, largest first. Files already in the Drive folder with the same name and size are skipped; "
+        f"each failed file is retried twice. Nothing is deleted on the server. Follow it with drive_backup_status "
+        f"(job_id \"{job['id']}\") — large backups take hours.\n" + _dump(DB.summary(job)))
+
+
+async def t_drive_backup_status(args, ctx):
+    DB = _backup()
+    try:
+        job = DB.get(_str(args, "job_id", False, 40))
+    except DB.BackupRefused as e:
+        raise ToolError(str(e)) from None
+    return text_result(_dump(DB.summary(job, files=args.get("files") is True)))
+
+
+async def t_drive_backup_cancel(args, ctx):
+    DB = _backup()
+    try:
+        job = DB.cancel(_str(args, "job_id", False, 40))
+    except DB.BackupRefused as e:
+        raise ToolError(str(e)) from None
+    return text_result("Files already uploaded stay on Drive.\n" + _dump(DB.summary(job)))
+
+
 def _api_always_ask(args) -> bool:
     try:
         a = _api_prepare(args)
@@ -1449,6 +1505,33 @@ TOOLS: Dict[str, Tool] = {t.name: t for t in [
     Tool("share_revoke", "Revoke a public link from share_list — it answers 410 Gone at once.",
          {"token": {**S, "description": "token from share_list"}}, ["token"], t_share_revoke, write=True,
          summary=lambda a: f"Revoke public link {a.get('token')}", perm=SHARE_PERM),
+    Tool("drive_accounts", "Google accounts on this server that can receive a Google Drive backup, and the Content "
+         "Studio data folder. Needs the owner to allow Google Drive backup for this connection.",
+         {}, [], t_drive_accounts, perm=DRIVE_PERM),
+    Tool("drive_backup", "Back up image and video files of Content Studio to the owner's Google Drive. Uploads the "
+         "files that sit DIRECTLY inside `source` (not its subfolders) and match `pattern`, one at a time, largest "
+         "first, in the background. Skips a file already in the Drive folder with the same name and size, retries a "
+         "failed file twice, never deletes or changes anything on the server, never shares anything publicly. When "
+         "it ends it writes a report file (name, size, Drive file id, OK/ERROR, totals on the server and on Drive). "
+         "One backup runs at a time; call it once per source folder.",
+         {"account": {**S, "description": "Google account email from drive_accounts"},
+          "source": {**S, "description": "folder inside the Content Studio data folder: an absolute path, or relative "
+                                         "such as 'outputs/exports' or 'hook_videos'"},
+          "folder": {**S, "description": "Drive folder path under My Drive, levels separated by '/', e.g. "
+                                         "'Archive 2026/TubeCLI exports'; existing folders are reused, missing ones "
+                                         "created"},
+          "pattern": {**S, "description": "file name pattern, case-insensitive, e.g. '*.mp4' or 'ep*_hook.mp4' "
+                                          "(default: every image and video)"},
+          "largest_first": {"type": "boolean", "description": "default true; false = by name"}},
+         ["account", "source", "folder"], t_drive_backup, write=True, summary=_backup_summary, perm=DRIVE_PERM),
+    Tool("drive_backup_status", "Progress and result of a Google Drive backup: counts, sizes, the file being "
+         "uploaded, errors, and the path of the report file. Without job_id: the latest backup.",
+         {"job_id": {**S, "description": "id from drive_backup"},
+          "files": {"type": "boolean", "description": "true = also list each file with its Drive file id and status"}},
+         [], t_drive_backup_status, perm=DRIVE_PERM),
+    Tool("drive_backup_cancel", "Stop a running Google Drive backup. Files already uploaded stay on Drive.",
+         {"job_id": {**S, "description": "id from drive_backup (default: the latest)"}},
+         [], t_drive_backup_cancel, write=True, summary=lambda a: "Stop the Google Drive backup", perm=DRIVE_PERM),
     Tool("board_list", "List tasks on the TubeCLI Task Board (Bảng việc) with counts per status and paused lanes.",
          {"group": {"type": "string", "enum": list(BOARD_GROUPS + BOARD_STATUSES),
                     "description": "A group (needs_you = pending_approval + review; working = queued + running; "

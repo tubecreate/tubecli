@@ -39,6 +39,10 @@ _EXPORT_FORMATS = {
 _FOLDER_MIME = "application/vnd.google-apps.folder"
 
 MAX_TRANSFER_MB = 512  # hard cap for upload/download payloads through this API
+# File ĐÃ nằm trên đĩa máy chủ (POST /upload) được đọc từng khúc UPLOAD_CHUNK_MB rồi gửi tiếp nối, không nạp vào RAM —
+# trần 512 MB ở trên là của đường nhận byte từ trình duyệt. Video Content Studio dài 20 phút nặng 600–800 MB.
+MAX_UPLOAD_PATH_MB = 8192
+UPLOAD_CHUNK_MB = 16
 
 
 def _am():
@@ -432,10 +436,10 @@ async def drive_upload_path(req: UploadPathRequest):
     if not os.path.isfile(safe):
         raise HTTPException(status_code=404, detail=f"File không tồn tại trên máy chủ: {req.local_path}")
     size = os.path.getsize(safe)
-    if size > MAX_TRANSFER_MB * 1024 * 1024:
+    if size > MAX_UPLOAD_PATH_MB * 1024 * 1024:
         raise HTTPException(
             status_code=413,
-            detail=f"File {size // (1024 * 1024)}MB vượt giới hạn {MAX_TRANSFER_MB}MB của API này.",
+            detail=f"File {size // (1024 * 1024)}MB vượt giới hạn {MAX_UPLOAD_PATH_MB}MB của API này.",
         )
 
     def work():
@@ -443,7 +447,9 @@ async def drive_upload_path(req: UploadPathRequest):
         service, acting_email = _svc(req.cred_id)
         body = {"name": (req.name or os.path.basename(safe)),
                 "parents": [req.folder_id or "root"]}
-        media = MediaFileUpload(safe, resumable=size > 5 * 1024 * 1024)
+        big = size > 5 * 1024 * 1024
+        media = (MediaFileUpload(safe, resumable=True, chunksize=UPLOAD_CHUNK_MB * 1024 * 1024) if big
+                 else MediaFileUpload(safe, resumable=False))
         f = service.files().create(
             body=body, media_body=media,
             fields="id, name, mimeType, size, webViewLink, parents",

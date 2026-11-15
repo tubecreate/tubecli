@@ -264,6 +264,36 @@ _pending_lock = threading.Lock()
 PENDING_TTL_SEC = 900
 
 
+def json_credential_kind(raw) -> tuple:
+    """File JSON dán vào credential là gì: ("oauth_client", client_id, client_secret) — file «OAuth client» tải từ
+    Google Console ({"web": …} / {"installed": …}); ("service_account", client_email, "") — khoá service account;
+    ("", "", "") — không có / không đọc được."""
+    if not raw:
+        return "", "", ""
+    try:
+        info = json.loads(raw) if isinstance(raw, str) else raw
+    except (TypeError, ValueError):
+        return "", "", ""
+    if not isinstance(info, dict):
+        return "", "", ""
+    for key in ("web", "installed"):
+        box = info.get(key)
+        if isinstance(box, dict) and box.get("client_id"):
+            return "oauth_client", str(box["client_id"]), str(box.get("client_secret") or "")
+    if info.get("type") == "service_account" or (info.get("client_email") and info.get("private_key")):
+        return "service_account", str(info.get("client_email") or ""), ""
+    return "", "", ""
+
+
+SERVICE_ACCOUNT_NO_AUTHORIZE = (
+    "This credential is a service account key. It signs in by itself, so there is nothing to authorize: Google "
+    "Sheets and API calls use it directly. Uploading to Google Drive needs a Google account instead, because a "
+    "service account has no Drive storage of its own: add a credential with an OAuth Client ID and Client Secret, "
+    "then authorize it with the Google Drive scope.")
+NO_CLIENT_ID = ("This credential has no Client ID. Edit it and enter the OAuth Client ID and Client Secret from "
+                "Google Cloud Console (APIs & Services › Credentials), then authorize again.")
+
+
 def _prune_pending(now=None) -> None:
     """Bỏ các state đã hết hạn. Người gọi PHẢI đang giữ _pending_lock."""
     now = now or datetime.now()
@@ -576,6 +606,21 @@ class AuthManager:
         prov_config = PROVIDERS.get(provider)
         if not prov_config:
             return {"status": "error", "message": f"Unknown provider: {provider}"}
+
+        # Credential chỉ có file JSON (15/11/2026): trước đây gửi client_id RỖNG sang Google ⇒ trang «Missing required
+        # parameter: client_id» mà không ai hiểu. File của OAuth client thì lấy Client ID / Secret trong đó; khoá
+        # service account thì không có bước cấp quyền — nói rõ, và chỉ đường cho việc tải lên Drive.
+        if not str(cred.get("client_id") or "").strip():
+            kind, cid, csec = json_credential_kind(cred.get("credentials_json"))
+            if kind == "oauth_client":
+                cred["client_id"] = cid
+                if csec and not cred.get("client_secret"):
+                    cred["client_secret"] = csec
+                self._save()
+            elif kind == "service_account":
+                return {"status": "error", "message": SERVICE_ACCOUNT_NO_AUTHORIZE}
+            else:
+                return {"status": "error", "message": NO_CLIENT_ID}
 
         # Generate state token for CSRF protection
         state_token = secrets.token_urlsafe(32)
