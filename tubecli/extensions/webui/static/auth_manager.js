@@ -948,6 +948,11 @@ async function saveCredential() {
         service_account_email: document.getElementById('cred-sa-email').value.trim(),
         scopes: getSelectedCredScopes(),
     };
+    // Đang SỬA mà ô khoá để trống = giữ khoá đã lưu: đừng gửi trường rỗng. Lõi ≥ .239 tự bỏ qua chuỗi rỗng, nhưng tệp
+    // này còn tới máy lõi cũ qua hot-patch — ở đó chuỗi rỗng ghi đè và XOÁ khoá (15/11/2026).
+    if (editId) {
+        ['client_id', 'client_secret', 'credentials_json'].forEach((k) => { if (!body[k]) delete body[k]; });
+    }
 
     if (!body.name) {
         focusCredName();
