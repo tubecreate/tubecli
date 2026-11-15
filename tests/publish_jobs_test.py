@@ -570,5 +570,32 @@ check("G5 count_published: tính một lần cho mỗi task, không dời mốc 
       and AP.get_mark("agC")["published_today"] == 1 and AP.get_mark("agC")["high_water"] == "")
 check("G6 đăng xong gọi count_published (tính vào trần ngày)", "autopublish.count_published(" in src)
 
+print("── H. đánh dấu ĐÃ ĐĂNG TAY (15/11/2026) ─────────────────────")
+AGENTS["agH"] = Agent(id="agH", publish_max_per_day=2)
+h1 = to_review(agent="agH", title="The Cup That Was Already Full")
+HOOKS.clear()
+n_stops = len(STOPS)
+err = refusal(PJ.mark_published, h1["id"], {"url": "https://support.google.com/youtube?p=upload_videos"})
+check("H1 link trợ giúp (không phải link video) → từ chối, task vẫn ở review",
+      err is not None and err.code == "video_link_required" and cm.get_task(h1["id"])["status"] == "review", err and err.code)
+out = PJ.mark_published(h1["id"], {"url": "https://studio.youtube.com/video/AbCdEfGhIjK/edit", "channel": "Radhika Singh"}, "claude_connector")
+t = cm.get_task(h1["id"])
+check("H2 link Studio → ghi youtu.be/<id>, task sang done, dòng Published trong kết quả",
+      out["url"] == "https://youtu.be/AbCdEfGhIjK" and t["status"] == "done"
+      and "**Published** (by hand, outside TubeCLI): https://youtu.be/AbCdEfGhIjK → Radhika Singh" in (t.get("result") or ""), (out, t.get("status")))
+check("H3 không mở trình duyệt, không gọi hook nhận task (không dựng / đăng lại)", len(STOPS) == n_stops and HOOKS == [])
+check("H4 tính vào trần ngày của agent", AP.get_mark("agH")["published_today"] == 1, AP.get_mark("agH"))
+check("H5 task biết mình đã đăng → đánh dấu lại bị chặn", cm.published_video(h1["id"]).get("video_id") == "AbCdEfGhIjK"
+      and getattr(refusal(PJ.mark_published, h1["id"], {"video_id": "AbCdEfGhIjK"}), "code", "") == "already_published")
+h2 = to_review(agent="agH", title="Another story")
+err = refusal(PJ.mark_published, h2["id"], {"video_id": "AbCdEfGhIjK"})
+check("H6 cùng một video không ghi cho hai task", err is not None and err.code == "video_belongs_to_another_task", err and err.code)
+out = PJ.mark_published(h2["id"], {"video_id": "ZyXwVuTsRqP"})
+h3 = to_review(agent="agH", title="Third story")
+err = refusal(PJ.request_publish, h3["id"], {"profile": "gmail_pk0789743"})
+check("H7 hai video đánh dấu tay đã đủ trần 2/ngày → lượt đăng thứ ba hôm nay bị từ chối",
+      out["status"] == "done" and err is not None and err.code == "daily_limit_reached", err and err.code)
+check("H8 route POST /tasks/{id}/published có mặt", '@router.post("/tasks/{task_id}/published")' in croutes)
+
 print(f"\n{checks - len(failures)}/{checks} PASS")
 sys.exit(1 if failures else 0)

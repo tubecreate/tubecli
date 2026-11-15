@@ -572,6 +572,72 @@ def request_publish(task_id: str, body: Optional[Dict[str, Any]] = None, actor: 
     return public(job)
 
 
+_STUDIO_VIDEO_RE = re.compile(r"^https?://studio\.youtube\.com/video/([A-Za-z0-9_-]{6,20})(?![A-Za-z0-9_-])")
+
+
+def mark_published(task_id: str, body: Optional[Dict[str, Any]] = None, actor: str = "user") -> Dict[str, Any]:
+    """Video của task ĐÃ được đăng tay ngoài TubeCLI (15/11/2026 — #206, #207 trên contabo đăng bằng script
+    youtube_upload chạy tay): ghi link vào task, REVIEW → DONE, tính vào trần ngày của agent. KHÔNG mở trình duyệt, KHÔNG
+    tải gì lên. Bắt buộc có link video thật (youtu.be/<id>, watch?v=<id>, studio.youtube.com/video/<id>) hoặc video_id —
+    không có link thì không ai kiểm được, và các lưới chống đăng trùng phía sau dựa vào chính id này."""
+    from tubecli.extensions.content_video import pipeline as P
+
+    body = dict(body or {})
+    cm = _codex()
+    task = cm.get_task(str(task_id))
+    if not task:
+        raise JobError(404, "task_not_found", f"Task not found: {task_id}")
+    tid = str(task["id"])
+    kind = cm.kind_of(tid) or ""
+    if kind not in PUBLISH_KINDS:
+        raise JobError(400, "not_a_rendered_video", "Only a rendered video task (Auto video / render) can be marked "
+                                                    f"as published — this task is “{kind or 'a general task'}”.")
+    pub = cm.published_video(tid)
+    if pub:
+        raise JobError(409, "already_published", f"This task already published {pub['url']}.", url=pub["url"],
+                       video_id=pub["video_id"])
+    if task.get("status") != "review":
+        raise JobError(409, "not_in_review", f"The task is “{task.get('status')}”, not in review.")
+    active = job_for_task(tid)
+    if active and active.get("status") in ACTIVE:
+        raise JobError(409, "publish_in_progress", "A publish job for this task is queued or running — wait for it.",
+                       job=public(active))
+    raw = str(body.get("url") or "").strip()
+    vid = P.youtube_video_id(raw)
+    if not vid and raw:
+        m = _STUDIO_VIDEO_RE.match(raw)
+        vid = m.group(1) if m else ""
+    if not vid:
+        cand = str(body.get("video_id") or "").strip()
+        vid = cand if re.fullmatch(r"[A-Za-z0-9_-]{6,20}", cand) else ""
+    if not vid:
+        raise JobError(400, "video_link_required",
+                       "Send the link of the video on YouTube (url: https://youtu.be/<id>, a watch?v= link, or "
+                       "https://studio.youtube.com/video/<id>) or its video_id. A help link such as "
+                       "support.google.com/youtube?p=upload_videos is not a video link — open YouTube Studio › Content "
+                       "and copy the video's link.")
+    url = f"https://youtu.be/{vid}"
+    other = task_of_video(vid)
+    if other and str(other.get("id")) != tid:
+        raise JobError(409, "video_belongs_to_another_task",
+                       f"Video {vid} is already recorded on task #{other.get('seq', '?')}.", task=other.get("seq"))
+    channel = str(body.get("channel") or "").strip()[:120]
+    scheduled = str(body.get("scheduled") or "").strip()[:60]
+    published = {"video_id": vid, "url": url, "title": str(body.get("title") or task.get("title") or "")[:200],
+                 "channel_name": channel, "by_hand": True, "at": _now()}
+    cm.append_event(tid, "log", "checkpoint", actor=str(actor or ACTOR), data={"checkpoint": {"published": published}})
+    try:
+        from . import autopublish
+        counted = autopublish.count_published(str(task.get("assignee_id") or ""), url, tid)
+    except Exception as e:      # noqa: BLE001
+        counted = f"not counted: {e}"
+    line = (f"- **Published** (by hand, outside TubeCLI): {url}"
+            + (f" (scheduled {scheduled})" if scheduled else "") + (f" → {channel}" if channel else ""))
+    cm._settle(tid, "done", str(actor or ACTOR), message=f"Marked as published: {url}",
+               updates={"result": result_with_link(str(task.get("result") or ""), line), "finished_at": cm_now()})
+    return {"task": task.get("seq"), "status": "done", "video_id": vid, "url": url, "daily_limit": counted}
+
+
 def _task_log(job: Dict[str, Any], message: str) -> None:
     try:
         _codex().append_event(str(job.get("task_id") or ""), "log", message[:1000], actor=ACTOR)

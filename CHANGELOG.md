@@ -2,6 +2,23 @@
 
 Notable changes to TubeCLI. Versions match `tubecli/__init__.py`.
 
+## 2026.08.09.242 — 2026-11-15
+
+### Automatic videos say why they were not published
+- When an agent's automatic video is only rendered and not uploaded, the run note now gives the reason, for example
+  «publishing paused itself: the last video was 17:51 long and this agent's channel is marked not verified».
+- `GET /api/v1/codex/autopublish/{agent_id}` also returns `will_publish` and `why_not` (whether the next automatic
+  video is uploaded, and the reason when it is not), plus `when`, `when_choices` and `slots`.
+- `PATCH /api/v1/codex/autopublish/{agent_id}` also takes `channel_unverified` (false = the channel is
+  phone-verified; this also clears a self-pause), `when` (`now` or `slots`; other values are refused) and `slots`
+  (times such as «12:00, 19:00»). `when: slots` with no times is refused.
+
+### Record a video you published by hand
+- `POST /api/v1/codex/tasks/{id}/published` with the video's link (`https://youtu.be/<id>`, a `watch?v=` link or
+  `https://studio.youtube.com/video/<id>`) or `video_id` writes the link on the task, moves it from review to done
+  and counts it toward the agent's daily limit. Nothing is uploaded. A help link is refused, and one video cannot be
+  recorded on two tasks.
+
 ## 2026.08.09.241 — 2026-11-15
 
 ### Dashboard menu on a phone and when collapsed
