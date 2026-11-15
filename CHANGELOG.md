@@ -2,6 +2,44 @@
 
 Notable changes to TubeCLI. Versions match `tubecli/__init__.py`.
 
+## 2026.08.09.239 — 2026-11-15
+
+### Publish a video that is already rendered
+- `POST /api/v1/codex/tasks/{id}/publish` uploads the finished video of a task in review to YouTube Studio, without
+  rendering again. You can send your own title, description and tags. On success the task moves to done with the
+  `youtu.be` link in its result. `GET` on the same path shows the job.
+- Publish and edit jobs run one browser at a time. A job waits while free RAM is under 1.5 GB or a video is rendering,
+  and the browser profile is closed after every job. Waiting jobs survive a restart.
+- `PUT /api/v1/youtube/videos/{video_id}` changes the title, description and tags of a published video through
+  YouTube Studio. `category_id` and `default_audio_language` are not applied yet. This path is new: check the result
+  on YouTube.
+- A manual publish counts toward the agent's videos-per-day limit and is refused when the limit is reached
+  (`when: "slots"` or `ignore_daily_limit: true` to go past it).
+
+### YouTube upload no longer leaves a draft without saying why
+- After pressing Publish the upload script waits up to 30 seconds, presses the Publish button of a confirmation dialog
+  if YouTube shows one, and presses again when the button is still enabled. If YouTube still does not publish, the
+  task result quotes the error text found on the page.
+
+### Automatic videos
+- An agent no longer makes a second video on a topic it already covered in the last 21 days. The run shows
+  `skip: duplicate topic`. A duplicate title found after the script is written stops the task before rendering.
+- Daily keywords: a reply with quotation marks inside a query no longer breaks the refresh, and an agent no longer
+  searches the same first query every day when its keywords were not refreshed.
+- Channels marked «not verified» (15-minute limit): scripts are written at about 1600 words and trimmed to fit, also
+  for render-only runs. Before, a 2000-word request produced 18-minute videos, publishing paused itself for good,
+  and a video that could not be published was still rendered every day.
+- `GET` / `PATCH /api/v1/codex/autopublish/{agent_id}` reads and sets the Publish switch and the daily limit of one
+  agent. `POST /api/v1/agents/{id}/pause` and `/resume` stop and restart an agent's schedule and automatic videos.
+- Title, description and tags at publish time: replies that are not strict JSON are read, other models are tried
+  when the agent's model does not answer, and as a last step they are built from the script instead of left empty.
+
+### Fixes
+- The image step no longer stops a render when an older Content Studio does not report how many shots have a prompt.
+- Auth Manager: editing a credential no longer erases its Client ID and Client Secret. Empty fields now keep the
+  saved values, the form says what is saved, and an eye button shows the saved secret when the dashboard is opened on
+  the machine itself (never through the tunnel).
+
 ## 2026.08.09.238 — 2026-11-14
 
 ### Preview a video before you create it
