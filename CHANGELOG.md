@@ -2,6 +2,16 @@
 
 Notable changes to TubeCLI. Versions match `tubecli/__init__.py`.
 
+## 2026.08.09.244 — 2026-11-16
+
+### Pasting long subtitles no longer freezes the form
+- The Video content box no longer runs the browser spell check, autocorrect or auto-capitalisation. Spell check
+  underlined almost every subtitle line and made the browser re-check hundreds of thousands of characters after a paste.
+- The character count, video length estimate and YouTube link check now count the text once per change instead of
+  6–8 times.
+- For content longer than 20,000 characters, the count updates 0.3 seconds after you stop typing or pasting.
+  Pressing Create right after a paste still counts the full text before the limits are checked.
+
 ## 2026.08.09.243 — 2026-11-16
 
 ### Paste longer subtitles into Video content
