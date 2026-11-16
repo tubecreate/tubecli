@@ -23,14 +23,21 @@
   <img src="https://img.shields.io/badge/API-FASTAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white&labelColor=333333" alt="FastAPI backend" />
 </p>
 
+<p align="center">
+  <img src="screenshots/agent_swarm_hook.gif" width="100%" alt="AI agents (Claude, Gemini, Grok, Muse and TubeCLI) work on one canvas at the same time, each with its own cursor: they write the script, place the formula, draw a rocket and tower, add the voice waveform and finish a math explainer scene layer by layer" />
+</p>
+
 **TubeCLI is a self-hosted, open-source AI agent team that executes real operational work end to end.** It is not a chat wrapper, and it is not a framework you have to code your agents into. You describe the job in plain language — from the CLI, the web dashboard, Telegram, or the Flow canvas on TubeCLI Cloud — and an agent team carries it out with real tools against your own machine, with your own keys.
 
-*v2026.08.09.193 · Python 3.10+ / FastAPI / Node.js / Vue / Three.js · MIT*
+*v2026.08.09.244 · Python 3.10+ / FastAPI / Node.js / Vue / Three.js · MIT*
 
 ---
 
-## What's new (August – October 2026)
+## What's new (August – November 2026)
 
+- **Drive TubeCLI from Claude, Gemini, Grok or Muse (MCP connector).** Add `https://cloud.tubecreate.com/mcp` as a custom connector in claude.ai, Gemini, Grok or Muse and sign in with your TubeCLI Cloud account (OAuth 2.1). On the consent page you choose which of your servers the app may use, give the connection a name, and tick the optional permissions. The app gets the Task Board (`board_*`), your browser profiles (`browser_*`), the whole TubeCLI API (`tubecli_api`, guided by `tubecli_overview`, `tubecli_doc` and `tubecli_endpoints`), Market installs, and `server_clone` to set up one server like another (extensions and templates only, never data or agents). Reading and ordinary changes run at once. Deleting, cancelling, stopping a browser, installing code or publishing on Agent Town returns an approval link instead, and nothing runs until you click Approve.
+- **Share links and Google Drive backup, per connection.** Two boxes you tick per connection, on the consent page or later on the Connectors page. *Allow public share links*: `share_file` / `share_files` give 30-minute links to images and videos TubeCLI made. *Allow Google Drive backup*: `drive_backup` copies Content Studio images and videos to your Google Drive, largest first, skips files already there, writes a report and never deletes anything. The File Manager and Drive APIs stay closed to AI apps.
+- **Connectors page.** Every connection has a name you choose and can rename, so two "Claude" connections are easy to tell apart. Each shows its servers, permissions and last use, and you can disconnect one without touching the others.
 - **Narrated videos from what the agent read today.** `content_video` turns the agent's own corpus (articles it scraped, videos it watched, links you paste) into a script → storyboard → images → voice → mp4, queued on the Task Board. Aspect 16:9 or 9:16, any of nine languages, verbatim mode for scripts you wrote yourself, a content queue that feeds one video per item per day, resume-after-crash rendering, and optional auto-publish to YouTube with a generated thumbnail.
 - **Canvas Engine in the core.** The scene renderer (layouts, word-timed subtitles, chalkboard and sketch templates, per-scene clips) now ships with TubeCLI and updates with it.
 - **Codex GPT node.** The OpenAI Codex CLI runs on your machine, under TubeCLI: several ChatGPT subscriptions in one vault with automatic switching when a quota runs out, chat sessions managed from the Flow canvas, and an MCP server (`tubecli`) through which Codex drives the Task Board, browser profiles, extensions and the API.
@@ -134,6 +141,7 @@ All of it is also driveable from a browser at `localhost:5295/dashboard` — age
 - 📋 **Task Board (Codex)** — Mission control for agentic work. You or the AI create a task, delegate it to an agent or a team, approve it, and a background worker runs it while you watch the step timeline with progress, elapsed time and time left. Extensions register their own task types (a video, a queue item, a reup) with their own forms. Tasks survive a restart and carry a full audit trail.
 - 🎬 **Content video pipeline** — Script → storyboard → images → voice → render → Drive → YouTube, from the agent's corpus or from text you paste. Content Studio templates decide language, voice, layout and length; a shared template library serves Content Studio and POD Studio alike.
 - 🖼 **Canvas Engine** — The renderer behind "explainer" videos: scene layouts, word-timed subtitles (`.ass`), chalkboard / sketch / watercolor kits, per-scene clean clips, 16:9 and 9:16.
+- 🔗 **MCP connector** — Claude, Gemini, Grok and Muse operate your servers through `cloud.tubecreate.com/mcp`: Task Board, browser profiles, the full API, share links and Drive backup per connection, and an approval link for anything destructive.
 - 🧠 **Codex GPT** — Codex CLI managed by TubeCLI: multiple ChatGPT subscriptions with automatic failover, sessions in the Flow canvas, and the `tubecli` MCP server so Codex can operate TubeCLI itself.
 - 🎨 **Muse provider** — Text, images and 10-second clips from muse.ai through a signed-in browser profile; several accounts run in parallel lanes.
 - 🤖 **Agent Manager** — Agents with personas, routines, skills, per-agent thresholds (busy / tired / quota warnings) and a public mode for Agent Town.
@@ -190,6 +198,7 @@ TubeCLI runs fine on its own. [TubeCLI Cloud](https://cloud.tubecreate.com) is a
 
 - **Flow canvas** — a shared workspace of nodes: browser profiles you watch live, agents, extensions, the Task Board, Codex GPT sessions, files and sheets. A guided start for newcomers picks the AI model, installs the studios, checks ffmpeg and voices, and creates the first task.
 - **Three ways to add a machine** — *Connect my computer* (free: a pairing code and one line to paste; the open-source client in [`client/tubecli_connect.pyw`](client/tubecli_connect.pyw) installs TubeCLI, starts it and holds a Cloudflare tunnel), *Get a server* (we host it, monthly), or *Connect my VPS* (we install over SSH on a Linux box you own).
+- **MCP connector** — add `https://cloud.tubecreate.com/mcp` to claude.ai, Gemini, Grok or Muse. You pick the servers and permissions when you connect; destructive actions wait for your approval on the Connectors page.
 - **[Agent Town](https://tubecli.app)** — publish an agent and visitors chat with it, hire it for ad videos from their product photos, Word formatting to Vietnamese decree NĐ 30, or a remote browser session, and pay in credits. The machine reports progress with HMAC-signed telemetry; the owner always approves what runs.
 
 The cloud never holds your keys or your browser sessions; it reaches your machine only through the tunnel you opened.
@@ -334,7 +343,7 @@ TubeCLI column measured 2026-10-09; competitor columns were last checked 2026-07
 | Human approval gate on irreversible steps | **Yes, enforced** | Manual | No | No | Build it yourself | Partial |
 | Telegram as a control plane | **Yes** | Via nodes | No | No | No | No |
 | No-code visual builder | Partial — workflow builder in the dashboard, Flow canvas on TubeCLI Cloud | **Yes** | **Yes** | No | No | Partial |
-| MCP support | Partial — ships an MCP **server** (`tubecli`) for the Codex CLI; no generic MCP client | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** |
+| MCP support | Partial — MCP **server** only: a remote connector for Claude, Gemini, Grok and Muse (OAuth, per-server consent) and a local one for the Codex CLI; no generic MCP client | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** |
 | Prebuilt integrations | 26 built-in + marketplace studios | **400+** | Large | Large | Large | Large |
 | Managed cloud option | Optional (TubeCLI Cloud) | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** |
 | Enterprise support / SSO / audit | **No** | **Yes** | **Yes** | **Yes** | **Yes** | Partial |
@@ -376,7 +385,12 @@ For operational tasks, yes — both aim at an agent that uses real tools rather 
 Yes, and this is a deliberate differentiator. MIT permits multi-tenant deployment, white-labelling, and reselling. For contrast: n8n's Sustainable Use License forbids reselling it as a hosted service, and Dify's modified Apache license forbids operating a multi-tenant environment and forbids removing their logo. Agent Town goes one step further: publish your agent there and visitors hire it directly.
 
 ### Does TubeCLI support MCP?
-Partially. The repo ships an MCP **server** (`tubecli/extensions/codex_gpt/mcp_relay.py`, registered as `tubecli` in the Codex CLI's `config.toml`) that exposes the Task Board, browser profiles, extensions and the API to Codex. There is no generic MCP client, so TubeCLI cannot yet consume third-party MCP servers; if that is a requirement, use n8n, Dify, CrewAI or LangGraph instead.
+As a server, yes; as a client, no.
+- **Remote:** TubeCLI Cloud serves MCP at `https://cloud.tubecreate.com/mcp` with OAuth 2.1. Claude (claude.ai custom connectors), Gemini, Grok and Muse connect to it; Gemini can also use a Client ID made on the Connectors page. Only the owner of a server, or an admin member of it, can connect it. Calls reach the machine through its own tunnel, signed with HMAC.
+- **Local:** the same tools are registered as `tubecli` in the Codex CLI's `config.toml` (`tubecli/extensions/codex_gpt/mcp_relay.py`).
+- **Tools:** Task Board, browser profiles, the TubeCLI API with its docs, Market installs, server cloning, Agent Town offers, and — when you allow them for that connection — share links and Google Drive backup. Changing settings or the system, publishing to the Market and reading files directly are blocked; destructive actions return an approval link.
+
+There is no generic MCP client, so TubeCLI cannot yet consume third-party MCP servers; if that is a requirement, use n8n, Dify, CrewAI or LangGraph instead.
 
 ### Can Claude share files from my server?
 Yes, when you allow it. Connect claude.ai to TubeCLI Cloud (Connectors), then tick **Allow public share links** for that connection. Ticking the box is your consent in advance: Claude's `share_file` / `share_files` make a link at once, with no per-link approval. Each link gives a page, a raw URL and a direct download URL that work with a plain HTTP GET (no sign-in; Range supported) and stop after 30 minutes unless Claude asks for a different expiry (1–1440 minutes).
@@ -384,6 +398,9 @@ Yes, when you allow it. Connect claude.ai to TubeCLI Cloud (Connectors), then ti
 - Browser profiles, sessions, cookies, keys and `.env` files are refused, and so are paths that leave the data folder (`..`, symlinks).
 - A connection can make at most 200 links an hour. Every link created or downloaded is logged in `data/file_manager/share_log.jsonl` (time, connection, file, IP).
 - Expired or revoked links answer `410 Gone`. Unticking the box, disconnecting Claude or turning Claude off on the server revokes that connection's live links at once. You can also revoke any link in File Manager › Shares.
+
+### Can an AI app back up my videos to Google Drive?
+Yes, when you allow it. Tick **Allow Google Drive backup** for that connection (on the consent page or on the Connectors page), and add a Google account with Drive access in TubeCLI's Auth Manager. The app then calls `drive_accounts` to see the accounts, `drive_backup` with a Content Studio folder, a Drive folder name and a file pattern such as `*.mp4`, and `drive_backup_status` to follow progress. One backup runs at a time, the largest files go first unless you ask otherwise, files already on Drive with the same name and size are skipped, and a report is saved under `Documents/TubeCLI backups`. Nothing on the machine is ever deleted, and the app still cannot browse your files or your Drive.
 
 ### Can TubeCLI translate and burn subtitles?
 Extraction and translation are the mature part: three interchangeable engines (local Whisper, Gemini, YouTube CC) exporting SRT/JSON/VTT/ASS, with translation as a separate step so you can review the text before it is burned anywhere. Finished TubeCLI videos can be cloned into another language. Burn-in and hardsub removal (ffmpeg delogo/blur/pixel/fill with OpenCV region detection) are implemented and reviewable but should be treated as experimental.
@@ -420,7 +437,7 @@ TubeCLI is designed so that an AI agent can understand and operate it without a 
 - **`llms.txt`** at the repository root — a compact, machine-readable map of what the system is, what it can do, and what it explicitly cannot do.
 - **`SKILL.md` inside every extension** (`tubecli/extensions/*/SKILL.md`) — endpoints, parameters, trigger commands and worked examples, written for LLMs rather than humans.
 - **`SKILL_EXTENSION_BUILDER.md`** — how to write your own extension or skill.
-- **The `tubecli` MCP server** — lets a Codex CLI session read the Task Board and operate the machine with the owner's approval.
+- **The MCP server** — the same tools for Claude, Gemini, Grok and Muse (through `cloud.tubecreate.com/mcp`) and for the Codex CLI on the machine (`tubecli`): read the Task Board and operate the machine, with the owner's approval for anything destructive.
 
 External agents (Claude, GPT, Gemini, Codex) can read these files to learn how to drive the system, write extensions, and debug workflows autonomously.
 
