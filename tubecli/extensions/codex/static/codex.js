@@ -3212,7 +3212,16 @@ const CODEX = (() => {
   const CV_SUB_TIME_RE = /^\s*(?:\d{1,2}:)?\d{1,2}:\d{2}[,.]\d{1,3}\s*-->\s*(?:\d{1,2}:)?\d{1,2}:\d{2}[,.]\d{1,3}/;
   /** Lời của bài dán: phụ đề .srt / .vtt (≥ 3 dòng mốc) → bỏ mốc giờ, số thứ tự, WEBVTT / NOTE / STYLE, thẻ; không phải
    *  phụ đề thì trả nguyên. Chỉ để ĐẾM — máy chủ tự chuyển bằng subtitle_to_text. */
+  // Nhớ kết quả theo NỘI DUNG (16/11/2026): mỗi lần gõ, ô đếm + độ dài + link gọi các hàm này 6–8 lần trên cả bài —
+  // phụ đề 340 000 ký tự mất ~10 ms mỗi lượt, gõ thấy khựng. Cùng nội dung thì trả lại kết quả cũ.
   function cvSpoken(txt) {
+    const key = String(txt || '');
+    if (cvSpoken._m && cvSpoken._m[0] === key) return cvSpoken._m[1];
+    const out = cvSpokenRaw(key);
+    cvSpoken._m = [key, out];
+    return out;
+  }
+  function cvSpokenRaw(txt) {
     const s = String(txt || '');
     const lines = s.replace(/\r\n?/g, '\n').split('\n');
     if (lines.filter(l => CV_SUB_TIME_RE.test(l)).length < 3) return s;
@@ -3230,6 +3239,13 @@ const CODEX = (() => {
   }
 
   function cvWords(txt) {
+    const key = String(txt || '');
+    if (cvWords._m && cvWords._m[0] === key) return cvWords._m[1];
+    const n = cvWordsRaw(key);
+    cvWords._m = [key, n];
+    return n;
+  }
+  function cvWordsRaw(txt) {
     const s = cvSpoken(txt);
     const cjk = (s.match(CV_CJK_RE) || []).length;
     const thai = (s.match(CV_THAI_RE) || []).length;
@@ -3262,6 +3278,13 @@ const CODEX = (() => {
 
   /** Id video khi nội dung CHỈ là link YouTube (vài chữ ghi chú kèm theo được); [] cho bài dán tay. */
   function cvLinkOnly(txt) {
+    const key = String(txt || '');
+    if (cvLinkOnly._m && cvLinkOnly._m[0] === key) return cvLinkOnly._m[1];
+    const out = cvLinkOnlyRaw(key);
+    cvLinkOnly._m = [key, out];
+    return out;
+  }
+  function cvLinkOnlyRaw(txt) {
     const ids = cvYoutubeIds(txt);
     if (!ids.length) return [];
     const words = String(txt || '').replace(/https?:\/\/\S+/g, ' ').split(/\s+/)
@@ -3386,7 +3409,18 @@ const CODEX = (() => {
 
   let _ytProbeTimer = null;
 
+  // Bài dài: đếm SAU khi ngừng gõ (16/11/2026) — mỗi phím không còn chờ đếm lại cả bài. Bài ngắn vẫn đếm ngay.
+  const CV_DEBOUNCE_CHARS = 20000;
+  const CV_DEBOUNCE_MS = 300;
+  let _cvContentTimer = null;
   function onVideoContent() {
+    clearTimeout(_cvContentTimer);
+    const len = ($('cx-v-content').value || '').length;
+    if (len > CV_DEBOUNCE_CHARS) { _cvContentTimer = setTimeout(onVideoContentNow, CV_DEBOUNCE_MS); return; }
+    onVideoContentNow();
+  }
+  function onVideoContentNow() {
+    _cvContentTimer = null;
     const txt = ($('cx-v-content').value || '').trim();
     const ids = cvLinkOnly(txt);
     if (ids.length) scheduleYoutubeProbe(ids);
@@ -3576,6 +3610,7 @@ const CODEX = (() => {
   /** queue=true: vào hàng đợi — Codex tự chạy khi không còn video nào đang làm.
       Bỏ trống (nút "Tạo video"): chạy liền, chen trước hàng đợi. */
   async function submitVideo(queue) {
+    if (_cvContentTimer) onVideoContentNow();
     let hold = queue === true;
     const content = ($('cx-v-content').value || '').trim();
     const preset = $('cx-v-preset').value || '';

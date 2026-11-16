@@ -299,7 +299,7 @@ ok("const CV_RAW_MAX = 600000;" in _js and f"SOURCE_RAW_MAX = {P.SOURCE_RAW_MAX}
    (ROOT / "tubecli" / "extensions" / "content_video" / "pipeline.py").read_text(encoding="utf-8")
    and P.SOURCE_RAW_MAX == 600000, "trần thô của form khớp máy chủ")
 _start = _js.index("  const CV_SUB_TIME_RE")
-_end = _js.index("\n  }\n", _js.index("function cvSpoken")) + 4
+_end = _js.index("\n  }\n", _js.index("function cvSpokenRaw")) + 4
 _probe = _js[_start:_end] + "\nconst s=require('fs').readFileSync(0,'utf8');process.stdout.write(JSON.stringify(cvSpoken(s)));"
 try:
     _out = subprocess.run(["node", "-e", _probe], input=srt[:400] + "\nWEBVTT\n", capture_output=True, text=True,
