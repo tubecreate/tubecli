@@ -2,6 +2,16 @@
 
 Notable changes to TubeCLI. Versions match `tubecli/__init__.py`.
 
+## 2026.08.09.243 — 2026-11-16
+
+### Paste longer subtitles into Video content
+- When the content you paste is a subtitle file (.srt or .vtt), the 60,000-character limit now counts only the
+  spoken words. Timestamps, cue numbers and WEBVTT / NOTE lines are no longer counted. Before, a subtitle file with
+  about 30,000 characters of speech was refused.
+- The counter under the box says «characters of speech (subtitle times removed)» for subtitles.
+- The video length estimate also counts only the spoken words of subtitles.
+- Pasted content can be up to 600,000 characters in total, including the timestamps.
+
 ## 2026.08.09.242 — 2026-11-15
 
 ### Automatic videos say why they were not published
