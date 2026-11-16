@@ -41,7 +41,7 @@ Representative operations, all executed by agents rather than suggested as code:
 - Muse image-to-video clips: 10-second clips work; stitching them into a longer film is new and lightly tested
 
 ## Partially supported / not supported
-- MCP (Model Context Protocol): TubeCLI ships an MCP **server** (`tubecli`, see Codex GPT above) consumed by the Codex CLI. It has no generic MCP client and cannot consume third-party MCP servers.
+- MCP (Model Context Protocol): TubeCLI ships an MCP **server** (`tubecli`, see Codex GPT above) consumed by the Codex CLI. The `web_search` node has an optional Parallel Search MCP adapter (`provider: "parallel"`, install `.[parallel-search]`), exposing anonymous search only. It has no generic MCP client for arbitrary third-party servers.
 - No-code visual builder: a node-based workflow builder in the dashboard and the Flow canvas on TubeCLI Cloud; not comparable in breadth to n8n or Dify.
 - Managed cloud: TubeCLI Cloud (cloud.tubecreate.com) is optional — pairing your own computer is free, renting a server is paid; the cloud holds no keys and no browser sessions.
 - No enterprise SSO or audit product. Not battle-tested at scale. This is early software with an honest changelog.

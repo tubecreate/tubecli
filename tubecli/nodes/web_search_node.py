@@ -7,16 +7,21 @@ import requests
 import re
 import concurrent.futures
 import time
+import asyncio
+import json
+import uuid
+import httpx
 
 
 class WebSearchNode(BaseNode):
     node_type = "web_search"
     display_name = "🔍 Web Search"
-    description = "Fast web search via HTTP (no browser needed). Uses DuckDuckGo + Google fallback."
+    description = "Web search without a browser. DuckDuckGo + Google fallback, or opt-in Parallel Search MCP."
     icon = "🔍"
     category = "Network"
     config_schema = {
         "query": {"type": "string", "description": "Fallback search query when the `query` input port is not connected."},
+        "provider": {"type": "string", "description": "Search backend. Parallel requires the parallel-search extra; no API key needed.", "default": "default", "options": ["default", "parallel"]},
     }
 
     def _setup_ports(self):
@@ -35,7 +40,11 @@ class WebSearchNode(BaseNode):
         start = time.time()
 
         try:
-            results_text = self._fast_search(query)
+            if self.config.get("provider") == "parallel":
+                results = await asyncio.wait_for(self._parallel_search(query), timeout=30)
+                results_text = self._format_results(query, results)
+            else:
+                results_text = self._fast_search(query)
             elapsed = time.time() - start
             if results_text:
                 print(f"  [WebSearch] ✅ Got results in {elapsed:.1f}s")
@@ -50,6 +59,12 @@ class WebSearchNode(BaseNode):
                     "raw_html": "",
                     "status": "⚠️ No results",
                 }
+        except asyncio.TimeoutError:
+            return {
+                "results": "Search error: Parallel search timed out after 30 seconds",
+                "raw_html": "",
+                "status": "❌ Error: Parallel search timed out after 30 seconds",
+            }
         except Exception as e:
             elapsed = time.time() - start
             print(f"  [WebSearch] ❌ Error after {elapsed:.1f}s: {e}")
@@ -58,6 +73,47 @@ class WebSearchNode(BaseNode):
                 "raw_html": "",
                 "status": f"❌ Error: {e}",
             }
+
+    async def _parallel_search(self, query: str) -> list:
+        """Anonymous Streamable HTTP MCP search, isolated from saved API keys."""
+        try:
+            from mcp import ClientSession
+            from mcp.client.streamable_http import streamable_http_client
+        except ImportError as exc:
+            raise RuntimeError("Install Parallel support with pip install 'tubecli[parallel-search]'") from exc
+
+        if not hasattr(self, "_parallel_session_id"):
+            self._parallel_session_id = uuid.uuid4().hex
+
+        async with httpx.AsyncClient(
+            headers={"User-Agent": "TubeCLI/ParallelSearch (+https://github.com/tubecreate/tubecli)"},
+            timeout=30,
+        ) as client, streamable_http_client(
+            "https://search.parallel.ai/mcp", http_client=client,
+        ) as (read, write, _):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                response = await session.call_tool("web_search", {
+                    "objective": query,
+                    "search_queries": [query],
+                    "session_id": self._parallel_session_id,
+                })
+
+        if response.isError:
+            message = " ".join(block.text for block in response.content if block.type == "text")
+            raise RuntimeError(f"Parallel search failed: {message}")
+
+        data = response.structuredContent
+        if data is None:
+            text = next((block.text for block in response.content if block.type == "text"), "")
+            data = json.loads(text)
+        if not isinstance(data, dict) or not isinstance(data.get("results"), list):
+            raise ValueError("Invalid Parallel search response")
+        return [{
+            "title": result.get("title") or "No title",
+            "snippet": "\n".join(result.get("excerpts", [])),
+            "link": result.get("url", ""),
+        } for result in data["results"]]
 
     def _fast_search(self, query: str, num_results: int = 6) -> str:
         """Fast search: try DuckDuckGo first (most reliable), then Google fallback.
@@ -88,6 +144,10 @@ class WebSearchNode(BaseNode):
             except Exception:
                 pass
 
+        return self._format_results(query, results, num_results)
+
+    @staticmethod
+    def _format_results(query: str, results: list, num_results: int = 6) -> str:
         if not results:
             return ""
 
