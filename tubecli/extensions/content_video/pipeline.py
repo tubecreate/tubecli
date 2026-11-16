@@ -204,6 +204,10 @@ MAX_SCAN_PAGES = 40
 # 60 000 ký tự ≈ 10 000 chữ: đủ cho một bài dài. Route từ chối rõ ràng khi vượt;
 # ở đây chỉ là lưới an toàn cho lời gọi đi thẳng vào pipeline.
 SOURCE_TEXT_MAX = 60000
+# Trần của bài dán THÔ (16/11/2026). Phụ đề .srt / .vtt mang mốc giờ + số thứ tự gần gấp đôi phần lời, nên một phụ đề
+# 60 000 ký tự chỉ có ~30 000 ký tự lời mà vẫn bị từ chối. Trần SOURCE_TEXT_MAX nay tính trên LỜI sau subtitle_to_text;
+# trần thô chỉ chặn bài dán bất thường (vài MB dán nhầm).
+SOURCE_RAW_MAX = 600000
 
 _LANGUAGE_NAMES = {
     "vi": "Vietnamese", "en": "English", "zh": "Chinese (Simplified)",

@@ -167,12 +167,19 @@ async def run_route(req: RunRequest, request: Request):
                            "phải chạy từ khung chat của một agent. Mở agent rồi nhắc lại giúp tôi.")}
     try:
         from tubecli.extensions.content_video.pipeline import (
-            SOURCE_TEXT_MAX, create_auto_task, create_digest_task, create_plan_task, queued_reply)
+            SOURCE_RAW_MAX, SOURCE_TEXT_MAX, create_auto_task, create_digest_task, create_plan_task, queued_reply,
+            subtitle_to_text)
     except ImportError:
         raise HTTPException(400, "The codex extension is required to run pipelines.")
-    if len(content) > SOURCE_TEXT_MAX:
+    if len(content) > SOURCE_RAW_MAX:
         raise HTTPException(400, f"The content is {len(content):,} characters; the limit is "
-                                 f"{SOURCE_TEXT_MAX:,}. Split it into several videos.")
+                                 f"{SOURCE_RAW_MAX:,}. Split it into several videos.")
+    # Trần tính trên LỜI: phụ đề dán vào bỏ mốc giờ / số thứ tự trước khi đếm (16/11/2026).
+    spoken = subtitle_to_text(content) if content else ""
+    if len(spoken) > SOURCE_TEXT_MAX:
+        raise HTTPException(400, f"The content is {len(spoken):,} characters"
+                                 + (" of speech (subtitle times removed)" if spoken != content else "")
+                                 + f"; the limit is {SOURCE_TEXT_MAX:,}. Split it into several videos.")
 
     # Link nằm lẫn trong câu người dùng gõ → thành nguồn cào thêm.
     sources = list(req.sources or [])
@@ -190,8 +197,7 @@ async def run_route(req: RunRequest, request: Request):
     options = dict(req.options or {})
     if content:
         # Bài dán là phụ đề .srt / .vtt → chỉ giữ lời (kế hoạch trên thẻ đếm đúng số chữ)
-        from tubecli.extensions.content_video.pipeline import subtitle_to_text
-        options["source_text"] = subtitle_to_text(content)
+        options["source_text"] = spoken
     if str(options.get("voice_file") or "").strip():
         # File giọng kèm bài (5/11/2026): chuẩn hoá NGAY để kế hoạch trên thẻ ghi đúng (nguyên văn, giọng tạm CapCut/Edge
         # rồi thay bằng file); file không có / không có bài dán → báo lỗi luôn thay vì để task chạy bằng giọng khác mà người
