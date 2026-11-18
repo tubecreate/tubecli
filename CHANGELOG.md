@@ -2,6 +2,19 @@
 
 Notable changes to TubeCLI. Versions match `tubecli/__init__.py`.
 
+## 2026.08.09.245 — 2026-11-18
+
+### Agents can run their daily routine on an Android phone
+- In the agent settings, the profile picker has a new **Runs on: Browser | Android** switch. Pick a phone from the
+  Android Window extension and the agent's daily routine runs in apps on that phone instead of a browser profile:
+  Watch video → YouTube app, news and topics → Chrome app, email → Gmail app.
+- Email on the phone uses the Google account signed in on it. Check email reads up to 5 unread emails and saves them
+  to the agent's data collection. Reply email answers the newest unread email from a real person (no-reply senders
+  are skipped). Send report writes a new email to the report recipients. The agent's own AI writes the text, and
+  recipients, subject and body are checked before Send; if anything is off, the draft is discarded.
+- If the Android Window extension is not installed, the run is logged as skipped. It never falls back to a browser
+  the owner did not choose.
+
 ## 2026.08.09.244 — 2026-11-16
 
 ### Pasting long subtitles no longer freezes the form
