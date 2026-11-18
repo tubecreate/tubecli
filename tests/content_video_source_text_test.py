@@ -266,6 +266,53 @@ try:
 except HTTPException as e:
     ok(e.status_code == 400 and "agent" in str(e.detail).lower(), "có nội dung mà thiếu agent → 400")
 
+# Phụ đề dán vào (16/11/2026): trần tính trên LỜI, không tính mốc giờ / số thứ tự.
+def _srt(n_cues, line):
+    out = []
+    for i in range(n_cues):
+        a, b2 = i * 3, i * 3 + 2
+        out.append(f"{i + 1}\n00:{a // 60:02d}:{a % 60:02d},000 --> 00:{b2 // 60:02d}:{b2 % 60:02d},500\n{line}\n")
+    return "\n".join(out)
+
+srt = _srt(1500, "w" * 30)                       # ~ 45 000 ký tự lời, > 60 000 ký tự thô
+ok(len(srt) > P.SOURCE_TEXT_MAX and len(P.subtitle_to_text(srt)) < P.SOURCE_TEXT_MAX,
+   "phụ đề mẫu: thô vượt 60 000, lời dưới 60 000")
+run(agent_id="a1", content=srt)
+ok(bool(calls), "phụ đề thô > 60 000 nhưng lời < 60 000 → NHẬN (trước 16/11 bị từ chối)")
+got = next(iter(calls.values()), {}) if calls else {}
+ok(len(str((got.get("options") or {}).get("source_text") or "")) < P.SOURCE_TEXT_MAX
+   and "-->" not in str((got.get("options") or {}).get("source_text") or ""), "…source_text là LỜI, không còn mốc giờ")
+try:
+    run(agent_id="a1", content=_srt(2200, "w" * 30))
+    ok(False, "lời vượt trần phải bị từ chối")
+except HTTPException as e:
+    ok(e.status_code == 400 and "of speech (subtitle times removed)" in str(e.detail), "lời phụ đề > 60 000 → 400, nói rõ là ký tự LỜI")
+try:
+    run(agent_id="a1", content="x " * (P.SOURCE_RAW_MAX // 2 + 10))
+    ok(False, "bài thô quá trần thô phải bị từ chối")
+except HTTPException as e:
+    ok(e.status_code == 400 and f"{P.SOURCE_RAW_MAX:,}" in str(e.detail), "thô > SOURCE_RAW_MAX → 400")
+
+import subprocess, json as _json  # noqa: E402,E401
+_js = (ROOT / "tubecli" / "extensions" / "codex" / "static" / "codex.js").read_text(encoding="utf-8")
+ok("const CV_RAW_MAX = 600000;" in _js and f"SOURCE_RAW_MAX = {P.SOURCE_RAW_MAX}" in
+   (ROOT / "tubecli" / "extensions" / "content_video" / "pipeline.py").read_text(encoding="utf-8")
+   and P.SOURCE_RAW_MAX == 600000, "trần thô của form khớp máy chủ")
+_start = _js.index("  const CV_SUB_TIME_RE")
+_end = _js.index("\n  }\n", _js.index("function cvSpokenRaw")) + 4
+_probe = _js[_start:_end] + "\nconst s=require('fs').readFileSync(0,'utf8');process.stdout.write(JSON.stringify(cvSpoken(s)));"
+try:
+    _out = subprocess.run(["node", "-e", _probe], input=srt[:400] + "\nWEBVTT\n", capture_output=True, text=True,
+                          encoding="utf-8", timeout=30)
+    _spk = _json.loads(_out.stdout or '""')
+    ok("-->" not in _spk and "w" * 30 in _spk and not any(ch.isdigit() for ch in _spk),
+       "cvSpoken (form) bỏ mốc giờ + số thứ tự như máy chủ")
+    _out = subprocess.run(["node", "-e", _probe], input="Bài viết thường 12:30, không phải phụ đề.", capture_output=True,
+                          text=True, encoding="utf-8", timeout=30)
+    ok(_json.loads(_out.stdout or '""') == "Bài viết thường 12:30, không phải phụ đề.", "bài thường: cvSpoken trả nguyên")
+except FileNotFoundError:
+    print("SKIP: không có node — bỏ phần kiểm cvSpoken")
+
 r = run(input="làm video")
 ok(r.get("status") == "need_agent", "không nội dung, không agent → câu cũ 'need_agent'")
 

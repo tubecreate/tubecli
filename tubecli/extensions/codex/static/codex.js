@@ -2329,6 +2329,9 @@ const CODEX = (() => {
   // PHẢI khớp SOURCE_TEXT_MAX trong content_video/pipeline.py — lệch nhau thì
   // ô đếm cho qua mà máy chủ lại từ chối, hoặc ngược lại.
   const CV_MAX_CHARS = 60000;
+  // Trần bài dán THÔ — khớp SOURCE_RAW_MAX (16/11/2026). CV_MAX_CHARS tính trên LỜI: phụ đề dán vào bỏ mốc giờ trước
+  // khi đếm, nên một phụ đề dài không còn bị từ chối vì phần mốc giờ.
+  const CV_RAW_MAX = 600000;
   const CV_LEN_KEYS = {
     short_60s: 'codex.cv_len_short_60s', short_3m: 'codex.cv_len_short_3m',
     standard: 'codex.cv_len_standard', long_10m: 'codex.cv_len_long_10m',
@@ -3206,8 +3209,44 @@ const CODEX = (() => {
 
   /** Số chữ ĐỌC của một bài — y hệt content_words() bên pipeline: chữ Hán/kana
    *  ~2 ký tự một chữ, chữ Thái ~5, dấu câu đứng riêng không tính. */
-  function cvWords(txt) {
+  const CV_SUB_TIME_RE = /^\s*(?:\d{1,2}:)?\d{1,2}:\d{2}[,.]\d{1,3}\s*-->\s*(?:\d{1,2}:)?\d{1,2}:\d{2}[,.]\d{1,3}/;
+  /** Lời của bài dán: phụ đề .srt / .vtt (≥ 3 dòng mốc) → bỏ mốc giờ, số thứ tự, WEBVTT / NOTE / STYLE, thẻ; không phải
+   *  phụ đề thì trả nguyên. Chỉ để ĐẾM — máy chủ tự chuyển bằng subtitle_to_text. */
+  // Nhớ kết quả theo NỘI DUNG (16/11/2026): mỗi lần gõ, ô đếm + độ dài + link gọi các hàm này 6–8 lần trên cả bài —
+  // phụ đề 340 000 ký tự mất ~10 ms mỗi lượt, gõ thấy khựng. Cùng nội dung thì trả lại kết quả cũ.
+  function cvSpoken(txt) {
+    const key = String(txt || '');
+    if (cvSpoken._m && cvSpoken._m[0] === key) return cvSpoken._m[1];
+    const out = cvSpokenRaw(key);
+    cvSpoken._m = [key, out];
+    return out;
+  }
+  function cvSpokenRaw(txt) {
     const s = String(txt || '');
+    const lines = s.replace(/\r\n?/g, '\n').split('\n');
+    if (lines.filter(l => CV_SUB_TIME_RE.test(l)).length < 3) return s;
+    const out = [];
+    let inCue = false;
+    let skip = false;
+    for (const line of lines) {
+      const st = line.trim();
+      if (CV_SUB_TIME_RE.test(st)) { inCue = true; skip = false; continue; }
+      if (!st) { inCue = false; skip = false; continue; }
+      if (!inCue) { skip = skip || /^(NOTE|STYLE|REGION)\b/i.test(st); continue; }
+      if (!skip) out.push(st.replace(/<[^>]{1,40}>|\{\\[^}]{0,40}\}/g, ''));
+    }
+    return out.join(' ');
+  }
+
+  function cvWords(txt) {
+    const key = String(txt || '');
+    if (cvWords._m && cvWords._m[0] === key) return cvWords._m[1];
+    const n = cvWordsRaw(key);
+    cvWords._m = [key, n];
+    return n;
+  }
+  function cvWordsRaw(txt) {
+    const s = cvSpoken(txt);
     const cjk = (s.match(CV_CJK_RE) || []).length;
     const thai = (s.match(CV_THAI_RE) || []).length;
     const rest = s.replace(CV_CJK_RE, ' ').replace(CV_THAI_RE, ' ')
@@ -3239,6 +3278,13 @@ const CODEX = (() => {
 
   /** Id video khi nội dung CHỈ là link YouTube (vài chữ ghi chú kèm theo được); [] cho bài dán tay. */
   function cvLinkOnly(txt) {
+    const key = String(txt || '');
+    if (cvLinkOnly._m && cvLinkOnly._m[0] === key) return cvLinkOnly._m[1];
+    const out = cvLinkOnlyRaw(key);
+    cvLinkOnly._m = [key, out];
+    return out;
+  }
+  function cvLinkOnlyRaw(txt) {
     const ids = cvYoutubeIds(txt);
     if (!ids.length) return [];
     const words = String(txt || '').replace(/https?:\/\/\S+/g, ' ').split(/\s+/)
@@ -3363,7 +3409,18 @@ const CODEX = (() => {
 
   let _ytProbeTimer = null;
 
+  // Bài dài: đếm SAU khi ngừng gõ (16/11/2026) — mỗi phím không còn chờ đếm lại cả bài. Bài ngắn vẫn đếm ngay.
+  const CV_DEBOUNCE_CHARS = 20000;
+  const CV_DEBOUNCE_MS = 300;
+  let _cvContentTimer = null;
   function onVideoContent() {
+    clearTimeout(_cvContentTimer);
+    const len = ($('cx-v-content').value || '').length;
+    if (len > CV_DEBOUNCE_CHARS) { _cvContentTimer = setTimeout(onVideoContentNow, CV_DEBOUNCE_MS); return; }
+    onVideoContentNow();
+  }
+  function onVideoContentNow() {
+    _cvContentTimer = null;
     const txt = ($('cx-v-content').value || '').trim();
     const ids = cvLinkOnly(txt);
     if (ids.length) scheduleYoutubeProbe(ids);
@@ -3398,12 +3455,14 @@ const CODEX = (() => {
       box.classList.toggle('warn', p.status === 'error');
       return;
     }
-    const chars = txt.length;
+    const spoken = cvSpoken(txt);
+    const subs = spoken !== txt;
+    const chars = spoken.length;
     const words = cvWords(txt);
-    box.textContent = chars
-      ? t('codex.cv_count', { words: words.toLocaleString(), chars: chars.toLocaleString() })
+    box.textContent = txt.length
+      ? t(subs ? 'codex.cv_count_subs' : 'codex.cv_count', { words: words.toLocaleString(), chars: chars.toLocaleString() })
       : '';
-    box.classList.toggle('warn', chars > CV_MAX_CHARS);
+    box.classList.toggle('warn', chars > CV_MAX_CHARS || txt.length > CV_RAW_MAX);
   }
 
   /** Thăm dò link YouTube (tên video, số chữ phụ đề) khi người dùng ngừng gõ 0,5 giây. Máy chủ nhớ kết
@@ -3551,6 +3610,7 @@ const CODEX = (() => {
   /** queue=true: vào hàng đợi — Codex tự chạy khi không còn video nào đang làm.
       Bỏ trống (nút "Tạo video"): chạy liền, chen trước hàng đợi. */
   async function submitVideo(queue) {
+    if (_cvContentTimer) onVideoContentNow();
     let hold = queue === true;
     const content = ($('cx-v-content').value || '').trim();
     const preset = $('cx-v-preset').value || '';
@@ -3560,9 +3620,11 @@ const CODEX = (() => {
       $('cx-v-content').focus();
       return;
     }
-    if (content.length > CV_MAX_CHARS) {
+    const spokenLen = cvSpoken(content).length;
+    if (content.length > CV_RAW_MAX || spokenLen > CV_MAX_CHARS) {
+      const raw = content.length > CV_RAW_MAX;
       toast(t('codex.toast_video_content_too_long', {
-        n: content.length.toLocaleString(), max: CV_MAX_CHARS.toLocaleString(),
+        n: (raw ? content.length : spokenLen).toLocaleString(), max: (raw ? CV_RAW_MAX : CV_MAX_CHARS).toLocaleString(),
       }), 'error');
       $('cx-v-content').focus();
       return;

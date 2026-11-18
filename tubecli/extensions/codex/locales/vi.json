@@ -243,6 +243,7 @@
   "codex.btn_busy_queue": "Đưa vào hàng đợi",
   "codex.btn_busy_parallel": "Chạy song song",
   "codex.cv_count": "{words} chữ · {chars} ký tự",
+  "codex.cv_count_subs": "{words} chữ · {chars} ký tự lời (đã bỏ mốc giờ phụ đề)",
   "codex.cv_pick_template": "— Chọn mẫu —",
   "codex.cv_default_model": "model mặc định",
   "codex.cv_no_agents": "Chưa có agent nào — tạo một agent trong mục Agents trước",

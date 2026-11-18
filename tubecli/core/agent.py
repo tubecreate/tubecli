@@ -220,6 +220,9 @@ class Agent:
         # Browser & Network (Tab 6: Browser)
         allowed_profiles: List[str] = None,
         login_accounts: List[str] = None,
+        # Máy Android (extension Android Window) agent dùng cho lịch hằng ngày — có thì behavior chạy
+        # trong APP trên điện thoại thay vì hồ sơ trình duyệt (tab «Android» ở cloud).
+        android_devices: List[str] = None,
         proxy_config: str = "", 
         proxy_provider: Dict = None,
         # Schedule (Tab 7: Schedule)
@@ -345,6 +348,7 @@ class Agent:
         
         # Browser
         self.allowed_profiles = allowed_profiles or []
+        self.android_devices = [str(d) for d in (android_devices or []) if d]
         # Tài khoản Keychain agent dùng để đăng nhập. Mỗi cái sẽ
         # được đảm bảo có profile (tạo nếu thiếu) trước khi routine chạy.
         self.login_accounts = login_accounts or []
@@ -444,6 +448,7 @@ class Agent:
             "thinking_map": self.thinking_map,
             "history_log": self.history_log,
             "allowed_profiles": getattr(self, "allowed_profiles", []),
+            "android_devices": getattr(self, "android_devices", []),
             "login_accounts": getattr(self, "login_accounts", []),
             "proxy_config": getattr(self, "proxy_config", ""),
             "proxy_provider": getattr(self, "proxy_provider", {"mode": "static"}),

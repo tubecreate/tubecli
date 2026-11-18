@@ -2,6 +2,39 @@
 
 Notable changes to TubeCLI. Versions match `tubecli/__init__.py`.
 
+## 2026.08.09.245 — 2026-11-18
+
+### Agents can run their daily routine on an Android phone
+- In the agent settings, the profile picker has a new **Runs on: Browser | Android** switch. Pick a phone from the
+  Android Window extension and the agent's daily routine runs in apps on that phone instead of a browser profile:
+  Watch video → YouTube app, news and topics → Chrome app, email → Gmail app.
+- Email on the phone uses the Google account signed in on it. Check email reads up to 5 unread emails and saves them
+  to the agent's data collection. Reply email answers the newest unread email from a real person (no-reply senders
+  are skipped). Send report writes a new email to the report recipients. The agent's own AI writes the text, and
+  recipients, subject and body are checked before Send; if anything is off, the draft is discarded.
+- If the Android Window extension is not installed, the run is logged as skipped. It never falls back to a browser
+  the owner did not choose.
+
+## 2026.08.09.244 — 2026-11-16
+
+### Pasting long subtitles no longer freezes the form
+- The Video content box no longer runs the browser spell check, autocorrect or auto-capitalisation. Spell check
+  underlined almost every subtitle line and made the browser re-check hundreds of thousands of characters after a paste.
+- The character count, video length estimate and YouTube link check now count the text once per change instead of
+  6–8 times.
+- For content longer than 20,000 characters, the count updates 0.3 seconds after you stop typing or pasting.
+  Pressing Create right after a paste still counts the full text before the limits are checked.
+
+## 2026.08.09.243 — 2026-11-16
+
+### Paste longer subtitles into Video content
+- When the content you paste is a subtitle file (.srt or .vtt), the 60,000-character limit now counts only the
+  spoken words. Timestamps, cue numbers and WEBVTT / NOTE lines are no longer counted. Before, a subtitle file with
+  about 30,000 characters of speech was refused.
+- The counter under the box says «characters of speech (subtitle times removed)» for subtitles.
+- The video length estimate also counts only the spoken words of subtitles.
+- Pasted content can be up to 600,000 characters in total, including the timestamps.
+
 ## 2026.08.09.242 — 2026-11-15
 
 ### Automatic videos say why they were not published

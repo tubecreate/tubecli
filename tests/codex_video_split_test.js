@@ -70,7 +70,7 @@ check('ba link → hiện ô tick, gợi ý nói 3 video',
     !el('cx-v-split-wrap').classList.has('hidden') && el('cx-v-split-hint').textContent === 'codex.cv_split_hint{"n":3}',
     el('cx-v-split-hint').textContent);
 check('ô nội dung đổi là vẽ lại (onVideoContent gọi renderVideoSplit)',
-    /function onVideoContent\(\)[\s\S]{0,320}renderVideoSplit\(\);/.test(js));
+    /function onVideoContentNow\(\)[\s\S]{0,320}renderVideoSplit\(\);/.test(js));
 check('mở form mới: bật lại ô tick', js.includes("$('cx-v-split').checked = true;"));
 check('xuất onVideoSplit', js.includes('laneChoice, onVideoSplit,'));
 

@@ -13,6 +13,10 @@
 </p>
 
 <p align="center">
+  <img src="../screenshots/agent_swarm_hook.gif" width="100%" alt="AI agents (Claude, Gemini, Grok, Muse and TubeCLI) work on one canvas at the same time, each with its own cursor: they write the script, place the formula, draw a rocket and tower, add the voice waveform and finish a math explainer scene layer by layer" />
+</p>
+
+<p align="center">
     <a href="https://github.com/tubecreate/tubecli">
         <img src="https://img.shields.io/github/stars/tubecreate/tubecli?style=for-the-badge&color=2a2a2a&labelColor=1a1a1a" alt="Stars" />
     </a>
