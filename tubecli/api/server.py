@@ -1492,6 +1492,62 @@ def _routine_headless(agent) -> bool:
     return bool(getattr(agent, "routine_headless", True))
 
 
+ANDROID_SKIP_BEHAVIORS = {"checkEmails", "replyEmail", "sendReport"}
+
+
+def android_engine_extension():
+    """Extension đang bật khai agent_engine = "android" + run_agent_behavior() (vd Android Window) — hoặc None."""
+    try:
+        from tubecli.core.extension_manager import extension_manager
+        for ext in extension_manager.get_enabled():
+            if getattr(ext, "agent_engine", "") == "android" and callable(getattr(ext, "run_agent_behavior", None)):
+                return ext
+    except Exception as e:  # noqa: BLE001
+        print(f"[Scheduler Callback] Android engine lookup failed: {e}")
+    return None
+
+
+def run_routine_on_android(agent, behavior, query, seconds, run_id=None, time_period="",
+                           session_minutes=0, max_duration_sec=0, log=None) -> bool:
+    """Chạy MỘT behavior lịch trên máy Android của agent. True = đã xử lý (kể cả lỗi — KHÔNG lùi sang trình
+    duyệt: chủ đã chọn Android, tự ý mở trình duyệt là làm điều họ không chọn). False = không áp dụng."""
+    devices = [d for d in (getattr(agent, "android_devices", None) or []) if d]
+    if not devices or behavior in ANDROID_SKIP_BEHAVIORS:
+        return False
+    from tubecli.core import run_log
+    device = devices[0]
+    ext = android_engine_extension()
+    started = __import__("time").time()
+    if run_id:
+        run_log.launch(run_id, agent.id, profile=f"android:{device}", time_period=time_period, behavior=behavior,
+                       query=query, session_minutes=session_minutes, max_duration_sec=max_duration_sec,
+                       spawn_status="running" if ext else "skipped",
+                       error=None if ext else "Android Window extension is not installed or disabled")
+    if not ext:
+        msg = "Android Window extension is not installed or disabled — install it from the Market"
+        print(f"[Scheduler Callback] {msg}")
+        if log:
+            log(f"schedule android:{device} — {behavior} skipped", ok=False)
+        if run_id:
+            run_log.end(run_id, agent.id, "skipped", log_tail=msg)
+        return True
+    print(f"[Scheduler Callback] Running '{behavior}' on Android device '{device}' (query: {query!r})")
+    try:
+        res = ext.run_agent_behavior(device=device, behavior=behavior, query=query or "",
+                                     seconds=int(seconds or 90), agent_name=getattr(agent, "name", ""))
+    except Exception as e:  # noqa: BLE001
+        res = {"ok": False, "error": str(e) or type(e).__name__}
+    ok = bool(res.get("ok"))
+    tail = res.get("summary") if ok else (res.get("error") or "Android run failed")
+    print(f"[Scheduler Callback] Android result: {tail}")
+    if log:
+        log(f"schedule android:{device} → {query}" if ok else f"schedule android:{device} — {behavior} failed", ok=ok)
+    if run_id:
+        run_log.end(run_id, agent.id, "completed" if ok else "failed", log_tail=str(tail)[:1000],
+                    duration_sec=round(__import__("time").time() - started, 1))
+    return True
+
+
 def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedule"):
     """Callback for running an agent's daily behavior routine on schedule.
 
@@ -1663,7 +1719,13 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
     # Chip nào cần dịch vụ mà KHÔNG ứng viên nào đăng nhập thì loại khỏi vòng
     # bốc — không có Google thì đừng bốc email, không có YouTube thì đừng bốc
     # xem video (trước đây vẫn bốc rồi chạy thành Google search).
+    _android_agent = bool([d for d in (getattr(agent, "android_devices", None) or []) if d])
+
     def _behavior_runnable(b):
+        # Agent chọn máy Android: behavior chạy trong APP (máy đã đăng nhập Google) — không xét chip đăng
+        # nhập của hồ sơ TRÌNH DUYỆT, kẻo «Watch video» bị loại oan. Email vẫn đi trình duyệt ⇒ vẫn xét.
+        if _android_agent and b not in ANDROID_SKIP_BEHAVIORS:
+            return True
         if not logins_known:
             return True   # không có dữ liệu login = không phán, chạy như cũ
         need = BEHAVIOR_LOGIN_NEEDS.get(b, set())
@@ -2027,6 +2089,14 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
                 error=email_skip_reason,
             )
             run_log.end(run_id, agent.id, "skipped", log_tail=email_skip_reason)
+        return
+
+    # Agent chọn MÁY ANDROID (tab «Android» ở cloud): behavior (xem video, đọc tin, tìm chủ đề…) chạy trong
+    # APP trên điện thoại qua extension khai agent_engine = "android" — không mở hồ sơ trình duyệt.
+    # Email (đọc / trả lời / báo cáo) không làm trên app ⇒ vẫn đi đường trình duyệt bên dưới.
+    if run_routine_on_android(agent, behavior, base_query, read_time, run_id=run_id, time_period=time_period,
+                              session_minutes=session_minutes, max_duration_sec=max_session_seconds,
+                              log=lambda msg, ok=True: _group_log_routine(group_ctxs, agent, msg, ok=ok)):
         return
 
     def _do_launch():
@@ -2531,6 +2601,7 @@ class AgentCreateRequest(PublishSettingsBase):
     routine: Optional[Dict] = {}
     thinking_map: Optional[Dict] = {}
     allowed_profiles: Optional[List[str]] = []
+    android_devices: Optional[List[str]] = []
     login_accounts: Optional[List[str]] = []
     proxy_config: Optional[str] = ""
     proxy_provider: Optional[Dict] = {"mode": "static"}
@@ -2625,6 +2696,7 @@ class AgentUpdateRequest(PublishSettingsBase):
     routine: Optional[Dict] = None
     thinking_map: Optional[Dict] = None
     allowed_profiles: Optional[List[str]] = None
+    android_devices: Optional[List[str]] = None
     login_accounts: Optional[List[str]] = None
     proxy_config: Optional[str] = None
     proxy_provider: Optional[Dict] = None
