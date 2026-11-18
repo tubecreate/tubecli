@@ -153,6 +153,8 @@ from pathlib import Path as _P  # noqa: E402
 import tubecli.extensions.content_video.niche_memory as NM  # noqa: E402
 _NM_FILE = _P(_tf.mkdtemp(prefix='niche_mem_')) / 'niche_memory.json'
 NM._store_path = lambda: _NM_FILE
+NM.seed_from_tasks = lambda *a, **k: 0       # không đọc bảng việc thật
+NM._task_alive = lambda task_id: True
 AP.skip_window = lambda aid, hw="": SKIPPED.append((aid, hw)) or True
 
 

@@ -41,6 +41,8 @@ import tubecli.extensions.content_video.niche_memory as NM  # noqa: E402
 from tubecli.extensions.content_video import pipeline as P  # noqa: E402
 
 NM._store_path = lambda: TMP / "niche_memory.json"
+NM.seed_from_tasks = lambda *a, **k: 0       # không đọc bảng việc thật
+NM._task_alive = lambda task_id: True
 
 PROMPT = """You are a researcher.
 

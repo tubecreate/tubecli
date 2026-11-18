@@ -804,6 +804,80 @@ def _keyword_lists(dk) -> dict:
     return out
 
 
+def _cooled_topics(agent) -> tuple:
+    """(danh sách cụm chủ đề đang nghỉ, số ngày nghỉ) của agent — content_video/niche_memory. ([], 0) khi không có."""
+    try:
+        from tubecli.extensions.content_video import niche_memory as _NM
+        days = _NM.cooldown_days_of(agent)
+        return _NM.cooled_clusters(str(agent.id), days), days
+    except Exception as e:
+        print(f"[Scheduler Callback] topic clusters unavailable: {e}")
+        return [], 0
+
+
+def _drop_cooled_keywords(agent, lists: dict, cooled=None) -> tuple:
+    """Bỏ câu tìm kiếm thuộc một CỤM CHỦ ĐỀ đang nghỉ (18/11/2026 — «Matthew 6:33» 6 lần liền: chủ đề đã có task mở /
+    đã dựng / đã đăng trong cooldown_days ngày thì không tìm lại, dù câu viết khác đi). (lists đã lọc, số câu bị bỏ)."""
+    if cooled is None:
+        cooled, _d = _cooled_topics(agent)
+    if not cooled:
+        return lists, 0
+    try:
+        from tubecli.extensions.content_video import niche_memory as _NM
+    except Exception:
+        return lists, 0
+    dropped, out = 0, {}
+    for p, items in lists.items():
+        keep = [q for q in items if not _NM.cluster_cooldown("", q, 0, cooled=cooled)]
+        dropped += len(items) - len(keep)
+        if keep:
+            out[p] = keep
+    return out, dropped
+
+
+def _keyword_model_chain(agent) -> list:
+    """Model sinh từ khoá ngày theo thứ tự: model của agent, model mặc định của máy, rồi tối đa 3 model của NHÀ KHÁC
+    đang có khoá (18/11/2026 — agent và máy cùng dùng muse-spark: Muse trả rỗng là hết đường, cả ngày dùng lại bộ cũ).
+    [(nhãn, dict agent cho _call_llm)]. Nhà đang «nghỉ» (core/llm_errors) thì bỏ qua."""
+    base = agent.to_dict()
+    # Model của agent LUÔN đứng đầu, kể cả khi trống (= brain tự chọn model mặc định) — như trước đây.
+    own = str(base.get("model") or "").strip()
+    out, seen = [(own or "default model", base)], {(str(base.get("provider") or "").lower(), own.lower())}
+
+    def add(model, provider=""):
+        model = str(model or "").strip()
+        key = (str(provider or "").lower(), model.lower())
+        if not model or key in seen or (("", model.lower()) in seen):
+            return
+        seen.add(key)
+        out.append((f"{provider}|{model}" if provider else model, dict(base, model=model, provider=str(provider or ""))))
+
+    try:
+        from tubecli import config as _cfg
+        add(_cfg.read_global_settings().get(_cfg.GLOBAL_DEFAULT_MODEL_SETTING) or "")
+    except Exception:
+        pass
+    try:
+        from tubecli.core import llm_errors as _LE
+        tried = {_LE.provider_of(str(_a.get("model") or ""), str(_a.get("provider") or "")) for _l, _a in out}
+        from tubecli.extensions.cloud_api.extension import key_manager
+        n = 0
+        for prov in key_manager.list_providers():
+            pid = str(prov.get("id") or "")
+            if n >= 3 or not pid or not prov.get("has_key") or "chat" not in (prov.get("capabilities") or []):
+                continue
+            if pid.lower() in tried or _LE.cooling_until(pid):
+                continue
+            models = [str(m) for m in (prov.get("models") or []) if m and "image" not in str(m).lower()]
+            if models:
+                add(models[0], pid)
+                tried.add(pid.lower())
+                n += 1
+    except Exception as e:
+        print(f"[Scheduler Callback] no backup keyword models: {e}")
+    return out
+
+
 def _drop_denied_keywords(agent, lists: dict) -> tuple:
     """Bỏ câu tìm kiếm dính TỪ CẤM của ngách (rẻ, không gọi model). (lists đã lọc, số câu bị bỏ)."""
     try:
@@ -934,24 +1008,22 @@ Rules for evolution and progression:
     except Exception as _ne:
         print(f"[Scheduler Callback] niche config unavailable for keywords: {_ne}")
 
+    # Chủ đề đã làm (cụm đang nghỉ, 18/11/2026): nói thẳng cho model — và lọc lại câu trả lời bên dưới.
+    cooled, cool_days = _cooled_topics(agent)
+    if cooled:
+        prompt += (f"\nALREADY COVERED in the last {cool_days} days — never search these topics again, not even "
+                   "reworded or with another verse number of the same passage:\n"
+                   + "\n".join(f"- {c.get('label')}" for c in cooled[:40]) + "\n")
+
     messages = [
         {"role": "system", "content": "You are a precise JSON keyword generator. Output only valid JSON."},
         {"role": "user", "content": prompt}
     ]
 
-    # Model của agent trước, rồi model AI mặc định của máy (nếu khác) — một model hết lượt / trả lời lạc không được
-    # làm cả ngày nghiên cứu rơi về câu tìm kiếm mặc định.
-    base = agent.to_dict()
-    models = [str(base.get("model") or "").strip()]
-    try:
-        from tubecli import config as _cfg
-        models.append(str(_cfg.read_global_settings().get(_cfg.GLOBAL_DEFAULT_MODEL_SETTING) or "").strip())
-    except Exception:
-        pass
-    models = [m for i, m in enumerate(models) if i == 0 or (m and m not in models[:i])]
+    # Model của agent trước, rồi model AI mặc định của máy, rồi model của nhà khác đang có khoá — một model hết lượt /
+    # trả lời rỗng không được làm cả ngày nghiên cứu dùng lại bộ từ khoá cũ (18/11/2026).
     errors = []
-    for model in models:
-        ag = base if model == models[0] else dict(base, model=model, provider="")
+    for model, ag in _keyword_model_chain(agent):
         try:
             raw_response = AgentBrain._call_llm(ag, messages, temperature=0.7)
             raw_text = str(raw_response or "")
@@ -966,6 +1038,10 @@ Rules for evolution and progression:
             lists, dropped = _drop_denied_keywords(agent, lists)
             if not lists:
                 raise ValueError(f"every query used a blocked niche term ({dropped} dropped)")
+            lists, cooled_n = _drop_cooled_keywords(agent, lists, cooled)
+            if not lists:
+                raise ValueError(f"every query was a topic already covered in the last {cool_days} days "
+                                 f"({cooled_n} dropped)")
             new_keywords = dict(lists, date=date_str)
             # Deep-reload routine from agent to avoid overwriting updates
             agent = agent_manager.get(agent.id)
@@ -977,6 +1053,12 @@ Rules for evolution and progression:
             if dropped:
                 _keyword_note(run_id, agent, f"Daily keywords for {date_str}: {dropped} query(ies) with a blocked "
                                             f"niche term were dropped.")
+            if cooled_n:
+                _keyword_note(run_id, agent, f"Daily keywords for {date_str}: {cooled_n} query(ies) on a topic "
+                                            f"already covered in the last {cool_days} days were dropped.")
+            if errors:
+                _keyword_note(run_id, agent, f"Daily keywords for {date_str} were written by the backup model "
+                                            f"{model} — " + " | ".join(errors), kind="keywords_error")
             return new_keywords
         except Exception as e:
             errors.append(f"{model or 'default model'}: {' '.join(str(e).split())[:200]}")
@@ -998,6 +1080,7 @@ Rules for evolution and progression:
         print(f"[Scheduler Callback] could not save the keyword error: {_se}")
     if stale:
         stale, _d = _drop_denied_keywords(agent, stale)
+        stale, _c = _drop_cooled_keywords(agent, stale, cooled)
         if stale:
             return dict(stale, date=stale_date, stale=True)
     return {}
@@ -2004,6 +2087,18 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
         # (sinh hỏng → dùng lại bộ cũ) agent tìm đúng câu ĐẦU TIÊN mỗi ngày — «seek first the kingdom» 5 ngày liền,
         # 5 video trùng. Câu đã tìm trong KEYWORD_HISTORY_DAYS ngày thì nhường cho câu chưa tìm; hết câu mới thì thôi.
         _kw_hist = keyword_history(routine_data, today_date)
+        # Câu thuộc một cụm chủ đề đang nghỉ (đã có video / task mở trong cooldown_days ngày) coi như đã tìm.
+        _cooled_now, _cd = _cooled_topics(agent)
+        if _cooled_now:
+            _kw_lists, _n_cool = _drop_cooled_keywords(agent, {p: list(daily_keywords.get(p) or [])
+                                                                for p in KEYWORD_PERIODS
+                                                                if isinstance(daily_keywords.get(p), list)},
+                                                       _cooled_now)
+            _ok_kw = {kw for v in _kw_lists.values() for kw in v}
+            for p in KEYWORD_PERIODS:
+                for kw in (daily_keywords.get(p) or []) if isinstance(daily_keywords.get(p), list) else []:
+                    if kw not in _ok_kw:
+                        _kw_hist.setdefault(_kw_key(kw), "cooldown")
         _fresh_kw = [kw for kw in available if _kw_key(kw) not in _kw_hist]
         if _fresh_kw:
             available = _fresh_kw
@@ -2284,6 +2379,9 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
             instance_id = ""
             used_profile = launch_candidates[0]
             _tries = launch_candidates[:3]
+            # Ai đang giữ từng hồ sơ bận (18/11/2026): «all candidate profiles are in use» 3 ngày liền mà không ai biết
+            # phiên nào — nay ghi tên phiên, ai mở, mở bao lâu vào nhật ký lượt chạy.
+            busy_holders = []
             for _attempt, _prof in enumerate(_tries):
                 # LIVE VIEW đang giữ hồ sơ? — hỏi TRƯỚC khi làm bất cứ gì. Kẻ
                 # giữ này không nằm trong list_running() (nó là phiên preview
@@ -2292,8 +2390,19 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
                 # giây ~10 → lượt vào sổ Failed đỏ. Không bao giờ giết live
                 # view của người dùng: coi là bận, thử ứng viên kế.
                 try:
-                    from tubecli.extensions.browser.routes import preview_holds_profile
-                    if preview_holds_profile(_prof):
+                    from tubecli.extensions.browser.routes import (preview_holder, describe_holder,
+                                                                   pop_reaped_previews)
+                    _holder = preview_holder(_prof, reap=True)
+                    # Khoá hỏng vừa được dọn (phiên attach mà trình duyệt đã thoát, live view mở quá lâu) — kể lại.
+                    for _r in pop_reaped_previews(_prof):
+                        _msg = (f"Cleared a stale lock on profile '{_prof}': {describe_holder(_r)} — {_r.get('reason')}.")
+                        print(f"[Scheduler Callback] {_msg}")
+                        if run_id:
+                            try:
+                                run_log.note(run_id, agent.id, _msg, kind="profile_lock")
+                            except Exception:
+                                pass
+                    if _holder:
                         if trigger != "schedule":
                             # Bấm Run TAY là ý định tường minh — nhường chỗ:
                             # dừng live view của chính chủ rồi chạy; khung trên
@@ -2307,6 +2416,7 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
                             _time.sleep(1.5)   # chờ khoá Singleton của Chromium nhả
                         else:
                             profile_busy = True
+                            busy_holders.append(f"'{_prof}' is held by {describe_holder(_holder)}")
                             print(f"[Scheduler Callback] '{_prof}' is held by a live view — busy, trying next candidate")
                             continue
                 except Exception as _pv:
@@ -2328,6 +2438,8 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
                         browser_process_manager.terminate(inst["instance_id"])
                 elif _live:
                     profile_busy = True
+                    busy_holders.append(f"'{_prof}' is held by session {_live[0].get('instance_id')} "
+                                        f"(pid {_live[0].get('pid')}, started {_live[0].get('started_at')})")
                     print(f"[Scheduler Callback] Candidate '{_prof}' has a live session — busy, trying next")
                     continue
 
@@ -2394,6 +2506,11 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
                 profile_busy = spawn_status == "error" and (
                     "already open in another process" in _busy_txt
                     or "profile_in_use" in _busy_txt)
+                if profile_busy:
+                    import re as _re_busy
+                    _pm = _re_busy.search(r"pid\D{0,3}(\d+)", _busy_txt)
+                    busy_holders.append(f"'{_prof}' is locked by another browser process"
+                                        + (f" (pid {_pm.group(1)})" if _pm else ""))
                 if profile_busy and _attempt + 1 < len(_tries):
                     print(f"[Scheduler Callback] Profile '{_prof}' busy — trying next candidate")
                     continue
@@ -2403,8 +2520,9 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
                 if profile_busy:
                     # Mọi ứng viên khả dụng đều đang có phiên sống — BỎ QUA xám
                     # đúng như đường busy sau spawn, không phải lỗi.
-                    busy_reason = ("Skipped: all candidate profiles are in use. "
-                                   "Will run at the next scheduled slot.")
+                    busy_reason = ("Skipped: all candidate profiles are in use"
+                                   + (" — " + "; ".join(busy_holders) if busy_holders else "")
+                                   + ". Will run at the next scheduled slot.")
                     _group_log_routine(group_ctxs, agent,
                                        f"schedule {used_profile} — browser busy (skip)",
                                        detail=busy_reason, ok=True)
@@ -2478,8 +2596,9 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
             # thread writes the matching `end` row when the process exits; on a
             # failed spawn there will be no monitor, so this row is the whole story.
             if run_id:
-                busy_reason = (f"Skipped: {len(_tries)} candidate profile(s) in use — a live "
-                               "view or another session is open. Will run at the next scheduled slot.")
+                busy_reason = (f"Skipped: {len(_tries)} candidate profile(s) in use — "
+                               + ("; ".join(busy_holders) if busy_holders else "a live view or another session is open")
+                               + ". Will run at the next scheduled slot.")
                 run_log.launch(
                     run_id, agent.id,
                     profile=used_profile,
@@ -3455,9 +3574,18 @@ async def update_agent(agent_id: str, req: AgentUpdateRequest):
     # mốc cũ giữ nguyên: nâng 1 → 10 lượt/ngày mà agent vẫn ngủ tới mốc hôm sau (user 17/10/2026).
     if schedule_plan_changed(current, data):
         data["schedule_next_run"] = ""
+    was_unverified = bool(getattr(current, "publish_unverified", False))
     agent = agent_manager.update(agent_id, **data)
     if not agent:
         raise HTTPException(404, f"Agent {agent_id} not found")
+    # Chủ kênh bỏ tick «Channel not verified» (18/11/2026) ⇒ tự đăng đang tạm dừng vì video dài mở lại NGAY, ghi lại
+    # để trang agent hiện «đã mở lại» — trước đây chỉ được gỡ âm thầm ở lượt chạy kế.
+    if "publish_unverified" in data:
+        try:
+            from tubecli.extensions.content_video import autopublish as _AP
+            _AP.on_agent_saved(agent_id, was_unverified, bool(getattr(agent, "publish_unverified", False)))
+        except Exception as _ape:
+            print(f"[Agents] could not resume auto-publish for {agent_id}: {_ape}")
     return {"status": "updated", "agent": agent.to_dict()}
 
 @app.delete("/api/v1/agents/{agent_id}")

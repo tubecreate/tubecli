@@ -2389,8 +2389,12 @@ def _bank_topic(state: Dict, cfg: Dict[str, Any]) -> Tuple[str, int]:
     agent = state["agent"]
     used = NM.used_topics(str(agent.id), int(cfg.get("cooldown_days") or 0))
     busy = _open_bank_topics(str(agent.id), exclude=str(state.get("task_id") or ""))
+    # Cụm chủ đề đang nghỉ (18/11/2026): câu khác chữ mà cùng chủ đề («Matthew 6:33» / «seek first the kingdom»).
+    cooled = NM.cooled_clusters(str(agent.id), int(cfg.get("cooldown_days") or 0),
+                                exclude_task=str(state.get("task_id") or ""))
     free = [q for q in NM.bank_candidates(agent)
-            if NM.topic_key(q) not in used and NM.topic_key(q) not in busy and not N.deny_hit(cfg, q)]
+            if NM.topic_key(q) not in used and NM.topic_key(q) not in busy and not N.deny_hit(cfg, q)
+            and not NM.cluster_cooldown("", q, 0, cooled=cooled)]
     for q in free[:BANK_TOPICS_TRIED]:
         if state["_cancelled"]():
             raise _cancel_exc()
@@ -2839,6 +2843,29 @@ def _refuse_duplicate_title(state: Dict, options: Dict) -> None:
         raise NicheHold(f"⚠ DUPLICATE TOPIC — «{state.get('title')}» was already made as task #{dup.get('seq', '?')}",
                         f"Task #{dup.get('seq', '?')} «{str(dup.get('title') or '')[:100]}» of this agent covers the "
                         "same topic. Nothing was rendered. Cancel this task, or Request changes with a different angle.")
+    # Cụm chủ đề (18/11/2026): sổ bền hơn danh sách task — bắt cả video cũ hơn 500 task gần nhất và câu viết khác đi.
+    try:
+        from . import niche_memory as NM
+        from . import autopublish as AP
+
+        agent = state["agent"]
+        tid = str(state.get("task_id") or "")
+        days = NM.cooldown_days_of(agent)
+        cooled = NM.cooled_clusters(str(agent.id), days, exclude_task=tid)
+        hit = None
+        for text in (state.get("title") or "", state.get("bank_topic") or ""):
+            hit = hit or NM.cluster_cooldown("", text, 0, cooled=cooled)
+        if not hit:
+            AP.note_cluster(str(agent.id), tid, "open", [state.get("title") or "", state.get("bank_topic") or ""])
+    except Exception as e:      # noqa: BLE001
+        logger.info(f"[ContentVideo] topic cluster check unavailable: {e}")
+        hit = None
+    if hit:
+        raise NicheHold(f"⚠ TOPIC IN COOLDOWN — «{state.get('title')}» is the topic «{str(hit.get('label') or '')[:80]}», "
+                        f"last used {hit.get('last_used')}",
+                        f"This agent already {hit.get('status') or 'made'} a video on this topic in the last {days} "
+                        "days (cooldown_days of the agent's niche). Nothing was rendered. Cancel this task, or Request "
+                        "changes with a different topic.")
 
 
 # ── Stage 2 steps ────────────────────────────────────────────────────
@@ -5563,6 +5590,15 @@ def _use_video(state: Dict, path: str) -> None:
     và link chia sẻ công khai của cả hai."""
     state["video_path"] = path
     state["video_link"] = f"{_base_url()}/api/v1/studio/export-video/{os.path.basename(path)}"
+    # Chủ đề đã có video (18/11/2026): cả cụm nghỉ cooldown_days ngày — không vào từ khoá ngày, không làm lại.
+    try:
+        _ag = state.get("agent")
+        if _ag is not None and state.get("task_id"):
+            from . import autopublish as _AP
+            _AP.note_cluster(str(_ag.id), str(state["task_id"]), "rendered",
+                             [state.get("title") or "", state.get("bank_topic") or ""])
+    except Exception as e:      # noqa: BLE001
+        logger.info(f"[ContentVideo] could not note the rendered topic: {e}")
     state["video_seconds"] = media_seconds(path)
     main = re.sub(r"_pipeline_export(\.[A-Za-z0-9]+)$", r"_pipeline_main\1", path)
     state["video_main_path"] = main if main != path and os.path.isfile(main) else ""
