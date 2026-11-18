@@ -1080,7 +1080,18 @@ EXPLICIT_BEHAVIOR_MAP = {
     "check_email": "checkEmails", # đọc email (chỉ đọc)
     "reply_email": "replyEmail",  # trả lời email chưa đọc mới nhất
     "send_report": "sendReport",  # soạn & gửi báo cáo cho đồng nghiệp
+    # Tương tác (18/11/2026) — YouTube hoặc TikTok, theo tài khoản hồ sơ / máy Android đã đăng nhập:
+    "comment": "commentVideo",    # xem một video rồi bình luận (AI của agent viết)
+    "watch_live": "watchLive",    # xem một buổi LIVE (không chat)
+    "follow": "followChannel",    # xem một video rồi đăng ký / theo dõi kênh
 }
+
+# Việc TƯƠNG TÁC chỉ chạy khi CHỦ tự bật ở tab Schedule: bộ sinh lịch theo vai trò (BEHAVIOR_MEANINGS) không bao
+# giờ tự bật chúng, và mỗi agent có trần lượt / ngày (ENGAGEMENT_DAILY_CAP) — bình luận / theo dõi là hành động
+# công khai dưới tên tài khoản thật.
+ENGAGEMENT_KEYS = ("comment", "watch_live", "follow")
+SOCIAL_BEHAVIORS = ("commentVideo", "watchLive", "followChannel")
+ENGAGEMENT_DAILY_CAP = {"commentVideo": 4, "followChannel": 3, "watchLive": 6}
 
 # ── Hành vi phải KHỚP chip đăng nhập của hồ sơ ───────────────────────────
 # profile_manager.detect_logins đọc kho cookie thật của hồ sơ và trả các chip
@@ -1095,6 +1106,91 @@ BEHAVIOR_LOGIN_NEEDS = {
     "sendReport": {"google"},
     "watchVideos": {"youtube"},   # detect_logins: có google là tự có youtube
 }
+# Cần MỘT TRONG các bộ chip: bình luận / theo dõi chạy trên YouTube HOẶC TikTok (xem live thì không cần đăng nhập).
+BEHAVIOR_LOGIN_ANY = {
+    "commentVideo": ({"youtube"}, {"tiktok"}),
+    "followChannel": ({"youtube"}, {"tiktok"}),
+}
+
+
+def behavior_login_ok(behavior, chips) -> bool:
+    """Hồ sơ (hoặc máy) mang `chips` có làm được `behavior` không — một nguồn sự thật cho bốc việc + chọn hồ sơ."""
+    chips = set(chips or ())
+    need = BEHAVIOR_LOGIN_NEEDS.get(behavior)
+    if need and not need <= chips:
+        return False
+    anyof = BEHAVIOR_LOGIN_ANY.get(behavior)
+    if anyof and not any(a <= chips for a in anyof):
+        return False
+    return True
+
+
+def android_behavior_ok(behavior, chips) -> bool:
+    """Máy Android: xem video / lướt Chrome chạy được cả khi chưa đăng nhập; email cần tài khoản Google; bình luận /
+    theo dõi cần YouTube (Google) hoặc TikTok đăng nhập. chips None = máy chưa kiểm lần nào ⇒ không phán."""
+    if chips is None:
+        return True
+    chips = set(chips)
+    if behavior in EMAIL_BEHAVIORS:
+        return "google" in chips
+    anyof = BEHAVIOR_LOGIN_ANY.get(behavior)
+    return not anyof or any(a <= chips for a in anyof)
+
+
+def social_platform(behavior, chips, rng=None) -> str:
+    """youtube | tiktok cho một lượt tương tác trên hồ sơ trình duyệt mang `chips` (None = chưa biết)."""
+    _rng = rng or random
+    chips = set(chips or ())
+    opts = [p for p in ("youtube", "tiktok") if p in chips]
+    if not opts:
+        return "youtube"          # xem live YouTube không cần đăng nhập; hồ sơ chưa rõ chip ⇒ YouTube như cũ
+    return _rng.choice(opts)
+
+
+def build_social_prompt(behavior, platform, query, watch_secs) -> str:
+    """Câu lệnh cho open.js (mỗi bước một động từ, nối «, then »). URL giữ nguyên hoa/thường — open.js đọc
+    «Navigate to …» nguyên văn (bộ lọc live của YouTube «EgJAAQ%3D%3D» phân biệt hoa thường)."""
+    from urllib.parse import quote, quote_plus
+    q = (query or "").strip() or "music"
+    secs = int(max(30, min(300, watch_secs or 90)))
+    if platform == "tiktok":
+        if behavior == "watchLive":
+            return (f"Navigate to https://www.tiktok.com/search/live?q={quote(q)}, then click a live video result, "
+                    f"then watch for {secs} seconds. Do NOT search again.")
+        tail = "comment on the video" if behavior == "commentVideo" else "follow the creator"
+        return (f"Navigate to https://www.tiktok.com/search/video?q={quote(q)}, then click a video result, "
+                f"then watch for {secs} seconds, then {tail}. Do NOT search again.")
+    if behavior == "watchLive":
+        return (f"Navigate to https://www.youtube.com/results?search_query={quote_plus(q)}&sp=EgJAAQ%3D%3D, "
+                f"then click a video result, then watch for {secs} seconds. Do NOT search again.")
+    tail = "comment on the video" if behavior == "commentVideo" else "subscribe to the channel"
+    return (f"Navigate to youtube.com, then search for '{q}', then click a video result, "
+            f"then watch for {secs} seconds, then {tail}. Do NOT search again.")
+
+
+def apply_engagement_cap(agent, behavior, today: str):
+    """Việc tương tác đã chạm trần lượt / ngày ⇒ đổi thành xem video thường. Lượt được chạy thì đếm (đếm cả lượt
+    hỏng: trần là số LẦN THỬ). Trả behavior cuối cùng."""
+    cap = ENGAGEMENT_DAILY_CAP.get(behavior)
+    if not cap:
+        return behavior
+    routine = getattr(agent, "routine", None) or {}
+    eng = routine.get("engagement_today") if isinstance(routine.get("engagement_today"), dict) else {}
+    if eng.get("date") != today:
+        eng = {"date": today}
+    used = int(eng.get(behavior) or 0)
+    if used >= cap:
+        print(f"[Scheduler Callback] '{behavior}' reached today's cap ({used}/{cap}) — watching a video instead")
+        return "watchVideos"
+    eng[behavior] = used + 1
+    routine = dict(routine, engagement_today=eng)
+    try:
+        from tubecli.core.agent import agent_manager
+        agent.routine = routine
+        agent_manager.update(agent.id, routine=routine)
+    except Exception as e:  # noqa: BLE001
+        print(f"[Scheduler Callback] engagement counter not saved: {e}")
+    return behavior
 
 # Trang báo theo ngôn ngữ agent — hành vi "news" vào THẲNG trang báo rồi bấm
 # bài, thay vì Google search "X news today" (nguồn của cảnh "toàn search").
@@ -1120,7 +1216,7 @@ NEWS_SITES = {
 PERIODS = ("morning", "afternoon", "evening", "night")
 
 # Nghĩa "người thường" của từng key — đưa vào prompt để LLM chọn đúng vai trò.
-# Key PHẢI trùng khít EXPLICIT_BEHAVIOR_MAP (một nguồn sự thật cho 7 key hợp lệ).
+# Key PHẢI trùng khít EXPLICIT_BEHAVIOR_MAP trừ ENGAGEMENT_KEYS (việc tương tác không bao giờ tự bật).
 BEHAVIOR_MEANINGS = {
     "browse_topic": "search the web and read about its topics of interest",
     "news": "skim the day's headlines / news",
@@ -1526,6 +1622,21 @@ def _android_call_kwargs(fn, kwargs: dict) -> dict:
     return {k: v for k, v in kwargs.items() if k in params}
 
 
+def android_device_chips(agent):
+    """Chip đăng nhập của máy Android đầu tiên của agent (extension.device_logins) — None nếu chưa biết."""
+    devices = [d for d in (getattr(agent, "android_devices", None) or []) if d]
+    ext = android_engine_extension() if devices else None
+    fn = getattr(ext, "device_logins", None) if ext else None
+    if not callable(fn):
+        return None
+    try:
+        got = fn(devices[0])
+        return None if got is None else [str(c) for c in got]
+    except Exception as e:  # noqa: BLE001
+        print(f"[Scheduler Callback] Android logins unavailable: {e}")
+        return None
+
+
 def android_engine_extension():
     """Extension đang bật khai agent_engine = "android" + run_agent_behavior() (vd Android Window) — hoặc None."""
     try:
@@ -1566,7 +1677,10 @@ def run_routine_on_android(agent, behavior, query, seconds, run_id=None, time_pe
     print(f"[Scheduler Callback] Running '{behavior}' on Android device '{device}' (query: {query!r})")
     kw = dict(device=device, behavior=behavior, query=query or "", seconds=int(seconds or 90),
               agent_id=getattr(agent, "id", ""), agent_name=getattr(agent, "name", ""), time_period=time_period,
-              topics=[str(t) for t in (topics or []) if str(t).strip()])
+              topics=[str(t) for t in (topics or []) if str(t).strip()],
+              language=str(getattr(agent, "language", "") or ""))
+    if behavior == "commentVideo":
+        kw["compose"] = android_compose_fn(agent)          # bình luận do AI của agent viết
     if behavior in EMAIL_BEHAVIORS:
         kw["recipients"] = [str(r) for r in (recipients or []) if str(r).strip()]
         if behavior != "checkEmails":
@@ -1759,16 +1873,17 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
     # xem video (trước đây vẫn bốc rồi chạy thành Google search).
     _android_agent = bool([d for d in (getattr(agent, "android_devices", None) or []) if d])
 
+    # Máy Android cũng có chip đăng nhập (extension Android Window kiểm mỗi lượt chạy): google / gmail / youtube /
+    # tiktok — bốc việc theo đúng những gì máy làm được, giống hồ sơ trình duyệt.
+    _android_chips = android_device_chips(agent) if _android_agent else None
+
     def _behavior_runnable(b):
-        # Agent chọn máy Android: behavior chạy trong APP (máy đã đăng nhập Google — Gmail, YouTube) — không xét
-        # chip đăng nhập của hồ sơ TRÌNH DUYỆT, kẻo «Watch video» / «Check email» bị loại oan.
+        # Agent chọn máy Android: behavior chạy trong APP — xét chip của MÁY, không xét chip hồ sơ TRÌNH DUYỆT.
         if _android_agent and b not in ANDROID_SKIP_BEHAVIORS:
-            return True
+            return android_behavior_ok(b, _android_chips)
         if not logins_known:
             return True   # không có dữ liệu login = không phán, chạy như cũ
-        need = BEHAVIOR_LOGIN_NEEDS.get(b, set())
-        return (not need) or any(
-            need <= profile_logins.get(p, set()) for p in candidate_profiles)
+        return any(behavior_login_ok(b, profile_logins.get(p, set())) for p in candidate_profiles)
 
     behavior, period_tasks, chosen_task = select_period_behavior(
         daily_routine, time_period, runnable=_behavior_runnable)
@@ -1776,20 +1891,22 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
         print(f"[Scheduler Callback] Selected task '{chosen_task}' -> behavior '{behavior}'")
     else:
         print(f"[Scheduler Callback] No active tasks. Using fallback behavior: {behavior}")
+    behavior = apply_engagement_cap(agent, behavior, now.strftime('%Y-%m-%d'))
 
     # 3b. Chọn hồ sơ THEO hành vi: hành vi cần dịch vụ nào thì chỉ hồ sơ mang
     # chip đó được lái; hành vi tự do thì ưu tiên hồ sơ ĐÃ đăng nhập (có chip
     # nào đó) trước hồ sơ trắng. candidate_profiles đã shuffle nên trong cùng
     # một hạng các hồ sơ vẫn xoay vòng.
     login_need = BEHAVIOR_LOGIN_NEEDS.get(behavior, set()) if logins_known else set()
+    _needs_login = bool(login_need or BEHAVIOR_LOGIN_ANY.get(behavior)) and logins_known
     if not logins_known:
         launch_candidates = list(candidate_profiles)
     else:
         ranked = sorted(candidate_profiles, key=lambda p: (
-            0 if (login_need and login_need <= profile_logins.get(p, set())) else 1,
+            0 if (_needs_login and behavior_login_ok(behavior, profile_logins.get(p, set()))) else 1,
             0 if profile_logins.get(p) else 1))
-        if login_need:
-            eligible = [p for p in ranked if login_need <= profile_logins.get(p, set())]
+        if _needs_login:
+            eligible = [p for p in ranked if behavior_login_ok(behavior, profile_logins.get(p, set()))]
             # _behavior_runnable ở trên bảo đảm thường không rỗng; rỗng chỉ khi
             # behavior đến từ fuzzy/fallback — khi đó đành chạy như cũ.
             launch_candidates = eligible or ranked
@@ -1852,6 +1969,8 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
                      for b in ("work", "research", "study", "morningCheck",
                                "entertainment", "watchVideos", "relax")}
     fmt_templates["checkEmails"] = ["gmail", "outlook mail", "email inbox"]
+    for _sb in SOCIAL_BEHAVIORS:                       # tương tác = xem video theo chủ đề rồi làm thêm một việc
+        fmt_templates[_sb] = fmt_templates["watchVideos"]
 
     fmts = fmt_templates.get(behavior) or [_with_hint(t) for t in _qt.templates_for(behavior, _agent_lang)]
     
@@ -1945,7 +2064,7 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
         # Chưa khai chủ đề nào thì vẫn phải hỏi bằng tiếng của agent. Danh sách cũ
         # cứng tiếng Anh và có nguyên chuỗi "learning resources" — chính nó đưa
         # agent vào learningresources.com, một cửa hàng đồ chơi (ảnh 9/9/2026).
-        choices = _qt.no_topic_queries(behavior, _agent_lang)
+        choices = _qt.no_topic_queries("watchVideos" if behavior in SOCIAL_BEHAVIORS else behavior, _agent_lang)
         base_query = choices[seed_int % len(choices)]
         
     # Estimate browsing time based on keywords
@@ -1980,7 +2099,11 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
     # vòng qua Google — search.js tự dùng ô tìm kiếm CỦA site khi đã ở trong
     # site (YouTube search chứ không phải Google search). Các hành vi này chỉ
     # được chọn khi hồ sơ có chip đăng nhập tương ứng (BEHAVIOR_LOGIN_NEEDS).
-    if behavior in ["watchVideos", "entertainment"]:
+    if behavior in SOCIAL_BEHAVIORS:
+        _plat = social_platform(behavior, profile_logins.get(profile_name) if logins_known else None, rng)
+        watch_secs = random.randint(60, 150) if behavior != "watchLive" else random.randint(120, 300)
+        prompt = build_social_prompt(behavior, _plat, base_query, watch_secs)
+    elif behavior in ["watchVideos", "entertainment"]:
         watch_secs = random.randint(120, max(120, min(read_time, 300)))
         prompt = (f"Navigate to youtube.com, then search for '{base_query}', "
                   f"then click a video result, then watch for {watch_secs} seconds. "

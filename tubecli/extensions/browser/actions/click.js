@@ -211,9 +211,15 @@ export async function click(page, params = {}) {
     // Ngay TRÊN youtube.com (hành vi xem video giờ tìm thẳng trong YouTube) link kết quả là TƯƠNG ĐỐI "/watch?v=…";
     // bộ chọn cũ chỉ bắt "youtube.com/watch" (kết quả video của Google) nên 7/7 lượt từ 8/10/2026 chết ở đây với
     // "Target element 'default' not visible". Chỉ lấy /watch — không Shorts, không quảng cáo (renderer khác).
-    let onYouTube = false;
+    let onYouTube = false, onTikTok = false;
     try { onYouTube = /(^|\.)youtube\.com$/i.test(new URL(page.url()).hostname); } catch (e) { /* about:blank */ }
-    const videoSelectors = onYouTube
+    try { onTikTok = /(^|\.)tiktok\.com$/i.test(new URL(page.url()).hostname); } catch (e) { /* about:blank */ }
+    // TikTok (việc tương tác 18/11/2026): trang tìm video / live — ô kết quả dẫn tới /@user/video/… hoặc /@user/live
+    const tiktokSelectors = /\/search\/live/.test(page.url())
+      ? ['[data-e2e="search_live-item"] a', 'a[href*="/live"]']
+      : ['[data-e2e="search_video-item"] a[href*="/video/"]', '[data-e2e="search_top-item"] a[href*="/video/"]',
+         'a[href*="/video/"]'];
+    const videoSelectors = onTikTok ? tiktokSelectors : onYouTube
       ? [
           'ytd-video-renderer a#video-title[href*="/watch"]',
           'ytd-video-renderer a#thumbnail[href*="/watch"]',
@@ -226,8 +232,8 @@ export async function click(page, params = {}) {
           'div[data-surl*="youtube.com/watch"] a', // Video type results
           'video-voyager a'
         ];
-    console.log(`Searching for STRICT video results (${onYouTube ? 'on youtube.com' : 'youtube.com links'})...`);
-    if (onYouTube) {
+    console.log(`Searching for STRICT video results (${onTikTok ? 'on tiktok.com' : onYouTube ? 'on youtube.com' : 'youtube.com links'})...`);
+    if (onYouTube || onTikTok) {
       // Trang kết quả YouTube vẽ dần bằng JS — chờ ô video đầu tiên thay vì kết luận "không có" ngay lập tức.
       await page.waitForSelector(videoSelectors.join(','), { timeout: 15000 }).catch(() => {});
       // Lấy ô đầu tiên ĐANG HIỆN theo thứ tự ưu tiên. `.first()` của cả cụm là phần tử đầu trong DOM — trang đã

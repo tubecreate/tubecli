@@ -66,7 +66,8 @@ print("=" * 70)
 
 # The 7 valid keys must be exactly the scheduler's EXPLICIT_BEHAVIOR_MAP keys —
 # one source of truth, so generation can never drift from what runs.
-VALID = set(EXPLICIT_BEHAVIOR_MAP.keys())
+from tubecli.api.server import ENGAGEMENT_KEYS  # noqa: E402
+VALID = set(EXPLICIT_BEHAVIOR_MAP.keys()) - set(ENGAGEMENT_KEYS)
 check("the 7 valid keys match the scheduler's behavior map",
       set(BEHAVIOR_MEANINGS.keys()) == VALID and len(VALID) == 7, sorted(VALID))
 check("periods are the four expected",

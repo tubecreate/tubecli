@@ -34,6 +34,7 @@ import * as browseAction from './actions/browse.js';
 import * as clickAction from './actions/click.js';
 import * as loginAction from './actions/login.js';
 import * as commentAction from './actions/comment.js';
+import * as followAction from './actions/follow.js';
 import * as visualScanAction from './actions/visual_scan.js';
 import * as watchAction from './actions/watch.js';
 import * as navigateAction from './actions/navigate.js';
@@ -131,6 +132,7 @@ const ACTION_REGISTRY = {
   click: clickAction.click,
   login: loginAction.login,
   comment: commentAction.comment,
+  follow: followAction.follow,
   watch: watchAction.watch,
   visual_scan: visualScanAction.visual_scan,
   extract_content: extractContentAction.extract_content,
@@ -838,7 +840,17 @@ async function main() {
                     console.log(`[Login Parse] platform=${platform} email=${email} recovery=${recoveryEmail} 2FA=${twoFactorCodes ? 'yes' : 'no'}`);
                 } else if (s.startsWith('navigate to ')) {
                     action = 'navigate';
-                    params = { url: s.replace('navigate to ', '').trim() };
+                    // URL lấy từ câu GỐC: tham số truy vấn phân biệt hoa/thường (bộ lọc LIVE của YouTube
+                    // «sp=EgJAAQ%3D%3D» viết thường là hỏng) — bản cũ hạ chữ cả URL.
+                    params = { url: sRaw.slice('navigate to '.length).trim() };
+                } else if (s.startsWith('comment')) {
+                    // «comment on the video» — AI viết chữ theo tiêu đề video (actions/comment.js)
+                    action = 'comment';
+                    params = {};
+                } else if (s.startsWith('subscribe') || s.startsWith('follow ')) {
+                    // «subscribe to the channel» (YouTube) / «follow the creator» (TikTok) — actions/follow.js
+                    action = 'follow';
+                    params = {};
                 } else if (s.startsWith('search for ')) {
                     action = 'search';
                     params = { keyword: s.replace('search for ', '').replace(/'/g, '') };
@@ -1645,6 +1657,12 @@ async function main() {
             console.log(`\n--- Executing: ${step.action} ---`);
             try {
               let stepParams = { ...step.params, isRetry, aiModel };
+              if (step.action === 'comment') {
+                const ctxLang = agentContext?.language;
+                stepParams.language = ctxLang && ctxLang !== 'auto' ? ctxLang : '';
+                stepParams.agentName = agentContext?.agent_name || '';
+                stepParams.interests = Array.isArray(agentContext?.interests) ? agentContext.interests : [];
+              }
               if (step.action === 'extract_content') {
                 stepParams.profileName = profileName;
                 stepParams.enable_scraping = agentContext?.enable_scraping !== false;
@@ -2082,6 +2100,12 @@ async function main() {
                 try {
                   // Auto-inject auth credentials if this is a login action
                   let actionParams = { ...nextAction.params, isRetry, aiModel: sessionAiModel };
+                  if (nextAction.action === 'comment') {
+                    const ctxLang = agentContext?.language;
+                    actionParams.language = ctxLang && ctxLang !== 'auto' ? ctxLang : '';
+                    actionParams.agentName = agentContext?.agent_name || '';
+                    actionParams.interests = Array.isArray(agentContext?.interests) ? agentContext.interests : [];
+                  }
                   // Inject profileName for extract_content action
                   if (nextAction.action === 'extract_content') {
                     actionParams.profileName = profileName;
