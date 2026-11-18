@@ -95,6 +95,24 @@ def profiles() -> List[str]:
     return sorted(out)
 
 
+def agent_profiles(allowed_profiles: Iterable[str], agent_id: Optional[str] = None) -> List[str]:
+    """Profiles to read for an agent: its browser profiles, plus every `android-<device>` folder.
+
+    The Android Window extension saves the emails an agent read in the phone's Gmail app under
+    scraped_data/android-<device>/ with the agent's id on every row. Those folders are never in
+    allowed_profiles (that list names browser profiles), so without this the agent could not find
+    what it read on the phone. Only attributed rows count there: owns() matches them by agentId and
+    credits unattributed rows only to profiles in allowed_profiles, which android-* never is.
+    """
+    allowed = [p for p in (allowed_profiles or ()) if p]
+    if not allowed:
+        return resolve_profiles(None)
+    found = set(resolve_profiles(allowed))
+    if agent_id:
+        found |= {p for p in profiles() if p.startswith("android-")}
+    return sorted(found)
+
+
 def resolve_profiles(requested: Optional[Iterable[str]]) -> List[str]:
     """Turn caller-supplied profile names into real ones.
 
@@ -326,7 +344,7 @@ def query(*, agent_id: Optional[str] = None, allowed_profiles: Iterable[str] = (
     means articles.json has to be read, so it is loaded when the query needs it
     and skipped when it does not.
     """
-    profile_list = resolve_profiles(profile if profile else (allowed_profiles or None))
+    profile_list = resolve_profiles(profile) if profile else agent_profiles(allowed_profiles, agent_id)
     needle = fold(q.strip())
 
     # articles.json is read on EVERY query, including the ones that do not ask
@@ -400,7 +418,7 @@ def get_article(url: str, *, profile: Optional[str] = None,
 def stats(*, agent_id: Optional[str] = None, allowed_profiles: Iterable[str] = (),
           profile: Optional[Iterable[str]] = None, days: int = 14) -> Dict[str, Any]:
     """Counts by profile, domain and local day, plus how much body text survives."""
-    profile_list = resolve_profiles(profile if profile else (allowed_profiles or None))
+    profile_list = resolve_profiles(profile) if profile else agent_profiles(allowed_profiles, agent_id)
     pairs = _collect(profile_list, agent_id, allowed_profiles, need_articles=True)
 
     by_profile: Dict[str, int] = {}
