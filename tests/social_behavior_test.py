@@ -131,5 +131,30 @@ EM.extension_manager.get_enabled = lambda: [OldExt()]
 ok(SV.android_device_chips(droid) is None, "extension cũ (không có device_logins) ⇒ None, lịch chạy như cũ")
 ok(SV.android_device_chips(AG.Agent(name="B")) is None, "agent không chọn máy ⇒ None")
 
+print("── 6. «Run now» của agent Android không khoá vòng sự kiện ─────────")
+import asyncio  # noqa: E402
+import threading  # noqa: E402
+import time  # noqa: E402
+called = []
+done = threading.Event()
+
+
+def slow_runner(agent_id, trigger="schedule", run_id=None):
+    called.append((agent_id, trigger, threading.current_thread() is threading.main_thread()))
+    time.sleep(0.5)          # lượt Android thật: 1–3 phút
+    done.set()
+
+
+SV.run_agent_routine = slow_runner
+_agent_mod.agent_manager.get = lambda aid: droid if aid == "droid" else AG.Agent(name="Web")
+t0 = time.time()
+res = asyncio.run(SV.test_agent_routine("droid"))
+ok(time.time() - t0 < 0.3 and "Android" in res.get("message", ""), "agent Android: trả ngay, chạy nền", res)
+ok(done.wait(3) and called and called[0][:2] == ("droid", "manual") and called[0][2] is False,
+   "lượt chạy ở luồng nền (không phải luồng của vòng sự kiện)", called)
+called.clear()
+asyncio.run(SV.test_agent_routine("web"))
+ok(called and called[0][:2] == ("web", "manual"), "agent trình duyệt: giữ cách gọi cũ", called)
+
 print(f"\n{PASS}/{PASS + FAIL} PASS")
 sys.exit(1 if FAIL else 0)

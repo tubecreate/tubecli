@@ -3474,6 +3474,15 @@ async def test_agent_routine(agent_id: str):
     if not agent:
         raise HTTPException(404, f"Agent {agent_id} not found")
     try:
+        # Agent chạy trên ANDROID: lượt chạy đẩy việc về CHÍNH vòng sự kiện này (extension → run_coroutine_threadsafe)
+        # rồi chờ kết quả — gọi thẳng ở đây là tự khoá vòng sự kiện tới 15 phút. Chạy trên luồng nền, trả ngay;
+        # kết quả xem ở GET /api/v1/agents/{id}/runs.
+        if [d for d in (getattr(agent, "android_devices", None) or []) if d]:
+            import threading
+            threading.Thread(target=run_agent_routine, args=(agent_id,), kwargs={"trigger": "manual"},
+                             name=f"routine-{agent_id}", daemon=True).start()
+            return {"status": "success", "message": f"Started the routine for agent '{agent.name}' on its Android "
+                                                    f"phone — results appear in its runs in 1–3 minutes"}
         # trigger="manual": nút Run now/Chạy lại — vòng launch được phép nhường
         # chỗ (dừng live view đang giữ hồ sơ) thay vì skip như lịch tự động.
         run_agent_routine(agent_id, trigger="manual")
