@@ -2,6 +2,28 @@
 
 Notable changes to TubeCLI. Versions match `tubecli/__init__.py`.
 
+## 2026.08.09.246 — 2026-11-19
+
+### Agents can comment, watch live streams and follow channels
+- The Schedule tab has three new tasks: **Comment**, **Watch live** and **Follow / Subscribe**. They run on YouTube or
+  TikTok — whichever the browser profile or Android phone is signed in to (random when both).
+- Comment: the agent watches a video on its topics, then its own AI writes one short comment from the video title in
+  the agent's language. Comments with links, hashtags, @mentions or AI error text are not posted, and the typed text
+  is checked in the box before it is sent. The old browser fallback that posted a canned comment is gone.
+- Watch live: the agent watches a live stream and never chats. Follow: it subscribes / follows the channel of a video
+  it watched, and skips channels it already follows.
+- These are public actions on your accounts, so they only run when you turn them on — the AI routine generator never
+  enables them. Each agent does at most 4 comments, 3 follows and 6 live streams a day; after that the run watches a
+  normal video instead.
+
+### Android phones show what they are signed in to
+- With Android Window, each phone shows login chips (Google, Gmail, YouTube, TikTok @name), refreshed on every run.
+  The routine only picks tasks the phone can do — for example no email tasks on a phone without a Google account.
+
+### Fixed
+- **Run now** on an agent that runs on an Android phone could freeze the server for up to 15 minutes. The run now
+  starts in the background and its result appears in the agent's runs.
+
 ## 2026.08.09.245 — 2026-11-18
 
 ### Agents can run their daily routine on an Android phone
