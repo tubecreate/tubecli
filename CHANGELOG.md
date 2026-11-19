@@ -2,6 +2,16 @@
 
 Notable changes to TubeCLI. Versions match `tubecli/__init__.py`.
 
+## 2026.08.09.247 — 2026-11-19
+
+### Windows machines get FFmpeg automatically
+- The Windows installer now installs FFmpeg and ffprobe (winget, or a direct download into your user Programs folder
+  when winget is missing — common on Windows Server / VPS). Before, it never installed them, so on a fresh Windows
+  VPS voice and video tools failed with "[WinError 2] The system cannot find the file specified".
+- Machines that are already installed fix themselves: when TubeCLI starts and ffmpeg or ffprobe is missing, it
+  downloads them once in the background (about 200 MB unpacked) into %LOCALAPPDATA%\Programs\ffmpeg\bin and uses
+  them right away. If the download fails it tries again 6 hours later.
+
 ## 2026.08.09.246 — 2026-11-19
 
 ### Agents can comment, watch live streams and follow channels
