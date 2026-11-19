@@ -35,9 +35,11 @@ class VideoStudioExtension(Extension):
         # the burn-subtitles route, the TTS stitcher) fails with "ffmpeg is not
         # installed" even though it is installed.
         try:
-            from tubecli.extensions.video_studio.ffmpeg_utils import ensure_on_path
+            from tubecli.extensions.video_studio.ffmpeg_utils import ensure_installed, ensure_on_path
 
             ensure_on_path()
+            # Máy Windows thiếu ffmpeg / ffprobe (bộ cài cũ không cài) ⇒ tự tải ở luồng nền, một lần
+            ensure_installed(background=True)
         except Exception as e:
             logger.warning(f"Could not make ffmpeg discoverable: {e}")
 
