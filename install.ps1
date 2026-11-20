@@ -455,6 +455,81 @@ function Install-Node {
     return $false
 }
 
+# --- FFmpeg checking and Installation ---
+# Video, voice (TTS stitching) and subtitle tools all shell out to ffmpeg AND ffprobe.
+# install.sh has required both since 2026-09; this script never installed them, so a
+# fresh Windows VPS failed with "[WinError 2] The system cannot find the file specified"
+# (2026-11-19). Same shape as the Node step: winget first, then a portable zip into the
+# per-user Programs folder. TubeCLI also downloads it on first start if this step fails.
+
+function Check-FFmpeg {
+    foreach ($tool in @("ffmpeg", "ffprobe")) {
+        $c = Get-Command $tool -ErrorAction SilentlyContinue
+        if (-not $c) { return $false }
+        try {
+            $null = (& $c.Source -version 2>$null)
+            if ($LASTEXITCODE -ne 0) { return $false }
+        } catch { return $false }
+    }
+    Write-Host "[OK] FFmpeg and ffprobe found" -ForegroundColor Green
+    return $true
+}
+
+function Install-FFmpeg {
+    Write-Host "[*] Installing FFmpeg (needed for video, voice and subtitles)..." -ForegroundColor Yellow
+    if (Get-WingetOk) {
+        winget install --id Gyan.FFmpeg -e --source winget --accept-package-agreements --accept-source-agreements | Out-Host
+        Refresh-Path
+        # Portable winget packages land in WinGet\Packages\Gyan.FFmpeg_*\ffmpeg-*\bin when
+        # winget cannot create links, and only the USER PATH gets that folder.
+        $pk = Join-Path $env:LOCALAPPDATA "Microsoft\WinGet\Packages"
+        $wbin = Get-ChildItem -Path $pk -Directory -Filter "*FFmpeg*" -ErrorAction SilentlyContinue |
+            ForEach-Object { Get-ChildItem -Path $_.FullName -Directory -ErrorAction SilentlyContinue } |
+            ForEach-Object { Join-Path $_.FullName "bin" } |
+            Where-Object { Test-Path (Join-Path $_ "ffprobe.exe") } | Select-Object -First 1
+        if ($wbin) { Add-ToProcessPath $wbin }
+        if (Check-FFmpeg) {
+            Write-Host "[OK] FFmpeg installed via winget" -ForegroundColor Green
+            return $true
+        }
+        Write-Host "  [!] winget did not produce a working FFmpeg, downloading it directly..." -ForegroundColor Yellow
+    } else {
+        Write-Host "  winget not available, downloading FFmpeg directly..." -ForegroundColor Gray
+    }
+    $dest = Join-Path (Get-UserProgramsDir) "ffmpeg"
+    $bin = Join-Path $dest "bin"
+    $urls = @("https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip",
+              "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip")
+    foreach ($url in $urls) {
+        $zip = Get-Installer $url "ffmpeg.zip"
+        if (-not $zip) { continue }
+        $stage = Join-Path (Get-UserProgramsDir) "ffmpeg.tmp"
+        $ok = Expand-ZipTo $zip $stage
+        Remove-Item $zip -Force -ErrorAction SilentlyContinue
+        if ($ok) {
+            # both zips wrap everything in one folder: ffmpeg-<ver>-essentials_build\bin\
+            $probe = Get-ChildItem -Path $stage -Recurse -Filter "ffprobe.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($probe) {
+                if (Test-Path $dest) { Remove-Item -Recurse -Force $dest -ErrorAction SilentlyContinue }
+                $null = New-Item -ItemType Directory -Force -Path $bin
+                Copy-Item -Path (Join-Path $probe.DirectoryName "*") -Destination $bin -Force
+            }
+        }
+        Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
+        if (Test-Path (Join-Path $bin "ffprobe.exe")) {
+            Add-ToProcessPath $bin
+            Add-ToUserPath $bin
+            if (Check-FFmpeg) {
+                Write-Host "[OK] FFmpeg installed to $bin" -ForegroundColor Green
+                return $true
+            }
+        }
+    }
+    Write-Host "[!] FFmpeg could not be installed now. TubeCLI downloads it by itself on first start;" -ForegroundColor Yellow
+    Write-Host "    or install it from https://www.gyan.dev/ffmpeg/builds/ and add its bin folder to PATH." -ForegroundColor Yellow
+    return $false
+}
+
 # --- Environment Variable Helpers ---
 
 function Add-ToProcessPath([string]$PathEntry) {
@@ -583,6 +658,13 @@ if (-not (Check-Git)) {
 if (-not (Check-Node)) {
     if (@(Install-Node)[-1] -ne $true) {
         Write-Host "[!] Warning: Node.js installation failed or requires a terminal restart. The browser extension might not work until Node.js is installed manually." -ForegroundColor Yellow
+    }
+}
+
+# FFmpeg is a warning too: TubeCLI retries the download itself on first start.
+if (-not (Check-FFmpeg)) {
+    if (@(Install-FFmpeg)[-1] -ne $true) {
+        Write-Host "[!] Warning: FFmpeg is not installed yet. Video, voice and subtitle tools need it - TubeCLI will try to download it when it starts." -ForegroundColor Yellow
     }
 }
 

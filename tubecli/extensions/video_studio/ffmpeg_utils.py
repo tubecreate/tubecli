@@ -52,6 +52,9 @@ def _known_dirs() -> List[str]:
     if os.name == "nt":
         local = os.environ.get("LOCALAPPDATA") or ""
         program_files = os.environ.get("ProgramFiles") or r"C:\Program Files"
+        managed = managed_dir()
+        if managed:
+            dirs.append(managed)             # bộ cài Windows + tự tải (ensure_installed) đặt ở đây
         dirs += [
             r"C:\ffmpeg\bin",
             os.path.join(program_files, "ffmpeg", "bin"),
@@ -175,6 +178,132 @@ def _which_uncached(name: str) -> Optional[str]:
         except Exception:
             pass
     return None
+
+
+# ── Tự tải ffmpeg + ffprobe khi máy thiếu (Windows) ──────────────────────────
+# install.ps1 cũ không hề cài ffmpeg; VPS Windows mới chạy TTS / video là «[WinError 2] The system cannot find the
+# file specified» (19/11/2026). Lõi tự vá: lúc khởi động (video_studio.on_enable) mà thiếu ffmpeg HOẶC ffprobe ⇒
+# tải bản essentials (~90 MB, một lần) về CÙNG thư mục bộ cài dùng — %LOCALAPPDATA%\Programs\ffmpeg\bin — chỉ
+# giữ ffmpeg.exe + ffprobe.exe, kiểm chạy được rồi đưa lên PATH của tiến trình. Hỏng thì 6 giờ sau mới thử lại.
+FFMPEG_DOWNLOADS = (
+    "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip",
+    "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip",
+)
+RETRY_AFTER_SEC = 6 * 3600
+INSTALL_STATE = {"status": "idle", "error": "", "dir": "", "at": 0.0}
+_INSTALL_LOCK = __import__("threading").Lock()
+
+
+def managed_dir() -> Optional[str]:
+    if os.name != "nt":
+        return None
+    local = os.environ.get("LOCALAPPDATA") or ""
+    return os.path.join(local, "Programs", "ffmpeg", "bin") if local else None
+
+
+def _marker_file() -> Optional[str]:
+    d = managed_dir()
+    return os.path.join(os.path.dirname(d), ".tubecli-download.json") if d else None
+
+
+def needs_install() -> bool:
+    """Thiếu ffmpeg hoặc ffprobe (bản ffmpeg của imageio-ffmpeg KHÔNG kèm ffprobe ⇒ vẫn tính là thiếu)."""
+    return not (find_ffmpeg() and find_ffprobe())
+
+
+def _download(url: str, dest: str, timeout: float = 60) -> None:
+    import shutil
+    import urllib.request
+
+    req = urllib.request.Request(url, headers={"User-Agent": "TubeCLI-ffmpeg-setup"})
+    with urllib.request.urlopen(req, timeout=timeout) as r, open(dest, "wb") as f:
+        shutil.copyfileobj(r, f, 1 << 20)
+
+
+def install_ffmpeg(urls=FFMPEG_DOWNLOADS, force: bool = False) -> dict:
+    """ĐỒNG BỘ (chạy ở luồng nền). Trả INSTALL_STATE. Không làm gì nếu đã đủ ffmpeg + ffprobe."""
+    import json
+    import tempfile
+    import time
+    import zipfile
+
+    target = managed_dir()
+    if not target:
+        INSTALL_STATE.update(status="unsupported", error="automatic download is Windows-only")
+        return INSTALL_STATE
+    with _INSTALL_LOCK:
+        if not needs_install():
+            INSTALL_STATE.update(status="ok", error="")
+            return INSTALL_STATE
+        marker = _marker_file()
+        if not force and marker and os.path.isfile(marker):
+            try:
+                last = json.load(open(marker, encoding="utf-8"))
+                if last.get("ok") is False and time.time() - float(last.get("at") or 0) < RETRY_AFTER_SEC:
+                    INSTALL_STATE.update(status="failed", error=last.get("error", ""))
+                    return INSTALL_STATE
+            except Exception:
+                pass
+        INSTALL_STATE.update(status="downloading", error="", at=time.time())
+        errors = []
+        for url in urls:
+            tmp = tempfile.mkdtemp(prefix="tubecli-ffmpeg-")
+            zpath = os.path.join(tmp, "ffmpeg.zip")
+            try:
+                logger.info("[VideoStudio] ffmpeg/ffprobe missing — downloading %s", url)
+                _download(url, zpath)
+                staged = os.path.join(tmp, "bin")
+                os.makedirs(staged, exist_ok=True)
+                got = set()
+                with zipfile.ZipFile(zpath) as z:
+                    for member in z.namelist():
+                        base = member.replace("\\", "/").rsplit("/", 1)[-1].lower()
+                        if base in ("ffmpeg.exe", "ffprobe.exe") and "/bin/" in "/" + member.replace("\\", "/"):
+                            with z.open(member) as src, open(os.path.join(staged, base), "wb") as out:
+                                out.write(src.read())
+                            got.add(base)
+                if got != {"ffmpeg.exe", "ffprobe.exe"}:
+                    raise RuntimeError(f"the zip has no bin/ffmpeg.exe + bin/ffprobe.exe ({sorted(got)})")
+                for name in ("ffmpeg.exe", "ffprobe.exe"):
+                    if not _runs(os.path.join(staged, name)):
+                        raise RuntimeError(f"downloaded {name} does not run")
+                os.makedirs(target, exist_ok=True)
+                for name in ("ffmpeg.exe", "ffprobe.exe"):
+                    os.replace(os.path.join(staged, name), os.path.join(target, name))
+                _RESOLVED.clear()
+                ensure_on_path()
+                INSTALL_STATE.update(status="ok", error="", dir=target)
+                logger.info("[VideoStudio] ffmpeg + ffprobe installed to %s", target)
+                if marker:
+                    json.dump({"ok": True, "at": time.time(), "url": url}, open(marker, "w", encoding="utf-8"))
+                return INSTALL_STATE
+            except Exception as e:  # noqa: BLE001
+                errors.append(f"{url}: {e}")
+                logger.warning("[VideoStudio] ffmpeg download from %s failed: %s", url, e)
+            finally:
+                import shutil
+                shutil.rmtree(tmp, ignore_errors=True)
+        INSTALL_STATE.update(status="failed", error="; ".join(errors)[:500])
+        if marker:
+            try:
+                os.makedirs(os.path.dirname(marker), exist_ok=True)
+                json.dump({"ok": False, "at": time.time(), "error": INSTALL_STATE["error"]},
+                          open(marker, "w", encoding="utf-8"))
+            except Exception:
+                pass
+        return INSTALL_STATE
+
+
+def ensure_installed(background: bool = True) -> dict:
+    """Gọi lúc khởi động: thiếu ffmpeg / ffprobe trên Windows ⇒ tải ở luồng nền (không chặn server)."""
+    if os.name != "nt" or not needs_install():
+        return INSTALL_STATE
+    if not background:
+        return install_ffmpeg()
+    if INSTALL_STATE["status"] != "downloading":
+        import threading
+        threading.Thread(target=install_ffmpeg, name="ffmpeg-setup", daemon=True).start()
+    return INSTALL_STATE
 
 
 def ensure_on_path() -> Optional[str]:
