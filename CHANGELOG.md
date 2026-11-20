@@ -2,7 +2,18 @@
 
 Notable changes to TubeCLI. Versions match `tubecli/__init__.py`.
 
-## 2026.08.09.247 — 2026-11-19
+## 2026.08.09.247 — 2026-11-20
+
+### Claude and other MCP clients can save accounts to the Keychain — when you allow it
+- New permission for a connection on TubeCLI Cloud › Connectors: **Allow saving accounts to the Keychain**. With it,
+  the AI can store an account you give it (Google, TikTok, Facebook, X, Discord, Telegram or other — email/username,
+  password, 2-Step Verification key or backup codes, recovery email, label, note) with `keychain_save`, and list your
+  Keychain accounts with `keychain_accounts`.
+- Secrets only go in: they are encrypted in the Keychain and no tool can read them back — the list shows only whether
+  a password, 2FA key or recovery email is saved. They never appear in tool results, approval cards or logs. Saving
+  the same platform + username again updates that account; an empty password keeps the saved one.
+- Without the permission both tools refuse and tell the AI how you can turn it on. The Keychain API itself stays
+  closed to the AI, and Codex on the machine does not get these tools.
 
 ### Windows machines get FFmpeg automatically
 - The Windows installer now installs FFmpeg and ffprobe (winget, or a direct download into your user Programs folder

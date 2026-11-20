@@ -1152,6 +1152,120 @@ DRIVE_PERM = "drive"
 PERM_TEXT[DRIVE_PERM] = (
     "Backing up to Google Drive is turned off for this connection. The owner can allow it in TubeCLI Cloud › "
     "Connectors (\"Allow Google Drive backup\"); until then, ask the owner to upload the files from the File Manager.")
+# ── Keychain qua trình kết nối (20/11/2026) ───────────────────────────────────
+# User: «người dùng có thể gửi thông tin của google account hay tài khoản khác qua mcp khi được cho phép».
+# Quyền «keychain» trên TubeCLI Cloud › Connectors. Bí mật (mật khẩu / mã 2FA / email khôi phục) CHỈ ĐI VÀO két:
+# keychain_save ghi (mã hoá Fernet trong extension Keychain), không công cụ nào đọc bí mật ra — keychain_accounts
+# chỉ trả bản đã che. /api/v1/keychain vẫn nằm trong BLOCK_ALL (tubecli_api không chạm được két).
+# Không bao giờ để bí mật vào: summary (thẻ duyệt / nhật ký), thông báo lỗi, kết quả trả về.
+KEYCHAIN_PERM = "keychain"
+PERM_TEXT[KEYCHAIN_PERM] = (
+    "Saving accounts to the Keychain is turned off for this connection. The owner can allow it in TubeCLI Cloud › "
+    "Connectors (\"Allow saving accounts to the Keychain\"), or add the account themselves in TubeCLI Cloud › the "
+    "server › Keychain. Never ask the user to paste a password into chat when this is off.")
+KC_SECRET_ARGS = {"password": "secret", "totp": "totp", "recovery_email": "recovery"}
+
+
+def _kc_store():
+    try:
+        from tubecli.extensions.keychain import routes as KR
+    except ImportError as e:
+        raise ToolError(f"This TubeCLI has no Keychain ({e})") from None
+    st = getattr(KR, "_store", None)
+    if st is None:
+        raise ToolError("The Keychain extension is turned off on this server")
+    return st
+
+
+def _kc_public(a: Dict[str, Any]) -> Dict[str, Any]:
+    return {"id": a.get("id"), "platform": a.get("platform"), "label": a.get("label") or "",
+            "username": a.get("username") or "", "notes": (a.get("notes") or "")[:300], "status": a.get("status"),
+            "has_password": bool(a.get("has_secret")), "has_2fa": bool(a.get("has_totp")),
+            "has_recovery_email": bool(a.get("has_recovery")), "profiles": a.get("profiles") or []}
+
+
+def _kc_secret(args: Dict[str, Any], key: str, cap: int) -> str:
+    """Bí mật: KHÔNG strip (mật khẩu có thể có dấu cách ở đầu/cuối), chỉ bỏ xuống dòng thừa ở hai đầu."""
+    v = args.get(key)
+    if v is None:
+        return ""
+    v = str(v).strip("\r\n")
+    if len(v) > cap:
+        raise ToolError(f"'{key}' is too long (max {cap} characters)")
+    return v
+
+
+async def t_keychain_accounts(args, ctx):
+    st = _kc_store()
+    platform = _str(args, "platform", False, 20).lower()
+    q = _str(args, "filter", False, 200).lower()
+    rows = [_kc_public(a) for a in st.list(platform)]
+    if q:
+        rows = [r for r in rows if q in f"{r['username']} {r['label']} {r['notes']} {r['platform']}".lower()]
+    lim = _int(args, "limit", 100, 1, 500)
+    return text_result(f"{len(rows)} Keychain account(s){' matching ' + repr(q) if q else ''} — passwords, 2FA keys and "
+                       "recovery emails are never shown, only whether they are saved:\n" + _dump(rows[:lim]))
+
+
+def _kc_summary(a) -> str:
+    # KHÔNG có bí mật ở đây — summary vào thẻ duyệt / nhật ký
+    sec = [k for k in KC_SECRET_ARGS if a.get(k)]
+    return (f"Save the {str(a.get('platform') or '?')[:20]} account {str(a.get('username') or a.get('id') or '?')[:120]} "
+            f"to the Keychain{' (with ' + ', '.join(sec) + ')' if sec else ''}")
+
+
+async def t_keychain_save(args, ctx):
+    import asyncio
+    from tubecli.extensions.keychain import store as KS
+    st = _kc_store()
+    acc_id = _str(args, "id", False, 64)
+    platform = _str(args, "platform", False, 20).lower()
+    username = _str(args, "username", False, 320)
+    if platform and platform not in KS.PLATFORMS:
+        raise ToolError(f"platform must be one of: {', '.join(KS.PLATFORMS)}")
+    status = _str(args, "status", False, 20).lower()
+    if status and status not in KS.STATUSES:
+        raise ToolError(f"status must be one of: {', '.join(KS.STATUSES)}")
+    data: Dict[str, Any] = {}
+    for k, cap in (("label", 120), ("notes", 2000)):
+        if args.get(k) is not None:
+            data[k] = _str(args, k, False, cap)
+    if status:
+        data["status"] = status
+    secrets = {"password": _kc_secret(args, "password", 1000), "totp": _kc_secret(args, "totp", 2000),
+               "recovery_email": _kc_secret(args, "recovery_email", 320)}
+    for k, v in secrets.items():
+        if v:                                  # chuỗi rỗng KHÔNG xoá bí mật đã lưu (tránh lỡ tay xoá mật khẩu)
+            data[KC_SECRET_ARGS[k]] = v
+    existing = None
+    if acc_id:
+        existing = st.get(acc_id)
+        if not existing:
+            raise ToolError(f"No Keychain account with id {acc_id!r} (keychain_accounts lists them)")
+    else:
+        if not platform or not username:
+            raise ToolError("'platform' and 'username' are required for a new account (or pass 'id' to update one)")
+        existing = next((a for a in st.list(platform) if (a.get("username") or "").lower() == username.lower()), None)
+    if existing:
+        if username:
+            data["username"] = username
+        out = await asyncio.to_thread(st.update, existing["id"], data)
+        verb = "Updated"
+    else:
+        if not secrets["password"]:
+            raise ToolError("'password' is required for a new account")
+        data.update(platform=platform, username=username)
+        try:
+            out = await asyncio.to_thread(st.create, data)
+        except ValueError as e:
+            raise ToolError(str(e)) from None
+        verb = "Saved new"
+    saved = [k for k, v in secrets.items() if v]
+    return text_result(f"{verb} Keychain account {out.get('username')} ({out.get('platform')}). "
+                       f"{'Secrets written: ' + ', '.join(saved) + ' (encrypted; they cannot be read back).' if saved else 'No secret changed.'}"
+                       f"\n{_dump(_kc_public(out))}")
+
+
 SHARE_DIRS = ("content_studio/outputs", "content_studio/exports", "content_studio/api_images",
               "content_studio/grok_images", "content_studio/grok_videos", "content_studio/hook_videos",
               "content_studio/veo3_videos", "content_studio/thumbs")      # chỉ còn để nhận link cũ (trước 5/11)
@@ -1532,6 +1646,30 @@ TOOLS: Dict[str, Tool] = {t.name: t for t in [
     Tool("drive_backup_cancel", "Stop a running Google Drive backup. Files already uploaded stay on Drive.",
          {"job_id": {**S, "description": "id from drive_backup (default: the latest)"}},
          [], t_drive_backup_cancel, write=True, summary=lambda a: "Stop the Google Drive backup", perm=DRIVE_PERM),
+    Tool("keychain_accounts", "Accounts in the owner's TubeCLI Keychain (Google, TikTok, Facebook, X, Discord, "
+         "Telegram, generic) — platform, label, username/email, note, status and WHETHER a password / 2FA key / "
+         "recovery email is saved. Secrets are never returned. Needs the owner to allow the Keychain for this "
+         "connection.",
+         {"platform": {"type": "string", "enum": ["google", "tiktok", "facebook", "x", "discord", "telegram", "generic"]},
+          "filter": {**S, "description": "text in the username, label or note"},
+          "limit": {**I, "description": "1-500, default 100"}}, [], t_keychain_accounts, perm=KEYCHAIN_PERM),
+    Tool("keychain_save", "Save an account the USER gave you into the owner's encrypted TubeCLI Keychain, so TubeCLI "
+         "(browser profiles, Android phones: android_google_login) can sign in with it without anyone seeing the "
+         "password again. Creates the account, or updates the one with the same platform + username (or `id`): only "
+         "the fields you pass change; an empty secret keeps the saved one. Secrets are write-only — nothing can read "
+         "them back. Only save credentials the user explicitly gave you for this; never invent or guess them, and do "
+         "not repeat them back in chat.",
+         {"platform": {"type": "string", "enum": ["google", "tiktok", "facebook", "x", "discord", "telegram", "generic"]},
+          "username": {**S, "description": "email / username / phone used to sign in"},
+          "password": {**S, "description": "the password (write-only)"},
+          "totp": {**S, "description": "2-Step Verification: the Authenticator key (base32 or otpauth:// URL) or backup "
+                                       "codes (write-only)"},
+          "recovery_email": {**S, "description": "recovery email Google may ask to confirm (write-only)"},
+          "label": {**S, "description": "short name shown in the Keychain"},
+          "notes": {**S, "description": "free note (not secret — shown in lists)"},
+          "status": {"type": "string", "enum": ["active", "checkpoint", "dead"]},
+          "id": {**S, "description": "update this Keychain account (from keychain_accounts)"}},
+         [], t_keychain_save, write=True, summary=_kc_summary, perm=KEYCHAIN_PERM),
     Tool("board_list", "List tasks on the TubeCLI Task Board (Bảng việc) with counts per status and paused lanes.",
          {"group": {"type": "string", "enum": list(BOARD_GROUPS + BOARD_STATUSES),
                     "description": "A group (needs_you = pending_approval + review; working = queued + running; "
