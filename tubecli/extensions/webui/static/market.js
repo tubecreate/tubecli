@@ -200,6 +200,7 @@ let categoriesData = null;
 let editingPublicId = null; // Track if we're editing an existing listing
 
 const EXTENSION_FEATURES = {
+    'android_window': { tagline: 'Android phones on your TubeCLI machine', features: ['📱 Android 14', '🪟 Flow node', '🤖 Agents'] },
     'ai_arena': { tagline: 'AI Chess & Game Battle Arena', features: ['♟️ Chess AI', '🐍 Snake Arena', '🏆 ELO Ranking'] },
     'pod_studio': { tagline: 'AI Video & Podcast Studio', features: ['🎙️ Record', '🎬 Gen AI Video', '✂️ Edit'] },
     'tts_vibevoice': { tagline: 'Ultra-realistic Text to Speech', features: ['🗣️ 100+ Voices', '🎚️ Pitch Control', '🌍 Multi-lang'] },
