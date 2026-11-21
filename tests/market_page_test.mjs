@@ -174,7 +174,7 @@ check('G1 bản đã cài cũ hơn → thẻ có nút Cập nhật gọi install
   /id="cardUpdateBtn_tplFree001"/.test(html) && /installItem\('tplFree001', 'Paper Brief', 'template', true\)/.test(html),
   html.slice(html.indexOf('card-footer'), html.indexOf('card-footer') + 600));
 html = cardOf({ installed: true, local_version: '2026.10.15.1429' });
-check('G2 đã là bản mới nhất → «Đã cài», không có nút Cập nhật', !/cardUpdateBtn_/.test(html) && /Đã cài/.test(html));
+check('G2 đã là bản mới nhất → chữ «✓ Installed» (không phải nút), không có nút Cập nhật', !/cardUpdateBtn_/.test(html) && /mk-installed/.test(html));
 html = cardOf({ installed: true, local_version: '' });
 check('G3 không rõ bản đã cài (máy người bán / mẫu trùng tên tự tạo) → không mời cập nhật', !/cardUpdateBtn_/.test(html));
 html = cardOf({ installed: true, local_version: '', version_unknown: true });

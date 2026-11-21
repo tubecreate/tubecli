@@ -1,6 +1,7 @@
 """
 Marketplace API routes — Proxy to PHP backend.
 """
+import asyncio
 import json
 from typing import Dict, Optional, List
 from fastapi import APIRouter, HTTPException, BackgroundTasks, UploadFile, File, Form, Request, Header
@@ -1282,6 +1283,33 @@ async def post_review(public_id: str, req: ReviewRequest, authorization: Optiona
     if result.get("status") == "error":
         raise HTTPException(400, result.get("message", "Review failed"))
     return result
+
+
+# ── Danh mục trên máy (21/11/2026) ──
+
+def _installed_map(items) -> dict:
+    out = {}
+    for it in items:
+        pid = str(it.get("public_id") or "")
+        if not pid:
+            continue
+        try:
+            out[pid] = _check_item_installed(pid, str(it.get("title") or ""), str(it.get("category") or "extension"))
+        except Exception as e:      # noqa: BLE001 — một món lỗi không làm hỏng cả trang
+            out[pid] = {"installed": False, "error": str(e)[:120]}
+    return out
+
+
+@router.get("/catalog")
+async def get_catalog(wait: int = 0, force: int = 0, installed: int = 1):
+    """Toàn bộ danh mục Chợ giữ trên máy — trả NGAY (xem market/catalog.py). wait=1: chờ lượt đồng bộ ngầm rồi trả
+    bản mới nhất; force=1: đồng bộ dù danh mục còn mới (sau khi đăng / sửa / gỡ một món). installed=1 kèm trạng thái
+    đã cài của từng món (đọc đĩa, chạy trong luồng phụ)."""
+    from tubecli.extensions.market import catalog as _cat
+    data = await _cat.get(wait=bool(wait), force=bool(force))
+    if installed:
+        data["installed"] = await asyncio.to_thread(_installed_map, data["items"])
+    return {"status": "success", **data}
 
 
 # ── Categories ──

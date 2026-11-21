@@ -199,135 +199,6 @@ let searchTimer = null;
 let categoriesData = null;
 let editingPublicId = null; // Track if we're editing an existing listing
 
-// ── Init ──
-document.addEventListener('DOMContentLoaded', async () => {
-    // Start Market API calls immediately in parallel with i18n
-    const categoriesPromise = loadCategories();
-    const itemsPromise = loadItems();
-    
-    // Load i18n (local API, fast) — needed for UI labels
-    await loadI18nFromApi();
-    _marketLang = _lang || localStorage.getItem('tubecli_lang') || 'zh';
-    
-    // Wait for Market data if not done yet
-    await Promise.all([categoriesPromise, itemsPromise]);
-});
-
-// ── Categories ──
-async function loadCategories() {
-    try {
-        const res = await fetch(`${API}/categories`);
-        const data = await res.json();
-        if (data.status === 'success') {
-            categoriesData = data;
-            // Update tab counts
-            const total = data.total_items || 0;
-            setText('countAll', total);
-            (data.categories || []).forEach(c => {
-                const el = document.getElementById('count' + capitalize(c.key));
-                if (el) el.textContent = c.count;
-            });
-
-            // Render popular tags
-            const tagPills = document.getElementById('tagPills');
-            tagPills.innerHTML = '';
-            (data.popular_tags || []).forEach(tag => {
-                const pill = document.createElement('span');
-                pill.className = 'tag-pill';
-                pill.textContent = tag;
-                pill.onclick = () => toggleTag(tag, pill);
-                tagPills.appendChild(pill);
-            });
-        }
-    } catch (e) {
-        console.error('[Market] Categories error:', e);
-    }
-}
-
-// ── Load Items ──
-async function loadItems() {
-    showLoading();
-
-    const params = new URLSearchParams();
-    if (state.category) params.set('category', state.category);
-    if (state.category === 'template' && state.kind) params.set('kind', state.kind);
-    if (state.search) params.set('search', state.search);
-    params.set('sort', state.sort);
-    params.set('page', state.page);
-    params.set('limit', state.limit);
-    if (state.minPrice !== null) params.set('min_price', state.minPrice);
-    if (state.maxPrice !== null) params.set('max_price', state.maxPrice);
-    if (state.minRating !== null) params.set('min_rating', state.minRating);
-    if (state.activeTags.length) params.set('tags', state.activeTags.join(','));
-
-    try {
-        const res = await fetch(`${API}/items?${params}`);
-        const data = await res.json();
-
-        if (data.status === 'success') {
-            renderItems(data.data || []);
-            renderPagination(data.pagination || {});
-        } else {
-            renderItems([]);
-        }
-    } catch (e) {
-        console.error('[Market] Load error:', e);
-        renderItems([]);
-    }
-}
-
-// ── Render Items ──
-async function renderItems(items) {
-    const grid = document.getElementById('marketGrid');
-    const empty = document.getElementById('marketEmpty');
-    const loading = document.getElementById('marketLoading');
-
-    loading.style.display = 'none';
-
-    const countEl = document.getElementById('vsx-result-count');
-    if (countEl) {
-        countEl.innerHTML = `${items.length} <span data-i18n="market.results">Kết quả</span>`;
-        if (typeof applyI18n === 'function') applyI18n();
-    }
-
-    if (!items.length) {
-        grid.style.display = 'none';
-        empty.style.display = 'block';
-        return;
-    }
-
-    empty.style.display = 'none';
-    grid.style.display = 'grid';
-    grid.innerHTML = '';
-
-    // Check installed status for all items concurrently (batch API)
-    let installedData = {};
-    try {
-        const payload = items.map(item => ({
-            public_id: item.public_id,
-            item_name: item.title,
-            category: item.category || 'extension'
-        }));
-        
-        const checkRes = await fetch(`${API}/items/batch-check-installed`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-        const checkData = await checkRes.json();
-        if (checkData.status === 'success') {
-            installedData = checkData.data;
-        }
-    } catch(e) {
-        console.warn('[Market] Batch check installed failed', e);
-    }
-
-    items.forEach(item => {
-        const card = createCard(item, installedData[item.public_id]);
-        grid.appendChild(card);
-    });
-}
-
 const EXTENSION_FEATURES = {
     'ai_arena': { tagline: 'AI Chess & Game Battle Arena', features: ['♟️ Chess AI', '🐍 Snake Arena', '🏆 ELO Ranking'] },
     'pod_studio': { tagline: 'AI Video & Podcast Studio', features: ['🎙️ Record', '🎬 Gen AI Video', '✂️ Edit'] },
@@ -343,263 +214,475 @@ const EXTENSION_FEATURES = {
     'video_editor': { tagline: 'Timeline Video Editor', features: ['✂️ Trim', '✨ Effects', '🎵 Audio'] }
 };
 
-function createCard(item, installData) {
-    const price = parseFloat(item.price || 0);
-    const isFree = price <= 0;
-    const rating = parseFloat(item.rating_avg || 0);
-    const downloads = parseInt(item.downloads || 0);
-    const category = item.category || 'extension';
-    const icons = { extension: '🧩', node: '🔗', skill: '⚡', model3d: '🎨' };
-    
+// ── Danh mục trên máy + đồng bộ ngầm (21/11/2026) ──
+// User: «chợ load chậm — data kèm luôn trên local trước, chạy đồng bộ ngầm nếu có update extension chứ không mỗi lần
+// mỗi load» + «extension trước, template để trong tab, giao diện dễ nhìn — hiện tại vào thấy toàn là button».
+// Trước: mỗi lần mở / lọc / lật trang / gõ tìm = một lượt hỏi market.tubecreate.com (~2 s, lâu hơn qua tunnel).
+// Nay: máy giữ TOÀN BỘ danh mục (GET /catalog — market/catalog.py, kèm bản chụp theo lõi), trình duyệt nhớ bản
+// lần trước (localStorage) ⇒ vẽ ngay; lọc / tìm / sắp xếp làm tại chỗ; máy kéo bản mới trong nền và trang chỉ
+// vẽ lại khi chữ ký (sig) hoặc trạng thái đã cài đổi.
+const CAT_LS = 'tubecli_market_catalog_v1';
+const UI_LS = 'tubecli_market_ui_v1';
+const PAGE_SIZE = 60;
+let catalog = { items: [], installed: {}, sig: '', synced_at: 0 };
+let _syncing = false;
+let _shown = PAGE_SIZE;
+const ui = { tab: 'extension', kind: '', search: '', sort: 'newest', price: '' };
+
+// T() trả lại chính khoá khi thiếu bản dịch — ở đây thiếu thì dùng câu tiếng Anh viết sẵn.
+function tt(key, fallback, vars) {
+    let s = (typeof _resolves === 'function' && _resolves(key)) ? T(key) : fallback;
+    if (vars) Object.keys(vars).forEach((k) => { s = s.split('{' + k + '}').join(String(vars[k])); });
+    return s;
+}
+
+function lsGet(key) {
+    try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch (e) { return null; }
+}
+function lsSet(key, val) {
+    try { localStorage.setItem(key, JSON.stringify(val)); } catch (e) { /* đầy / bị chặn: bỏ qua */ }
+}
+
+const TABS = [
+    { key: 'extension', label: () => tt('market.tab_extensions', 'Extensions'), icon: '🧩' },
+    { key: 'template', label: () => tt('market.tab_templates', 'Templates'), icon: '🎬' },
+    { key: 'skill', label: () => tt('market.tab_skills', 'Skills'), icon: '⚡' },
+    { key: 'node', label: () => tt('market.tab_nodes', 'Nodes'), icon: '🔗' },
+    { key: 'model3d', label: () => tt('market.tab_models', '3D models'), icon: '🎨' },
+];
+
+// ── Init ──
+document.addEventListener('DOMContentLoaded', async () => {
+    const saved = lsGet(UI_LS);
+    if (saved && typeof saved === 'object') {
+        ['tab', 'kind', 'sort', 'price'].forEach((k) => { if (typeof saved[k] === 'string') ui[k] = saved[k]; });
+    }
+    const sortSel = document.getElementById('sortSelect');
+    if (sortSel && [...sortSel.options].some((o) => o.value === ui.sort)) sortSel.value = ui.sort; else ui.sort = 'newest';
+    const priceSel = document.getElementById('priceSelect');
+    if (priceSel) priceSel.value = ui.price;
+
+    // 1) Bản trình duyệt nhớ từ lần trước → vẽ NGAY, trước cả khi máy trả lời.
+    const remembered = lsGet(CAT_LS);
+    if (remembered && Array.isArray(remembered.items) && remembered.items.length) {
+        catalog = remembered;
+        renderCatalog();
+    }
+    // 2) Danh mục của máy (đọc đĩa, nhanh) song song với bản dịch.
+    const local = fetchCatalog({}).catch((e) => { console.warn('[Market] catalog', e); return false; });
+    await loadI18nFromApi();
+    _marketLang = _lang || localStorage.getItem('tubecli_lang') || 'zh';
+    await local;
+    renderCatalog();
+    // 3) Máy đang kéo bản mới (danh mục cũ / chưa có) → chờ nó trong nền, có thay đổi thì vẽ lại.
+    if (catalog.syncing || !catalog.items.length) syncCatalog(false);
+    // Mở lâu: cứ 10 phút hỏi lại — máy chỉ thật sự gọi Chợ khi danh mục đã cũ.
+    setInterval(() => { if (!document.hidden) syncCatalog(false); }, 10 * 60 * 1000);
+});
+
+async function fetchCatalog({ wait = false, force = false } = {}) {
+    const q = new URLSearchParams({ wait: wait ? '1' : '0', force: force ? '1' : '0' });
+    const res = await fetch(`${API}/catalog?${q}`);
+    const d = await res.json();
+    if (!res.ok || d.status !== 'success') throw new Error(d.detail || d.message || `HTTP ${res.status}`);
+    const before = catalog.sig + '|' + JSON.stringify(catalog.installed || {});
+    catalog = {
+        items: Array.isArray(d.items) ? d.items : [],
+        installed: d.installed || {},
+        sig: d.sig || '',
+        synced_at: d.synced_at || 0,
+        syncing: !!d.syncing,
+        sync_error: d.sync_error || '',
+        source: d.source || '',
+    };
+    lsSet(CAT_LS, catalog);
+    return before !== catalog.sig + '|' + JSON.stringify(catalog.installed);
+}
+
+// Đồng bộ với Chợ: force=true = hỏi Chợ ngay cả khi danh mục còn mới (sau khi đăng / sửa / gỡ, hoặc bấm «Check for
+// updates»). Chỉ vẽ lại khi có thay đổi.
+async function syncCatalog(force = false) {
+    if (_syncing) return;
+    _syncing = true;
+    renderSync();
+    try {
+        const changed = await fetchCatalog({ wait: true, force });
+        if (changed) renderCatalog();
+        if (force && !catalog.sync_error) showToast(tt('market.sync_done', 'The Market list is up to date'), 'success');
+    } catch (e) {
+        catalog.sync_error = String((e && e.message) || e);
+    } finally {
+        _syncing = false;
+        renderSync();
+    }
+}
+
+// Tên cũ — các chỗ khác trong file gọi sau khi đăng / sửa / gỡ / cài. loadItems = đọc lại danh mục của máy (kèm
+// trạng thái đã cài, nhanh); loadCategories = đồng bộ hẳn với Chợ (món vừa đăng / sửa phải hiện ngay).
+async function loadItems() {
+    try { await fetchCatalog({}); } catch (e) { console.warn('[Market] catalog', e); }
+    renderCatalog();
+}
+const loadMarketItems = loadItems;
+function loadCategories() { return syncCatalog(true); }
+
+// Cài / gỡ / cập nhật xong → làm mới trạng thái «đã cài» trên thẻ (máy có thể khởi động lại sau khi cài: đợi chút).
+['installItem', 'uninstallItem', 'updateLocalItem'].forEach((name) => {
+    const orig = window[name];
+    if (typeof orig !== 'function') return;
+    window[name] = async function (...args) {
+        try { return await orig.apply(this, args); } finally { setTimeout(() => { loadItems(); }, 1500); }
+    };
+});
+
+function renderSync() {
+    const el = document.getElementById('mkSync');
+    if (!el) return;
+    el.classList.toggle('is-warn', !_syncing && !!catalog.sync_error);
+    if (_syncing) {
+        el.innerHTML = `<span class="mk-sync-spin"></span>${escapeHtml(tt('market.sync_checking', 'Checking for updates…'))}`;
+    } else if (catalog.sync_error) {
+        el.textContent = tt('market.sync_offline', 'Offline — showing the saved list');
+        el.title = catalog.sync_error;
+    } else if (catalog.synced_at) {
+        el.textContent = tt('market.sync_ago', 'Updated {t}', { t: timeAgo(catalog.synced_at) });
+        el.title = tt('market.menu_check', 'Check for updates');
+    } else {
+        el.textContent = '';
+    }
+}
+
+function timeAgo(sec) {
+    const d = Math.max(0, Date.now() / 1000 - Number(sec || 0));
+    if (d < 60) return tt('market.ago_now', 'just now');
+    if (d < 3600) return tt('market.ago_min', '{n} min ago', { n: Math.floor(d / 60) });
+    if (d < 86400) return tt('market.ago_hour', '{n} h ago', { n: Math.floor(d / 3600) });
+    return tt('market.ago_day', '{n} d ago', { n: Math.floor(d / 86400) });
+}
+
+// ── Lọc / sắp xếp tại chỗ ──
+function priceOf(it) { return parseFloat(it.price || 0) || 0; }
+function tagsOf(it) {
+    let t = it.tags;
+    if (typeof t === 'string') { try { t = JSON.parse(t); } catch (e) { t = t.split(','); } }
+    return Array.isArray(t) ? t.map((x) => String(x).trim()).filter(Boolean) : [];
+}
+function hasUpdate(it) {
+    const inst = (catalog.installed || {})[it.public_id];
+    if (!inst || !inst.installed || !inst.local_version) return false;
+    try { return cmpVersions(String(it.version || ''), String(inst.local_version)) > 0; } catch (e) { return false; }
+}
+function isInstalled(it) { const i = (catalog.installed || {})[it.public_id]; return !!(i && i.installed); }
+
+function matchesFilters(it) {
+    const p = priceOf(it);
+    if (ui.price === 'free' && p > 0) return false;
+    if (ui.price === 'paid' && p <= 0) return false;
+    const q = ui.search.toLowerCase().trim();
+    if (q) {
+        const hay = [it.title, it.description, it.seller_name, it.author, ...tagsOf(it)].join(' ').toLowerCase();
+        if (!q.split(/\s+/).every((w) => hay.includes(w))) return false;
+    }
+    return true;
+}
+
+function sortItems(list) {
+    const by = {
+        newest: (a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')),
+        updated: (a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')),
+        popular: (a, b) => (parseInt(b.downloads || 0) - parseInt(a.downloads || 0)),
+        rating: (a, b) => (parseFloat(b.rating_avg || 0) - parseFloat(a.rating_avg || 0)),
+        price_asc: (a, b) => priceOf(a) - priceOf(b),
+        price_desc: (a, b) => priceOf(b) - priceOf(a),
+    }[ui.sort] || ((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+    return list.slice().sort(by);
+}
+
+function tabOf(it) {
+    const c = it.category || 'extension';
+    return TABS.some((t) => t.key === c) ? c : 'extension';
+}
+
+// ── Vẽ ──
+function renderCatalog() {
+    const items = catalog.items || [];
+    const loading = document.getElementById('marketLoading');
+    const grid = document.getElementById('marketGrid');
+    const empty = document.getElementById('marketEmpty');
+    const pag = document.getElementById('marketPagination');
+    if (pag) pag.style.display = 'none';
+    renderSync();
+
+    if (!items.length) {
+        // Chưa có danh mục nào trên máy (máy cài cực cũ, mất bản chụp): chờ lượt đồng bộ đầu.
+        loading.style.display = 'flex';
+        grid.style.display = 'none';
+        empty.style.display = 'none';
+        renderTabs({});
+        return;
+    }
+    loading.style.display = 'none';
+
+    // Chưa có món trả phí nào ⇒ ẩn ô lọc giá (một ô chọn vô nghĩa ít đi).
+    const priceSel = document.getElementById('priceSelect');
+    const anyPaid = items.some((it) => priceOf(it) > 0);
+    if (priceSel) priceSel.style.display = anyPaid ? '' : 'none';
+    if (!anyPaid) ui.price = '';
+
+    const filtered = items.filter(matchesFilters);
+    const counts = {};
+    filtered.forEach((it) => { const k = tabOf(it); counts[k] = (counts[k] || 0) + 1; });
+    const totals = {};
+    items.forEach((it) => { const k = tabOf(it); totals[k] = (totals[k] || 0) + 1; });
+    if (!totals[ui.tab]) ui.tab = TABS.find((t) => totals[t.key])?.key || 'extension';
+    renderTabs(counts, totals);
+
+    let list = filtered.filter((it) => tabOf(it) === ui.tab);
+    const kinds = renderSubtabs(list);
+    if (ui.tab === 'template' && ui.kind && kinds.includes(ui.kind)) {
+        list = list.filter((it) => (it.tpl_kind || 'content') === ui.kind);
+    }
+    list = sortItems(list);
+
+    const countEl = document.getElementById('vsx-result-count');
+    if (countEl) {
+        countEl.textContent = ui.tab === 'extension' ? tt('market.n_ext', '{n} extensions', { n: list.length })
+            : ui.tab === 'template' ? tt('market.n_tpl', '{n} templates', { n: list.length })
+            : tt('market.n_items', '{n} items', { n: list.length });
+    }
+
+    if (!list.length) {
+        grid.style.display = 'none';
+        empty.style.display = 'block';
+        const hint = document.getElementById('mkEmptyHint');
+        if (hint) {
+            const other = TABS.find((t) => t.key !== ui.tab && counts[t.key]);
+            hint.innerHTML = other && ui.search
+                ? `<a href="#" onclick="event.preventDefault(); setTab('${other.key}')">${escapeHtml(tt('market.more_in', '{n} matches in {tab}', { n: counts[other.key], tab: other.label() }))}</a>`
+                : escapeHtml(tt('market.empty_hint', 'Try another word or clear the filters.'));
+        }
+        return;
+    }
+    empty.style.display = 'none';
+    grid.style.display = 'block';
+    grid.innerHTML = '';
+
+    if (ui.tab === 'extension') {
+        const updates = list.filter((it) => isInstalled(it) && hasUpdate(it));
+        const avail = list.filter((it) => !isInstalled(it));
+        const done = list.filter((it) => isInstalled(it) && !hasUpdate(it));
+        addSection(grid, tt('market.sec_updates', 'Updates available'), updates, 'is-update');
+        addSection(grid, tt('market.sec_available', 'Available'), avail);
+        addSection(grid, tt('market.sec_installed', 'Installed'), done);
+    } else {
+        addSection(grid, '', list.slice(0, _shown));
+        if (list.length > _shown) {
+            const more = document.createElement('button');
+            more.type = 'button';
+            more.className = 'mk-more';
+            more.textContent = tt('market.show_more', 'Show more ({n})', { n: list.length - _shown });
+            more.onclick = () => { _shown += PAGE_SIZE; renderCatalog(); };
+            grid.appendChild(more);
+        }
+    }
+}
+
+function addSection(grid, title, list, cls = '') {
+    if (!list.length) return;
+    const sec = document.createElement('section');
+    sec.className = 'mk-section ' + cls;
+    if (title) {
+        const h = document.createElement('h2');
+        h.className = 'mk-section-title';
+        h.innerHTML = `${escapeHtml(title)} <span>${list.length}</span>`;
+        sec.appendChild(h);
+    }
+    const g = document.createElement('div');
+    g.className = ui.tab === 'template' ? 'mk-tpl-grid' : 'mk-ext-grid';
+    list.forEach((it) => g.appendChild(ui.tab === 'template' ? templateCard(it) : createCard(it, (catalog.installed || {})[it.public_id])));
+    sec.appendChild(g);
+    grid.appendChild(sec);
+}
+
+function renderTabs(counts, totals = counts) {
+    const nav = document.getElementById('mkTabs');
+    if (!nav) return;
+    const shown = TABS.filter((t) => totals[t.key] || t.key === 'extension' || t.key === 'template');
+    nav.innerHTML = shown.map((t) => `
+        <button type="button" role="tab" class="mk-tab${t.key === ui.tab ? ' active' : ''}" aria-selected="${t.key === ui.tab}"
+                onclick="setTab('${t.key}')">
+            <span class="mk-tab-ico">${t.icon}</span>${escapeHtml(t.label())}<span class="mk-tab-n">${counts[t.key] || 0}</span>
+        </button>`).join('');
+}
+
+// Mẫu chia mẫu video / mẫu bìa — chỉ hiện nút chọn khi cả hai loại đều có hàng.
+function renderSubtabs(list) {
+    const box = document.getElementById('mkSubtabs');
+    const kinds = [...new Set(list.map((it) => it.tpl_kind || 'content'))];
+    if (!box) return kinds;
+    if (ui.tab !== 'template' || kinds.length < 2) { box.innerHTML = ''; box.style.display = 'none'; return kinds; }
+    const names = { '': tt('market.type_all', 'All'), content: tt('market.kind_video', 'Video'), layout: tt('market.kind_layout', 'Cover layouts') };
+    box.style.display = 'flex';
+    box.innerHTML = ['', ...kinds].map((k) => `<button type="button" class="mk-seg${(ui.kind || '') === k ? ' active' : ''}" onclick="setKind('${k}')">${escapeHtml(names[k] || k)}</button>`).join('');
+    return kinds;
+}
+
+function saveUi() { lsSet(UI_LS, { tab: ui.tab, kind: ui.kind, sort: ui.sort, price: ui.price }); }
+function setTab(key) {
+    ui.tab = key; ui.kind = ''; _shown = PAGE_SIZE; saveUi(); renderCatalog();
+    const main = document.querySelector('main.market-page');
+    if (main) main.scrollTop = 0;
+}
+function setKind(k) { ui.kind = k; _shown = PAGE_SIZE; saveUi(); renderCatalog(); }
+// Tên cũ: '' | extension | template:content | template:layout | skill…
+function setType(key) { const [cat, kind] = String(key || '').split(':'); ui.tab = cat || 'extension'; ui.kind = kind || ''; saveUi(); renderCatalog(); }
+function setCategoryFromSelect(val) { setType(val); }
+
+function iconFor(item) {
+    const icons = { extension: '🧩', node: '🔗', skill: '⚡', model3d: '🎨', template: '🎬' };
     const extName = (item.title || '').toLowerCase().replace(/[^a-z0-9_-]/g, '_');
-    const knownLogo = EXTENSION_FEATURES[extName] ? `/static/market_logos/${extName}_logo.png` : null;
-    
     let thumbUrl = item.thumbnail_url;
     if (thumbUrl && thumbUrl.startsWith('/images/')) {
         const imgName = thumbUrl.replace('/images/', '').replace('.png', '');
-        if (imgName === 'edu_studio' || imgName === 'pod_ad_studio') {
-            thumbUrl = '/static/market_logos/pod_studio_logo.png';
-        } else {
-            thumbUrl = `/static/market_logos/${imgName}_logo.png`;
-        }
+        thumbUrl = (imgName === 'edu_studio' || imgName === 'pod_ad_studio')
+            ? '/static/market_logos/pod_studio_logo.png' : `/static/market_logos/${imgName}_logo.png`;
     }
-    
-    const iconContent = thumbUrl
-        ? `<img src="${escapeHtml(thumbUrl)}" alt="icon" loading="lazy">`
-        : (knownLogo ? `<img src="${knownLogo}" alt="icon" loading="lazy">` : (icons[category] || '📦'));
+    if (thumbUrl && !/^(https?:\/\/|\/)/i.test(thumbUrl)) thumbUrl = '';
+    if (!thumbUrl && EXTENSION_FEATURES[extName]) thumbUrl = `/static/market_logos/${extName}_logo.png`;
+    const fallback = icons[item.category || 'extension'] || '📦';
+    return thumbUrl
+        ? `<img src="${escapeHtml(thumbUrl)}" alt="" loading="lazy" onerror="this.replaceWith(document.createTextNode('${fallback}'))">`
+        : fallback;
+}
 
-    const isTpl = category === 'template';
-    const tplLabel = item.tpl_kind === 'layout' ? (T('card.tpl_layout') || 'Cover layout') : (T('card.tpl_video') || 'Video template');
-    const featInfo = EXTENSION_FEATURES[extName] || { tagline: item.description || 'No description available',
-        features: isTpl ? ['📐 9:16 · 16:9', '🎞️ Content Studio'] : ['✨ New', '📦 ' + category] };
+function jsq(s) { return escapeHtml(String(s || '')).replace(/'/g, "\\'"); }
 
-    const card = document.createElement('div');
-    card.className = 'vsx-card' + (isTpl ? ' vsx-card-tpl' : '');
-    card.onclick = () => openDetailModal(item.public_id);
-
-    const priceBadge = `<span class="card-price ${isFree ? 'free' : 'paid'}">${isFree ? 'Free' : formatCredits(price)}</span>`;
-    let quickBtnHtml = '';
-    
+// Một nút duy nhất mỗi thẻ: Cập nhật (cam) / Cài (xanh) / Mua (giá) — đã cài thì chỉ là chữ «✓ Installed».
+function actionHtml(item, installData) {
+    const pid = item.public_id;
+    const cat = item.category || 'extension';
+    const price = priceOf(item);
     if (installData && installData.installed) {
-        let hasUpdate = false;
-        try {
-            if (installData.local_version && cmpVersions(item.version, installData.local_version) > 0) {
-                hasUpdate = true;
-            }
-        } catch(e) {}
-        
-        if (hasUpdate && category === 'extension') {
-            quickBtnHtml = `<button id="cardUpdateBtn_${item.public_id}" class="card-price paid" style="cursor:pointer; background: #d97706 linear-gradient(135deg, #f59e0b, #d97706); color: white; border:none;" onclick="event.stopPropagation(); updateLocalItem('${item.public_id}', '${escapeHtml(item.title).replace(/'/g, '\\\'')}', '${escapeHtml(category)}')">Cập nhật</button>`;
-        } else if (hasUpdate && isTpl) {
-            // Mẫu (15/10/2026): người bán đăng bản mới ⇒ người đã cài thấy «Cập nhật» = tải gói mới và THAY những mẫu
-            // trùng tên (force_update). Lõi chỉ báo local_version khi máy cài mã này từ Chợ — không mời người bán.
-            quickBtnHtml = `<button id="cardUpdateBtn_${item.public_id}" class="card-price paid" title="${escapeHtml(installData.local_version)} → ${escapeHtml(item.version)}" style="cursor:pointer; background: #d97706 linear-gradient(135deg, #f59e0b, #d97706); color: white; border:none;" onclick="event.stopPropagation(); installItem('${item.public_id}', '${escapeHtml(item.title).replace(/'/g, '\\\'')}', 'template', true)">${T('card.update') || 'Update'}</button>`;
-        } else {
-            quickBtnHtml = `<button class="card-price free" style="cursor:default; background: var(--mk-w05); border: 1px solid var(--border); color: var(--text-muted);" onclick="event.stopPropagation();">Đã cài</button>`;
+        let upd = false;
+        try { upd = !!installData.local_version && cmpVersions(String(item.version || ''), String(installData.local_version)) > 0; } catch (e) {}
+        if (upd && cat === 'extension') {
+            return `<button type="button" id="cardUpdateBtn_${pid}" class="mk-btn mk-btn-warn" title="${escapeHtml(installData.local_version)} → ${escapeHtml(item.version)}"
+                onclick="event.stopPropagation(); updateLocalItem('${pid}', '${jsq(item.title)}', '${jsq(cat)}')">${escapeHtml(tt('card.update', 'Update'))}</button>`;
         }
-    } else if (isFree) {
-        quickBtnHtml = `<button id="cardInstallBtn_${item.public_id}" class="card-price free" style="cursor:pointer; background: var(--accent); color: white; border:none;" onclick="event.stopPropagation(); installItem('${item.public_id}', '${escapeHtml(item.title).replace(/'/g, '\\\'')}', '${escapeHtml(category)}')">${T('card.install') || 'Cài đặt'}</button>`;
-    } else {
-        // Paid item, not installed → show Quick Pay button
-        quickBtnHtml = `<button id="cardQuickPayBtn_${item.public_id}" class="card-price" style="cursor:pointer; background: #6366f1 linear-gradient(135deg, #6366f1, #8b5cf6); color: white; border:none; font-size:0.78rem; padding:4px 10px;" onclick="event.stopPropagation(); _paymentChoiceTitle='${escapeHtml(item.title).replace(/'/g, '\\\'')}'; startQuickPay('${item.public_id}', ${price})">⚡ Mua ngay</button>`;
+        if (upd && cat === 'template') {
+            return `<button type="button" id="cardUpdateBtn_${pid}" class="mk-btn mk-btn-warn" title="${escapeHtml(installData.local_version)} → ${escapeHtml(item.version)}"
+                onclick="event.stopPropagation(); installItem('${pid}', '${jsq(item.title)}', 'template', true)">${escapeHtml(tt('card.update', 'Update'))}</button>`;
+        }
+        return `<span class="mk-installed">✓ ${escapeHtml(tt('market.sec_installed', 'Installed'))}</span>`;
     }
+    if (price <= 0) {
+        return `<button type="button" id="cardInstallBtn_${pid}" class="mk-btn mk-btn-primary"
+            onclick="event.stopPropagation(); installItem('${pid}', '${jsq(item.title)}', '${jsq(cat)}')">${escapeHtml(tt('card.install', 'Install'))}</button>`;
+    }
+    // Hàng trả phí: mở chi tiết (ở đó có Mua bằng ví / PayPal).
+    return `<button type="button" class="mk-btn mk-btn-paid" onclick="event.stopPropagation(); openDetailModal('${pid}')">${escapeHtml(formatCredits(price))}</button>`;
+}
 
-    // Ảnh của mẫu nằm trên cloud (thumbnail_url/thumb916/anim là link tuyệt đối — market-cli 29/9).
-    const tplCover = isTpl && item.thumbnail_url ? `
-            <div class="card-tpl-cover">
-                <img class="tpl-still" src="${escapeHtml(item.thumbnail_url)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">
-                ${item.anim ? `<img class="tpl-anim" data-src="${escapeHtml(item.anim)}" alt="">` : ''}
-                ${item.anim ? '<span class="tpl-hint">▶</span>' : ''}
-            </div>` : '';
+function metaHtml(item) {
+    // Lượt tải + sao trước, người bán cuối (dòng hẹp thì cắt phần cuối).
+    const parts = [];
+    const dl = parseInt(item.downloads || 0);
+    if (dl > 0) parts.push(`<span title="Downloads">⬇ ${formatNumber(dl)}</span>`);
+    if (parseInt(item.rating_count || 0) > 0) parts.push(`<span>★ ${parseFloat(item.rating_avg || 0).toFixed(1)}</span>`);
+    const who = item.seller_name || item.author;
+    if (who) parts.push(`<span class="mk-who">${escapeHtml(who)}</span>`);
+    return parts.join('<i>·</i>');
+}
 
+function shortVersion(v) {
+    // 2026.11.20.230000 → 2026.11.20 (đuôi giờ đăng chỉ làm rối; bản đầy đủ nằm ở title)
+    const s = String(v || '');
+    const m = s.match(/^(\d{4}\.\d{1,2}\.\d{1,2})\.\d{4,}$/);
+    return m ? m[1] : s;
+}
+
+function createCard(item, installData) {
+    const extName = (item.title || '').toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+    const feat = EXTENSION_FEATURES[extName];
+    const desc = item.description || (feat && feat.tagline) || '';
+    const card = document.createElement('div');
+    card.className = 'mk-card';
+    card.tabIndex = 0;
+    card.onclick = () => openDetailModal(item.public_id);
+    card.onkeydown = (e) => { if (e.key === 'Enter') openDetailModal(item.public_id); };
     card.innerHTML = `
-        <div class="vsx-card-inner">
-            <span class="card-badge ${category}">${isTpl ? escapeHtml(tplLabel) : category}</span>${tplCover}
-            <div class="card-header">
-                <div class="card-icon">${iconContent}</div>
-                <div class="card-header-info">
-                    <h3 class="card-title" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</h3>
-                    <div class="card-author">\u{1F464} ${escapeHtml(item.seller_name || item.author || 'Unknown')}</div>
-                </div>
+        <div class="mk-ico">${iconFor(item)}</div>
+        <div class="mk-body">
+            <h3 class="mk-name" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</h3>
+            <p class="mk-desc">${escapeHtml(desc)}</p>
+            <div class="mk-foot">
+                <div class="mk-meta">${item.version ? `<span class="mk-ver" title="${escapeHtml(item.version)}">v${escapeHtml(shortVersion(item.version))}</span><i>·</i>` : ''}${metaHtml(item)}</div>
+                <div class="mk-act">${actionHtml(item, installData)}</div>
             </div>
-            
-            <div class="card-tagline">${escapeHtml(featInfo.tagline).substring(0, 80)}</div>
-            
-            <div class="card-feature-chips">
-                ${featInfo.features.slice(0, 3).map(f => `<span class="feature-chip">${escapeHtml(f)}</span>`).join('')}
-            </div>
-            
-            <div class="card-footer">
-                <div class="card-stats">
-                    <span class="stat-item">⭐ ${rating.toFixed(1)}</span>
-                    <span class="stat-item">⬇ ${formatNumber(downloads)}</span>
-                </div>
-                <div style="display:flex; align-items:center; gap:8px;">
-                    ${priceBadge}
-                    ${quickBtnHtml}
-                </div>
-            </div>
-        </div>
-    `;
-
-    // Ảnh động chỉ TẢI khi có người rê vào lần đầu (14 GIF ~4 MB — không ai xem thì khỏi kéo về).
-    const anim = card.querySelector('.tpl-anim');
-    if (anim) {
-        card.addEventListener('mouseenter', () => {
-            if (!anim.src) anim.src = anim.dataset.src;
-            card.classList.add('playing');
-        });
-        card.addEventListener('mouseleave', () => card.classList.remove('playing'));
-    }
-
+        </div>`;
     return card;
 }
 
-// setCategoryFromSelect — syncs the dropdown with category state
-function setCategoryFromSelect(val) {
-    setType(val);
-}
-
-// Loại hàng: '' | extension | skill | node | model3d | template:content | template:layout.
-// Chip trên đầu lưới và ô chọn danh mục là HAI cửa của cùng một bộ lọc — đổi cái này thì cái kia theo.
-function setType(key) {
-    const [cat, kind] = String(key || '').split(':');
-    state.category = cat || '';
-    state.kind = cat === 'template' ? (kind || '') : '';
-    state.page = 1;
-    const sel = document.getElementById('catSelect');
-    if (sel) {
-        const want = String(key || '');
-        sel.value = [...sel.options].some((o) => o.value === want) ? want : (cat || '');
+function templateCard(item) {
+    const installData = (catalog.installed || {})[item.public_id];
+    const card = document.createElement('div');
+    card.className = 'mk-tpl';
+    card.tabIndex = 0;
+    card.onclick = () => openDetailModal(item.public_id);
+    card.onkeydown = (e) => { if (e.key === 'Enter') openDetailModal(item.public_id); };
+    const cover = item.thumbnail_url
+        ? `<img class="tpl-still" src="${escapeHtml(item.thumbnail_url)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">`
+        : `<span class="mk-tpl-ph">🎬</span>`;
+    card.innerHTML = `
+        <div class="mk-tpl-cover">${cover}
+            ${item.anim ? `<img class="tpl-anim" data-src="${escapeHtml(item.anim)}" alt="">` : ''}
+            ${item.tpl_kind === 'layout' ? `<span class="mk-tpl-kind">${escapeHtml(tt('market.kind_layout', 'Cover layouts'))}</span>` : ''}
+        </div>
+        <div class="mk-tpl-info">
+            <div class="mk-tpl-text">
+                <h3 class="mk-tpl-name" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</h3>
+                <div class="mk-meta">${metaHtml(item)}</div>
+            </div>
+            <div class="mk-act">${actionHtml(item, installData)}</div>
+        </div>`;
+    // Ảnh động chỉ TẢI khi có người rê vào lần đầu.
+    const anim = card.querySelector('.tpl-anim');
+    if (anim) {
+        card.addEventListener('mouseenter', () => { if (!anim.src) anim.src = anim.dataset.src; card.classList.add('playing'); });
+        card.addEventListener('mouseleave', () => card.classList.remove('playing'));
     }
-    document.querySelectorAll('#typeChips .vsx-type-chip').forEach((b) => {
-        b.classList.toggle('active', (b.dataset.type || '') === String(key || ''));
-    });
-    applyFilters();
+    return card;
 }
 
-// ── Pagination ──
-function renderPagination(pagination) {
-    const container = document.getElementById('marketPagination');
-    if (!pagination.total_pages || pagination.total_pages <= 1) {
-        container.style.display = 'none';
-        return;
-    }
-
-    container.style.display = 'flex';
-    container.innerHTML = '';
-
-    // Prev
-    const prevBtn = document.createElement('button');
-    prevBtn.className = 'page-btn';
-    prevBtn.textContent = '← Prev';
-    prevBtn.disabled = state.page <= 1;
-    prevBtn.onclick = () => { state.page--; loadItems(); };
-    container.appendChild(prevBtn);
-
-    // Page numbers
-    const total = pagination.total_pages;
-    const current = state.page;
-    const start = Math.max(1, current - 2);
-    const end = Math.min(total, current + 2);
-
-    for (let i = start; i <= end; i++) {
-        const btn = document.createElement('button');
-        btn.className = 'page-btn' + (i === current ? ' active' : '');
-        btn.textContent = i;
-        btn.onclick = () => { state.page = i; loadItems(); };
-        container.appendChild(btn);
-    }
-
-    // Info
-    const info = document.createElement('span');
-    info.className = 'page-info';
-    info.textContent = `${pagination.total} items`;
-    container.appendChild(info);
-
-    // Next
-    const nextBtn = document.createElement('button');
-    nextBtn.className = 'page-btn';
-    nextBtn.textContent = 'Next →';
-    nextBtn.disabled = state.page >= total;
-    nextBtn.onclick = () => { state.page++; loadItems(); };
-    container.appendChild(nextBtn);
-}
-
-// ── Category Switch ──
-function switchCategory(btn, category) {
-    state.category = category;
-    state.page = 1;
-
-    document.querySelectorAll('.market-tab').forEach(t => t.classList.remove('active'));
-    btn.classList.add('active');
-
-    loadItems();
-}
-
-// ── Filters ──
+// ── Bộ lọc ──
 function applyFilters() {
-    state.sort = document.getElementById('sortSelect').value;
-    state.page = 1;
-
-    const priceRadio = document.querySelector('input[name="price"]:checked');
-    if (priceRadio) {
-        if (priceRadio.value === 'free') {
-            state.minPrice = null;
-            state.maxPrice = 0;
-        } else if (priceRadio.value === 'paid') {
-            state.minPrice = 0.01;
-            state.maxPrice = null;
-        } else {
-            state.minPrice = null;
-            state.maxPrice = null;
-        }
-    }
-
-    loadItems();
+    ui.sort = document.getElementById('sortSelect')?.value || 'newest';
+    ui.price = document.getElementById('priceSelect')?.value || '';
+    _shown = PAGE_SIZE;
+    saveUi();
+    renderCatalog();
 }
 
-function setMinRating(rating) {
-    const stars = document.querySelectorAll('#starFilter .star');
-    const label = document.getElementById('ratingLabel');
-
-    if (state.minRating === rating) {
-        state.minRating = null;
-        stars.forEach(s => s.classList.remove('filled'));
-        label.textContent = 'Any rating';
-    } else {
-        state.minRating = rating;
-        stars.forEach(s => {
-            s.classList.toggle('filled', parseInt(s.dataset.rating) <= rating);
-        });
-        label.textContent = `${rating}★ and above`;
-    }
-    state.page = 1;
-    loadItems();
-}
-
-function toggleTag(tag, pill) {
-    const idx = state.activeTags.indexOf(tag);
-    if (idx >= 0) {
-        state.activeTags.splice(idx, 1);
-        pill.classList.remove('active');
-    } else {
-        state.activeTags.push(tag);
-        pill.classList.add('active');
-    }
-    state.page = 1;
-    loadItems();
-}
-
-// ── Search ──
+// ── Tìm (tại chỗ — không cần chờ lâu) ──
 function debounceSearch() {
     clearTimeout(searchTimer);
     searchTimer = setTimeout(() => {
-        state.search = document.getElementById('marketSearch').value.trim();
-        state.page = 1;
-        loadItems();
-    }, 400);
+        ui.search = document.getElementById('marketSearch').value.trim();
+        _shown = PAGE_SIZE;
+        renderCatalog();
+    }, 120);
 }
+
+// Menu «⋯» (Bán / Hàng của tôi / Kiểm tra cập nhật / Đăng xuất) — thay hàng nút trên đầu trang.
+function toggleMkMenu(ev) {
+    ev && ev.stopPropagation();
+    const m = document.getElementById('mkMenu');
+    if (m) m.classList.toggle('open');
+}
+document.addEventListener('click', (e) => {
+    const m = document.getElementById('mkMenu');
+    if (m && m.classList.contains('open') && !e.target.closest('.mk-menu')) m.classList.remove('open');
+});
 
 // ── Detail Modal ──
 async function openDetailModal(publicId) {
@@ -2137,9 +2220,13 @@ function updateMarketAuthUI() {
             userName.textContent = '👤 ' + displayName;
         }
         if (myListingsBtn) myListingsBtn.style.display = '';
+        const lo = document.getElementById('btnLogout');
+        if (lo) lo.style.display = '';
     } else {
         if (userInfo) userInfo.style.display = 'none';
         if (myListingsBtn) myListingsBtn.style.display = 'none';
+        const lo = document.getElementById('btnLogout');
+        if (lo) lo.style.display = 'none';
     }
 }
 
