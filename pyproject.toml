@@ -57,6 +57,8 @@ dependencies = [
     "yt-dlp[default]",
     # Edge-TTS cho lồng tiếng reup / content_video: bản < 7.3 bị Microsoft chặn 403 (19/10/2026)
     "edge-tts>=7.3.1",
+    # Node Terminal trên máy Windows: PowerShell qua ConPTY (api/terminal_routes.py, 22/11/2026)
+    "pywinpty>=2.0; sys_platform == 'win32'",
 ]
 
 [project.scripts]
