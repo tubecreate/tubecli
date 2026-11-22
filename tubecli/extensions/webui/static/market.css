@@ -1632,3 +1632,95 @@ dialog.topup-dialog.topup-compact .topup-footer {
 .market-toast.success { background: rgba(34, 197, 94, 0.95); color: #fff; }
 .market-toast.error { background: rgba(239, 68, 68, 0.95); color: #fff; }
 .market-toast.warn { background: rgba(245, 158, 11, 0.95); color: #fff; }
+
+/* ── Đầu trang gọn (21/11/2026): hàng 1 tên · tìm · tài khoản + Bán; hàng 2 loại hàng · giá · sắp xếp.
+      Thu nhỏ cửa sổ / điện thoại: ẩn tên, nút chỉ còn biểu tượng, chip cuộn ngang thay vì xuống dòng. ── */
+.vsx-topbar { gap: 16px; padding: 12px 20px; justify-content: flex-start; }
+.vsx-title { font-size: 1.25rem; white-space: nowrap; flex: none; }
+.vsx-search-wrap { flex: 1 1 auto; min-width: 0; max-width: 560px; padding: 3px 4px; }
+.vsx-search-wrap input { width: 100%; min-width: 0; flex: 1; padding: 7px 12px 7px 38px; font-size: 0.9rem; }
+.vsx-search-wrap input::-webkit-search-cancel-button { cursor: pointer; }
+.vsx-search-icon { left: 14px; font-size: 0.85rem; }
+.vsx-search-btn { padding: 7px 16px; font-size: 0.85rem; flex: none; }
+.vsx-search-btn:hover { transform: none; }
+.vsx-account { display: flex; align-items: center; gap: 8px; margin-left: auto; flex: none; }
+.vsx-account .market-user-info { align-items: center; gap: 4px; font-size: 0.85rem; color: var(--text-muted); white-space: nowrap; }
+.vsx-account .market-user-name { max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
+.vsx-credit {
+    align-items: center; gap: 4px; padding: 4px 8px; white-space: nowrap;
+    background: rgba(99,102,241,0.12); border: 1px solid rgba(99,102,241,0.3);
+    border-radius: 10px; font-size: 0.8rem; color: var(--mk-violet-text);
+}
+.vsx-btn-sm { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; font-size: 0.85rem; white-space: nowrap; }
+.vsx-btn-sm.vsx-btn-primary { box-shadow: none; }
+.vsx-btn-sm.vsx-btn-primary:hover { transform: none; }
+
+.vsx-filterbar {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 12px 20px 4px;
+}
+.vsx-filterbar .vsx-type-chips { padding: 0; flex: 1 1 auto; min-width: 0; }
+.vsx-type-chip { padding: 5px 12px; font-size: 0.82rem; white-space: nowrap; flex: none; }
+.vsx-filter-right { display: flex; align-items: center; gap: 10px; margin-left: auto; flex: none; }
+.vsx-result-count { font-size: 0.8rem; white-space: nowrap; }
+
+/* Giá: nút chia đoạn thay cho 3 nút tròn */
+.vsx-seg { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; overflow: hidden; background: var(--bg3); }
+.vsx-seg label { cursor: pointer; display: flex; }
+.vsx-seg input { position: absolute; opacity: 0; width: 1px; height: 1px; pointer-events: none; }
+.vsx-seg span { padding: 5px 11px; font-size: 0.8rem; font-weight: 600; color: var(--text-muted); white-space: nowrap; transition: background .15s, color .15s; }
+.vsx-seg label + label span { border-left: 1px solid var(--border); }
+.vsx-seg label:hover span { color: var(--text); }
+.vsx-seg input:checked + span { background: var(--accent); color: #fff; }
+.vsx-seg input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: -2px; }
+.vsx-sort-select { padding: 6px 10px; font-size: 0.82rem; border-radius: 999px; }
+
+.vsx-tags-row { padding: 8px 20px 4px; }
+.vsx-content { padding: 0 20px 40px; }
+.vsx-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 18px; }
+
+/* Cửa sổ hẹp (cửa sổ Chợ trong dashboard, máy tính bảng) */
+@media (max-width: 900px) {
+    .vsx-title { display: none; }
+    .vsx-search-wrap { max-width: none; }
+    .vsx-filter-right { margin-left: 0; width: 100%; justify-content: flex-start; }
+    .vsx-result-count { margin-right: auto; }
+    .vsx-filterbar .vsx-type-chips,
+    .vsx-tags-row {
+        flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch;
+        mask-image: linear-gradient(90deg, #000 calc(100% - 24px), transparent);
+        -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 24px), transparent);
+        width: 100%;
+    }
+    .vsx-filterbar .vsx-type-chips::-webkit-scrollbar,
+    .vsx-tags-row::-webkit-scrollbar { display: none; }
+    .tag-pill { flex: none; white-space: nowrap; }
+}
+
+/* Điện thoại / cửa sổ rất hẹp */
+@media (max-width: 640px) {
+    .vsx-topbar { gap: 8px; padding: 8px 12px; }
+    .vsx-search-btn { display: none; }
+    .vsx-search-wrap input { padding: 7px 10px 7px 32px; }
+    .vsx-search-icon { left: 11px; }
+    .vsx-btn-text, .vsx-account .market-user-name { display: none; }
+    .vsx-btn-sm { padding: 7px 10px; }
+    .vsx-credit > span:not(#creditBalanceVal) { display: none; }
+    .vsx-filterbar { padding: 8px 12px 2px; gap: 8px; }
+    .vsx-filter-right { gap: 6px; }
+    .vsx-seg span { padding: 5px 9px; font-size: 0.76rem; }
+    .vsx-sort-select { padding: 5px 8px; font-size: 0.76rem; max-width: 42vw; }
+    .vsx-tags-row { padding: 6px 12px 2px; gap: 6px; }
+    .tag-pill { padding: 4px 10px; font-size: 0.74rem; }
+    .vsx-content { padding: 0 12px 28px; }
+    .vsx-grid { gap: 12px; padding-top: 10px; }
+    .vsx-card-inner { padding: 12px; }
+    .vsx-card:hover { transform: none; }
+}
+@media (max-width: 640px) {
+    .vsx-sort-select { flex: 1 1 96px; min-width: 0; max-width: 170px; }
+}
+@media (max-width: 420px) {
+    .vsx-result-count { display: none; }
+    .vsx-seg span { padding: 5px 8px; }
+}

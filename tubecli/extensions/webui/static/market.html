@@ -35,7 +35,7 @@
          --bg / --text of style.css in each theme. -->
     <style>html{margin:0;background:#1a1a1a;color:#ededed}html[data-theme="light"]{background:#f7f8fa;color:#1e293b}@media (prefers-color-scheme: light){html:not([data-theme="dark"]){background:#f7f8fa;color:#1e293b}}</style>
     <link rel="stylesheet" href="/static/style.css?v=6">
-    <link rel="stylesheet" href="/static/market.css?v=18">
+    <link rel="stylesheet" href="/static/market.css?v=19">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <!-- i18n: chỉ xin nhóm khoá trang này (?ns=) — trọn bộ 31 extension ≈ 230 KB (tubecli/extensions/webui/static/i18n.js) -->
     <script>window.I18N_NS = ['market', 'auth', 'card', 'detail', 'sell', 'topup', 'common'];</script>
@@ -47,72 +47,59 @@
     <!-- Main Content -->
     <main class="content market-page" style="margin-left:0; flex:1; overflow-y:auto; padding:0;">
 
-        <!-- VSX-style Top Bar -->
+        <!-- Đầu trang gọn (21/11/2026: «làm gọn chợ khi thu nhỏ / mobile, tối ưu menu trên»):
+             hàng 1 = tên · ô tìm · tài khoản + Bán; hàng 2 = loại hàng · giá · sắp xếp · số kết quả.
+             Ô chọn danh mục cũ trùng với chip loại hàng nên ẩn đi (giữ trong DOM vì setType() còn đồng bộ nó). -->
         <div class="vsx-topbar">
-            <div class="vsx-topbar-left">
-                <h1 class="vsx-title" data-i18n="market.title">&#x1F6CD;&#xFE0F; TubeCLI Marketplace</h1>
+            <h1 class="vsx-title" data-i18n="market.title">&#x1F6CD;&#xFE0F; TubeCLI Marketplace</h1>
+            <div class="vsx-search-wrap">
+                <span class="vsx-search-icon">&#x1F50D;</span>
+                <input type="search" id="marketSearch" data-i18n-placeholder="market.search_placeholder" placeholder="Search by Name, Tag, or Description" oninput="debounceSearch()" onkeydown="if(event.key==='Enter')applyFilters()">
+                <button class="vsx-search-btn" onclick="applyFilters()" data-i18n="market.search">Search</button>
             </div>
-            <div class="vsx-topbar-right">
-                <div class="vsx-search-wrap">
-                    <span class="vsx-search-icon">&#x1F50D;</span>
-                    <input type="text" id="marketSearch" data-i18n-placeholder="market.search_placeholder" placeholder="Search by Name, Tag, or Description" oninput="debounceSearch()">
-                    <button class="vsx-search-btn" onclick="applyFilters()" data-i18n="market.search">Search</button>
+            <select class="vsx-cat-select" id="catSelect" onchange="setCategoryFromSelect(this.value)" hidden>
+                <option value="" data-i18n="market.cat_all">All Categories</option>
+                <option value="extension" data-i18n="market.cat_extension">&#x1F9E9; Extensions</option>
+                <option value="template:content" data-i18n="market.type_tpl_video">&#x1F3AC; Video templates</option>
+                <option value="template:layout" data-i18n="market.type_tpl_layout">&#x1F5BC;&#xFE0F; Cover layouts</option>
+                <option value="node" data-i18n="market.cat_node">&#x1F517; Nodes</option>
+                <option value="skill" data-i18n="market.cat_skill">&#x26A1; Skills</option>
+                <option value="model3d" data-i18n="market.cat_model3d">&#x1F3A8; 3D Models</option>
+            </select>
+            <div class="vsx-account">
+                <div class="market-user-info" id="marketUserInfo" style="display:none;">
+                    <span class="market-user-name" id="marketUserName"></span>
+                    <button class="btn-logout" onclick="logoutMarket()" title="Log out">&#x1F6AA;</button>
                 </div>
-                <!-- Category dropdown -->
-                <select class="vsx-cat-select" id="catSelect" onchange="setCategoryFromSelect(this.value)">
-                    <option value="" data-i18n="market.cat_all">All Categories</option>
-                    <option value="extension" data-i18n="market.cat_extension">&#x1F9E9; Extensions</option>
-                    <option value="template:content" data-i18n="market.type_tpl_video">&#x1F3AC; Video templates</option>
-                    <option value="template:layout" data-i18n="market.type_tpl_layout">&#x1F5BC;&#xFE0F; Cover layouts</option>
-                    <option value="node" data-i18n="market.cat_node">&#x1F517; Nodes</option>
-                    <option value="skill" data-i18n="market.cat_skill">&#x26A1; Skills</option>
-                    <option value="model3d" data-i18n="market.cat_model3d">&#x1F3A8; 3D Models</option>
-                </select>
+                <div id="creditBalanceBadge" class="vsx-credit" style="display:none;"></div>
+                <button class="vsx-btn-secondary vsx-btn-sm" id="btnMyListings" onclick="requireAuth(() => openMyListingsModal())" style="display:none;" data-i18n-title="market.my_listings" title="My Listings">&#x1F4CB;<span class="vsx-btn-text" data-i18n="market.my_listings">My Listings</span></button>
+                <button class="vsx-btn-primary vsx-btn-sm" onclick="requireAuth(() => openUploadModal())" data-i18n-title="market.sell_item" title="Sell Item">&#x1F4E4;<span class="vsx-btn-text" data-i18n="market.sell_item">Sell Item</span></button>
             </div>
         </div>
 
-        <!-- Loại hàng (29/9/2026: «chợ chưa thấy filter loại extension, template, skill, layout template») -->
-        <div class="vsx-type-chips" id="typeChips" role="group">
-            <button type="button" class="vsx-type-chip active" data-type="" onclick="setType('')" data-i18n="market.type_all">All</button>
-            <button type="button" class="vsx-type-chip" data-type="extension" onclick="setType('extension')" data-i18n="market.type_extension">&#x1F9E9; Extensions</button>
-            <button type="button" class="vsx-type-chip" data-type="template:content" onclick="setType('template:content')" data-i18n="market.type_tpl_video">&#x1F3AC; Video templates</button>
-            <button type="button" class="vsx-type-chip" data-type="template:layout" onclick="setType('template:layout')" data-i18n="market.type_tpl_layout">&#x1F5BC;&#xFE0F; Cover layouts</button>
-            <button type="button" class="vsx-type-chip" data-type="skill" onclick="setType('skill')" data-i18n="market.type_skill">&#x26A1; Skills</button>
-        </div>
-
-        <!-- Subtitle toolbar -->
-        <div class="vsx-subtoolbar">
-            <span class="vsx-result-count" id="vsx-result-count"></span>
-            <div class="vsx-toolbar-right">
-                <label class="vsx-filter-label">
-                    <input type="radio" name="price" value="" checked onchange="applyFilters()"> <span data-i18n="market.filter_all">All</span>
-                </label>
-                <label class="vsx-filter-label">
-                    <input type="radio" name="price" value="free" onchange="applyFilters()"> <span data-i18n="market.filter_free">Free Only</span>
-                </label>
-                <label class="vsx-filter-label">
-                    <input type="radio" name="price" value="paid" onchange="applyFilters()"> <span data-i18n="market.filter_paid">Paid Only</span>
-                </label>
-                <span class="vsx-sep">|</span>
-                <span class="vsx-sort-label" data-i18n="market.sort_by">Sort by</span>
-                <select class="vsx-sort-select" id="sortSelect" onchange="applyFilters()">
+        <div class="vsx-filterbar">
+            <!-- Loại hàng (29/9/2026: «chợ chưa thấy filter loại extension, template, skill, layout template») -->
+            <div class="vsx-type-chips" id="typeChips" role="group">
+                <button type="button" class="vsx-type-chip active" data-type="" onclick="setType('')" data-i18n="market.type_all">All</button>
+                <button type="button" class="vsx-type-chip" data-type="extension" onclick="setType('extension')" data-i18n="market.type_extension">&#x1F9E9; Extensions</button>
+                <button type="button" class="vsx-type-chip" data-type="template:content" onclick="setType('template:content')" data-i18n="market.type_tpl_video">&#x1F3AC; Video templates</button>
+                <button type="button" class="vsx-type-chip" data-type="template:layout" onclick="setType('template:layout')" data-i18n="market.type_tpl_layout">&#x1F5BC;&#xFE0F; Cover layouts</button>
+                <button type="button" class="vsx-type-chip" data-type="skill" onclick="setType('skill')" data-i18n="market.type_skill">&#x26A1; Skills</button>
+            </div>
+            <div class="vsx-filter-right">
+                <span class="vsx-result-count" id="vsx-result-count"></span>
+                <div class="vsx-seg" role="radiogroup">
+                    <label><input type="radio" name="price" value="" checked onchange="applyFilters()"><span data-i18n="market.filter_all">All</span></label>
+                    <label><input type="radio" name="price" value="free" onchange="applyFilters()"><span data-i18n="market.filter_free">Free Only</span></label>
+                    <label><input type="radio" name="price" value="paid" onchange="applyFilters()"><span data-i18n="market.filter_paid">Paid Only</span></label>
+                </div>
+                <select class="vsx-sort-select" id="sortSelect" onchange="applyFilters()" data-i18n-title="market.sort_by" title="Sort by">
                     <option value="newest" data-i18n="market.sort_newest">Newest</option>
                     <option value="popular" data-i18n="market.sort_popular">Most Downloaded</option>
                     <option value="rating" data-i18n="market.sort_rating">Highest Rated</option>
                     <option value="price_asc" data-i18n="market.sort_price_asc">Price &#x2191;</option>
                     <option value="price_desc" data-i18n="market.sort_price_desc">Price &#x2193;</option>
                 </select>
-                <span class="vsx-sep">|</span>
-                <!-- Auth buttons -->
-                <div class="market-user-info" id="marketUserInfo" style="display:none;">
-                    <span class="market-user-name" id="marketUserName"></span>
-                    <button class="btn-logout" onclick="logoutMarket()" title="&#x0110;&#x0103;ng xu&#x1EA5;t">&#x1F6AA;</button>
-                </div>
-                <button class="vsx-btn-secondary" id="btnMyListings" onclick="requireAuth(() => openMyListingsModal())" style="display:none;">&#x1F4CB; <span data-i18n="market.my_listings">My Listings</span></button>
-                <!-- Credit Balance Badge -->
-                <div id="creditBalanceBadge" style="display:none;align-items:center;gap:4px;padding:4px 10px;background:rgba(99,102,241,0.12);border:1px solid rgba(99,102,241,0.3);border-radius:10px;font-size:0.82rem;color:var(--mk-violet-text);"></div>
-                <button class="vsx-btn-primary" onclick="requireAuth(() => openUploadModal())">&#x1F4E4; <span data-i18n="market.sell_item">Sell Item</span></button>
-
             </div>
         </div>
 
@@ -120,7 +107,7 @@
         <div class="vsx-tags-row" id="tagPills"></div>
 
         <!-- Items Grid -->
-        <div id="marketContent" style="padding: 0 24px 40px;">
+        <div id="marketContent" class="vsx-content">
             <div class="market-loading" id="marketLoading">
                 <div class="market-spinner"></div>
                 <span style="color:var(--text-muted)" data-i18n="market.loading">Loading marketplace...</span>
