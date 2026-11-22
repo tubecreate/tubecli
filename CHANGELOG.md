@@ -2,6 +2,20 @@
 
 Notable changes to TubeCLI. Versions match `tubecli/__init__.py`.
 
+## 2026.08.09.248 — 2026-11-22
+
+### The Flow Terminal runs PowerShell on Windows machines
+- The **SSH Terminal** node now works on Windows servers: it opens PowerShell 7 (`pwsh`) when it is installed, or the
+  Windows PowerShell that comes with Windows. Before, it only said "Terminal only works on Linux/macOS servers".
+- Copy and paste, resizing and closing work the same as on Linux. TubeCLI installs the small Windows terminal library
+  it needs (pywinpty) with this update; a machine that still lacks it installs it the first time a terminal opens.
+
+### The Market fits small windows and phones
+- The top of the Market is two compact rows: search with your account and **Sell Item**, then the item types, price
+  (All / Free / Paid) and sort order. The duplicate "All Categories" menu is gone.
+- In a narrow window the title hides, the type chips and tags scroll sideways instead of wrapping, and on a phone the
+  buttons shrink to icons and the cards fill the width. Press Enter in the search box to search.
+
 ## 2026.08.09.247 — 2026-11-20
 
 ### Claude and other MCP clients can save accounts to the Keychain — when you allow it
