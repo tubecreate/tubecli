@@ -668,6 +668,104 @@ def _is_launching(profile_name: str) -> bool:
     return True
 
 
+# Phiên live view (preview) giữ hồ sơ quá lâu = bỏ hoang (18/11/2026 — contabo: lượt hẹn giờ của «Deep Biblical Echoes»
+# bị «all candidate profiles are in use» 3 ngày liền dù /browser/status không còn phiên nào của hồ sơ). Không phiên
+# xem nào của người dùng kéo dài quá chừng này; live view mà content_video giữ lại sau một lần đăng hỏng thì tới đây
+# là đủ cho chủ xem nó dừng ở đâu.
+PREVIEW_STALE_SEC = 6 * 3600
+
+
+def _fmt_age(sec) -> str:
+    try:
+        sec = int(sec)
+    except (TypeError, ValueError):
+        return "?"
+    if sec >= 86400:
+        return f"{sec // 86400} d {sec % 86400 // 3600} h"
+    if sec >= 3600:
+        return f"{sec // 3600} h {sec % 3600 // 60} min"
+    return f"{max(0, sec) // 60} min"
+
+
+def _drop_preview(session_id: str, info: dict) -> None:
+    """Đóng một phiên preview (tiến trình preview_server) và gỡ nó khỏi sổ. Không bao giờ ném."""
+    proc = info.get("proc")
+    if proc is not None and proc.poll() is None:
+        try:
+            import platform
+            import subprocess
+            if platform.system() == "Windows":
+                subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True, timeout=5)
+            else:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=5)
+                except Exception:
+                    proc.kill()
+        except Exception:
+            pass
+    _preview_processes.pop(session_id, None)
+
+
+def preview_holder(profile_name: str, reap: bool = True, now: float = None) -> Optional[dict]:
+    """Phiên PREVIEW đang THẬT SỰ giữ hồ sơ này, hay None: {session_id, opened_by, age_sec, pid, port, attach}.
+
+    reap=True (vòng lịch): dọn khoá hỏng trước khi kết luận «bận» — phiên đã chết; phiên attach mà Chromium nó gắn
+    vào đã thoát (cổng CDP không còn trả lời); phiên mở quá PREVIEW_STALE_SEC. Mỗi phiên bị dọn ghi vào
+    `_reaped_previews` để lượt chạy kể lại (pop_reaped_previews)."""
+    import time as _t
+    now = _t.time() if now is None else now
+    holder = None
+    for sid, info in list(_preview_processes.items()):
+        if info.get("profile") != profile_name:
+            continue
+        proc = info.get("proc")
+        if proc is not None and proc.poll() is not None:
+            if reap:
+                _preview_processes.pop(sid, None)
+            continue
+        if not info.get("started_at"):
+            info["started_at"] = now          # sổ cũ không ghi giờ mở: tính từ lần đầu thấy
+        age = now - float(info.get("started_at") or now)
+        why = ""
+        if reap and info.get("attach") and info.get("cdp_port") and not _cdp_alive(info.get("cdp_port")):
+            why = "the browser it was attached to has exited"
+        elif reap and age > PREVIEW_STALE_SEC:
+            why = f"open for {_fmt_age(age)} (longer than {_fmt_age(PREVIEW_STALE_SEC)})"
+        desc = {"session_id": sid, "opened_by": str(info.get("opened_by") or "canvas"), "age_sec": int(age),
+                "pid": getattr(proc, "pid", None), "port": info.get("port"), "attach": bool(info.get("attach"))}
+        if why:
+            _drop_preview(sid, info)
+            _reaped_previews.append(dict(desc, profile=profile_name, reason=why))
+            del _reaped_previews[:-20]
+            continue
+        holder = holder or desc
+    return holder
+
+
+_reaped_previews: list = []
+
+
+def pop_reaped_previews(profile_name: str) -> list:
+    """Các phiên preview vừa bị preview_holder dọn cho hồ sơ này (rồi xoá khỏi danh sách)."""
+    got = [r for r in _reaped_previews if r.get("profile") == profile_name]
+    _reaped_previews[:] = [r for r in _reaped_previews if r.get("profile") != profile_name]
+    return got
+
+
+def describe_holder(h: Optional[dict]) -> str:
+    """«live view preview_123 (opened by content_video, 2 h 5 min ago, pid 4321, port 43479)»."""
+    if not h:
+        return ""
+    bits = [f"opened by {h.get('opened_by') or 'canvas'}", f"{_fmt_age(h.get('age_sec'))} ago"]
+    if h.get("pid"):
+        bits.append(f"pid {h['pid']}")
+    if h.get("port"):
+        bits.append(f"port {h['port']}")
+    kind = "live view attached to an agent session" if h.get("attach") else "live view"
+    return f"{kind} {h.get('session_id')} ({', '.join(bits)})"
+
+
 def preview_holds_profile(profile_name: str) -> bool:
     """Hồ sơ này có đang bị MỘT PHIÊN PREVIEW (live view trên canvas) giữ không?
 

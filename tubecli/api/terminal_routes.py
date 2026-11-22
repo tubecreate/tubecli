@@ -6,7 +6,8 @@ Một pty bash chạy dưới user của service TubeCLI, nối với trình duy
 Bảo mật: đây là shell tuỳ ý = toàn quyền như user chạy service. Người dùng vốn đã
 có SSH vào máy này, nên terminal không mở thêm quyền — nhưng WS PHẢI qua auth
 (reject_unless_allowed đọc cookie tubecli_session, giống browser preview), còn
-trang /terminal đi qua HTTP gate như mọi trang khác. Chỉ Linux/macOS (pty).
+trang /terminal đi qua HTTP gate như mọi trang khác. Linux/macOS: pty + $SHELL;
+Windows: PowerShell qua ConPTY (pywinpty).
 """
 from __future__ import annotations
 import asyncio
@@ -120,6 +121,139 @@ async def terminal_page():
     return HTMLResponse(_TERMINAL_HTML)
 
 
+# ── Windows: PowerShell qua ConPTY (pywinpty) ────────────────────────────────
+# 22/11/2026 «node terminal khi ở trên Windows thì chạy PowerShell được không?» — trước đây Windows chỉ nhận dòng
+# «chỉ hỗ trợ Linux/macOS». pywinpty khai trong pyproject (chỉ Windows); máy cài từ bản cũ chưa có thì cài lần đầu mở.
+_winpty_lock = asyncio.Lock()
+
+
+def _windows_shell() -> list:
+    """PowerShell 7 (pwsh) nếu có, không thì Windows PowerShell 5.1 sẵn trong Windows."""
+    import shutil
+    pwsh = shutil.which("pwsh.exe")
+    if pwsh:
+        return [pwsh, "-NoLogo"]
+    sysroot = os.environ.get("SystemRoot", r"C:\Windows")
+    ps = os.path.join(sysroot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+    return [ps if os.path.exists(ps) else "powershell.exe", "-NoLogo"]
+
+
+async def _load_winpty(websocket: WebSocket):
+    """Module winpty; thiếu thì pip cài một lần (chạy trong thread — không chặn event loop). None nếu không được."""
+    try:
+        import winpty  # noqa: F401
+        return winpty
+    except ImportError:
+        pass
+    async with _winpty_lock:
+        try:
+            import winpty  # noqa: F401
+            return winpty
+        except ImportError:
+            pass
+        import importlib
+        import subprocess
+        import sys
+        await websocket.send_text("Installing Windows terminal support (pywinpty, one time)…\r\n")
+
+        def _pip():
+            return subprocess.run([sys.executable, "-m", "pip", "install", "pywinpty>=2.0", "--quiet"],
+                                  capture_output=True, text=True, timeout=300)
+        try:
+            r = await asyncio.to_thread(_pip)
+            ok = r.returncode == 0
+            tail = " | ".join((r.stderr or r.stdout or "").strip().splitlines()[-2:])
+        except Exception as e:  # noqa: BLE001
+            ok, tail = False, str(e)
+        if not ok:
+            hint = "the server's Python has no pip — run: python -m ensurepip --upgrade, then " \
+                if "No module named pip" in tail else ""
+            await websocket.send_text(f"\r\nCould not install pywinpty ({tail[:300]}).\r\n"
+                                      f"Fix: {hint}pip install pywinpty on this server, then reload this frame.\r\n")
+            return None
+        importlib.invalidate_caches()
+        try:
+            import winpty  # noqa: F401
+            return winpty
+        except ImportError as e:
+            await websocket.send_text(f"\r\npywinpty was installed but cannot load ({e}). Restart TubeCLI.\r\n")
+            return None
+
+
+async def _windows_terminal(websocket: WebSocket) -> None:
+    winpty = await _load_winpty(websocket)
+    if winpty is None:
+        try: await websocket.close()
+        except Exception: pass
+        return
+    import threading
+    home = os.path.expanduser("~")
+    env = dict(os.environ)
+    env["TERM"] = "xterm-256color"
+    try:
+        proc = winpty.PtyProcess.spawn(_windows_shell(), cwd=home if os.path.isdir(home) else None,
+                                       env=env, dimensions=(24, 80))
+    except Exception as e:  # noqa: BLE001
+        await websocket.send_text(f"Could not start PowerShell: {e}\r\n")
+        try: await websocket.close()
+        except Exception: pass
+        return
+
+    loop = asyncio.get_running_loop()
+    out: asyncio.Queue = asyncio.Queue()
+
+    # proc.read() chặn ⇒ một thread riêng mỗi phiên (không chiếm thread pool mặc định của server)
+    def _reader():
+        try:
+            while True:
+                data = proc.read(65536)
+                if data:
+                    loop.call_soon_threadsafe(out.put_nowait, data)
+        except Exception:  # EOFError khi PowerShell thoát
+            pass
+        finally:
+            loop.call_soon_threadsafe(out.put_nowait, None)
+
+    threading.Thread(target=_reader, name="winpty-reader", daemon=True).start()
+
+    async def _pump_output():
+        while True:
+            data = await out.get()
+            if data is None:
+                return
+            await websocket.send_text(data)
+
+    async def _pump_input():
+        while True:
+            raw = await websocket.receive_text()
+            try:
+                msg = json.loads(raw)
+            except Exception:
+                continue
+            t = msg.get("type")
+            if t == "input":
+                await asyncio.to_thread(proc.write, str(msg.get("data", "")))
+            elif t == "resize":
+                try:
+                    proc.setwinsize(max(2, int(msg.get("rows", 24))), max(10, int(msg.get("cols", 80))))
+                except Exception:
+                    pass
+
+    tasks = [asyncio.ensure_future(_pump_output()), asyncio.ensure_future(_pump_input())]
+    try:
+        await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        for t in tasks:
+            t.cancel()
+        try:
+            if proc.isalive():
+                proc.terminate(force=True)
+        except Exception:
+            pass
+        try: await websocket.close()
+        except Exception: pass
+
+
 def _set_winsize(fd: int, rows: int, cols: int) -> None:
     try:
         import fcntl
@@ -137,12 +271,16 @@ async def terminal_ws(websocket: WebSocket):
     if not await reject_unless_allowed(websocket):
         return
 
-    # pty chỉ có trên Unix — Windows không hỗ trợ, báo rõ thay vì 500 khó hiểu
+    # Windows: không có pty — chạy PowerShell qua ConPTY (pywinpty), 22/11/2026
+    if os.name == "nt":
+        await websocket.accept()
+        await _windows_terminal(websocket)
+        return
     try:
         import pty
     except ImportError:
         await websocket.accept()
-        await websocket.send_text("Terminal chỉ hỗ trợ trên server Linux/macOS.\r\n")
+        await websocket.send_text("This server's system has no terminal support.\r\n")
         await websocket.close()
         return
 

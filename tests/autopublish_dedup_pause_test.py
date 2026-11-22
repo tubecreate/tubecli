@@ -19,6 +19,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+# Sổ cụm chủ đề (niche_memory, 18/11/2026) ở thư mục TẠM — tự đăng / dựng / đăng giờ ghi vào sổ này.
+import tempfile as _nm_tf  # noqa: E402
+import tubecli.extensions.content_video.niche_memory as _NM_ISO  # noqa: E402
+_NM_ISO_DIR = _nm_tf.mkdtemp(prefix="nm_iso_")
+_NM_ISO._store_path = lambda: __import__("pathlib").Path(_NM_ISO_DIR) / "niche_memory.json"
+_NM_ISO.seed_from_tasks = lambda *a, **k: 0
+_NM_ISO._task_alive = lambda task_id: True
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 except AttributeError:

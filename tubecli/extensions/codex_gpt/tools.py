@@ -279,6 +279,8 @@ async def t_overview(args, ctx):
             "Browser profiles with the owner's logged-in sessions: browser_profiles, browser_open, browser_goto, "
             "browser_screenshot (see the page), browser_read (page text), browser_click (x,y from the screenshot), "
             "browser_type, browser_scroll, browser_nav, browser_close.",
+            "YouTube (needs the Video Manager extension): youtube_channels, youtube_videos, youtube_schedule (publish "
+            "private videos at a set time), youtube_update.",
             "Anything else: tubecli_doc(<extension>) to read its guide, tubecli_endpoints(<prefix>) to list its API, "
             "then tubecli_api(method, path, query, body).",
             "Agent Town (public agents, browser rental, paid video jobs): read tubecli_doc('town'), ask the owner for "
@@ -1733,6 +1735,15 @@ TOOLS: Dict[str, Tool] = {t.name: t for t in [
 ]}
 
 
+def _add_youtube_tools() -> None:
+    """youtube_* (22/11/2026) — codex_gpt/youtube_tools.py: kênh, video, hẹn giờ công khai, sửa video."""
+    from . import youtube_tools as Y
+    TOOLS.update({t.name: t for t in Y.build(Tool)})
+
+
+_add_youtube_tools()
+
+
 def perm_refusal(tool) -> str:
     return PERM_TEXT.get(tool.perm, f"'{tool.name}' needs a permission this connection does not have")
 
@@ -1793,8 +1804,8 @@ async def handle_rpc(msg: Dict[str, Any], app, approve: Callable) -> Dict[str, A
 INSTRUCTIONS = (
     "You are running inside TubeCLI — the user's self-hosted automation server — through its Codex GPT panel. "
     "The `tubecli` tools operate this TubeCLI machine: the Task Board (board_*), browser profiles that carry the "
-    "user's logged-in sessions (browser_*), and every other TubeCLI feature through tubecli_api. Call "
-    "tubecli_overview first to see what is installed; read tubecli_doc / tubecli_endpoints before using an area you "
+    "user's logged-in sessions (browser_*), YouTube channels and scheduled publishing (youtube_*), and every other "
+    "TubeCLI feature through tubecli_api. Call tubecli_overview first to see what is installed; read tubecli_doc / tubecli_endpoints before using an area you "
     "have not used yet. For anything about TubeCLI prefer these tools over shell commands, curl or reading TubeCLI's "
     "data files. Calls that change something may wait for the user to approve them in the chat; if one is declined, "
     "do not retry it — ask the user. To put an agent on Agent Town use town_agent_offer after reading "

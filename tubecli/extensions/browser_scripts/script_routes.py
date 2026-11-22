@@ -877,7 +877,8 @@ async def launch_preview(request: Request):
         env=env, **_proc.hidden_kwargs(),
     )
     session_id = f"preview_{int(time.time())}"
-    _preview_processes[session_id] = {"proc": proc, "port": port, "profile": profile}
+    _preview_processes[session_id] = {"proc": proc, "port": port, "profile": profile,
+                                      "started_at": time.time(), "opened_by": "browser_scripts"}
     return {"status": "launched", "session_id": session_id, "port": port}
 
 @router.post("/preview/stop")

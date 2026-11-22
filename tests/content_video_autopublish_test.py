@@ -51,6 +51,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+# Sổ cụm chủ đề (niche_memory, 18/11/2026) ở thư mục TẠM — tự đăng / dựng / đăng giờ ghi vào sổ này.
+import tempfile as _nm_tf  # noqa: E402
+import tubecli.extensions.content_video.niche_memory as _NM_ISO  # noqa: E402
+_NM_ISO_DIR = _nm_tf.mkdtemp(prefix="nm_iso_")
+_NM_ISO._store_path = lambda: __import__("pathlib").Path(_NM_ISO_DIR) / "niche_memory.json"
+_NM_ISO.seed_from_tasks = lambda *a, **k: 0
+_NM_ISO._task_alive = lambda task_id: True
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 except AttributeError:
@@ -195,7 +202,7 @@ check("A thiếu file → mặc định đủ khoá",
       m == {"high_water": "", "high_water_pending": "", "published_today": 0,
             "day": A._today(), "last_task_id": "", "last_fired_at": 0.0,
             "last_commit_key": "", "last_video_url": "", "paused": {},
-            "agent_paused": {}}, m)      # agent_paused: 14/11/2026 (tạm dừng agent)
+            "agent_paused": {}, "resumed": {}}, m)      # agent_paused: 14/11/2026; resumed: 18/11/2026 (mở lại)
 check("A ghi được khi thư mục chưa tồn tại",
       A.save_mark("a1", high_water="2026-09-04T01:00:00+00:00", published_today=1,
                   day=A._today(), last_task_id="t9", last_fired_at=123.5) is True)

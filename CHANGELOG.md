@@ -2,6 +2,47 @@
 
 Notable changes to TubeCLI. Versions match `tubecli/__init__.py`.
 
+## 2026.08.09.249 — 2026-11-22
+
+### Claude, Codex and other MCP clients can manage YouTube
+- Four new tools: `youtube_channels`, `youtube_videos` (filter by scheduled, private, unlisted or public),
+  `youtube_schedule` (publish private videos at a set time, or cancel) and `youtube_update` (title, description, tags,
+  category, privacy). They need the **Video Manager** extension 2026.11.22.170536 or newer from the Market.
+- YouTube publishes a scheduled video by itself, so the machine does not have to be online at that time. Every time
+  must carry a timezone and lie in the future; one wrong item refuses the whole call. A video that is already public or
+  unlisted is never scheduled, because that would take it offline.
+- Each tool uses exactly the account of the channel you name. Account emails and tokens are never returned. A read-only
+  connection only gets the two read tools.
+
+### The Market opens at once, with cleaner pages
+- The Market shows the list saved on the machine immediately and checks for new versions in the background, instead of
+  asking the server on every view, filter and search. It also opens offline.
+- Extensions and templates are separate tabs. Extensions are grouped into **Updates available**, **Available** and
+  **Installed**, with one button per card. Sell an item, My Listings, Check for updates and Log out are in the **⋯** menu.
+- Small windows and phones keep the compact layout of the previous version. Android Window has its own icon.
+
+### Agents: no repeated topics, fewer skipped runs
+- A topic that already has an open task, a finished video or a published video rests for the niche's cooldown (21 days by
+  default), however the keyword is worded.
+- A browser profile that only looks busy (its live view is gone, or was left open for more than 6 hours) no longer blocks
+  scheduled runs, and the log says what is holding a profile that really is in use.
+- Daily keywords: if the agent's AI model fails, other configured models are tried before yesterday's keywords are reused.
+- Unticking **Channel not verified** resumes a paused auto-publish at once.
+
+## 2026.08.09.248 — 2026-11-22
+
+### The Flow Terminal runs PowerShell on Windows machines
+- The **SSH Terminal** node now works on Windows servers: it opens PowerShell 7 (`pwsh`) when it is installed, or the
+  Windows PowerShell that comes with Windows. Before, it only said "Terminal only works on Linux/macOS servers".
+- Copy and paste, resizing and closing work the same as on Linux. TubeCLI installs the small Windows terminal library
+  it needs (pywinpty) with this update; a machine that still lacks it installs it the first time a terminal opens.
+
+### The Market fits small windows and phones
+- The top of the Market is two compact rows: search with your account and **Sell Item**, then the item types, price
+  (All / Free / Paid) and sort order. The duplicate "All Categories" menu is gone.
+- In a narrow window the title hides, the type chips and tags scroll sideways instead of wrapping, and on a phone the
+  buttons shrink to icons and the cards fill the width. Press Enter in the search box to search.
+
 ## 2026.08.09.247 — 2026-11-20
 
 ### Claude and other MCP clients can save accounts to the Keychain — when you allow it

@@ -183,6 +183,8 @@ def get_mark(agent_id: str) -> Dict[str, Any]:
         "paused": dict(row.get("paused") or {}) if isinstance(row.get("paused"), dict) else {},
         # Chủ / connector bấm «tạm dừng agent» (pause_agent) — khác `paused` ở trên (tự dừng vì video dài).
         "agent_paused": dict(row.get("agent_paused") or {}) if isinstance(row.get("agent_paused"), dict) else {},
+        # Lần tự dừng vì video dài được gỡ gần nhất (18/11/2026): {at, by, reason, seconds, paused_at} — trang agent hiện.
+        "resumed": dict(row.get("resumed") or {}) if isinstance(row.get("resumed"), dict) else {},
     }
 
 
@@ -234,8 +236,9 @@ def commit_published(agent_id: str, high_water: str = "", video_url: str = "",
             if hw and hw > row["high_water"]:
                 fields["high_water"] = hw
             save_mark(aid, **fields)
-            return "counted %d (high_water=%s)" % (fields["published_today"],
-                                                   fields.get("high_water", row["high_water"]))
+        note_cluster(aid, task_id, "published")
+        return "counted %d (high_water=%s)" % (fields["published_today"],
+                                               fields.get("high_water", row["high_water"]))
     except Exception as e:
         logger.error("[AutoPublish] could not commit the mark for %s (%s)", aid, e, exc_info=True)
         return "error: %s" % e
@@ -297,6 +300,43 @@ def pause_for_length(agent_id: str, seconds: float, preset: str = "", capped: bo
     except Exception as e:      # noqa: BLE001
         logger.error("[AutoPublish] could not pause %s (%s)", aid, e)
         return False
+
+
+def _release_reason(agent, paused: Dict[str, Any]) -> str:
+    """Vì sao lần tự dừng vì video dài không còn giữ (để ghi «resumed»)."""
+    if not bool(getattr(agent, "publish_unverified", False)):
+        return "channel verified («Channel not verified» unticked)"
+    if not paused.get("capped"):
+        return "the next script is capped to fit 15 minutes"
+    if int(paused.get("cap_words") or 0) != _safe_words():
+        return "the length cap for unverified channels changed"
+    return "the template changed"
+
+
+def resume_paused(agent_id: str, reason: str, by: str = "") -> bool:
+    """Gỡ lần tự dừng vì video dài (nếu có) và ghi lại {at, by, reason} để trang agent hiện «đã mở lại». True khi có
+    gỡ thật. Không bao giờ ném."""
+    aid = str(agent_id or "")
+    try:
+        paused = get_mark(aid).get("paused") or {}
+        if not aid or not paused:
+            return False
+        save_mark(aid, paused={}, resumed={"at": time.time(), "by": str(by or "")[:40], "reason": str(reason or "")[:200],
+                                           "seconds": int(paused.get("seconds") or 0),
+                                           "paused_at": paused.get("at")})
+        logger.info("[AutoPublish] auto-publish of %s resumed: %s", aid, reason)
+        return True
+    except Exception as e:      # noqa: BLE001
+        logger.warning("[AutoPublish] could not resume %s (%s)", aid, e)
+        return False
+
+
+def on_agent_saved(agent_id: str, was_unverified: bool, now_unverified: bool, by: str = "owner") -> bool:
+    """Chủ kênh bỏ tick «Channel not verified» (PUT /agents/{id}, trang agent trên cloud) ⇒ mở lại tự đăng đang tạm
+    dừng vì video dài NGAY (trước đây chỉ được gỡ ở lượt chạy kế, và trang agent không nói gì)."""
+    if was_unverified and not now_unverified:
+        return resume_paused(agent_id, "channel verified («Channel not verified» unticked)", by)
+    return False
 
 
 def _pause_holds(agent, paused: Dict[str, Any]) -> bool:
@@ -515,7 +555,7 @@ def _maybe_publish(agent_id: str, run_id: str, outcome: str, trigger: str = "") 
                                "not verified», or PATCH /api/v1/codex/autopublish/%s {\"publish\": true}"
                                % (_mmss(paused.get("seconds")), agent_id))
         else:
-            save_mark(agent_id, paused={})
+            resume_paused(agent_id, _release_reason(agent, paused), "auto")
 
     # Từ đây tới lúc ghi sổ là MỘT quyết định, và nó phải nguyên khối. Trước đây
     # khoá chỉ được giữ bên trong save_mark, nên hai lượt chạy của cùng một agent
@@ -555,6 +595,14 @@ def _maybe_publish(agent_id: str, run_id: str, outcome: str, trigger: str = "") 
             skip_window(agent_id, newest)
             return "skip: duplicate topic — «%s» was already made as task #%s («%s»); the new pages were set aside" % (
                 topic_query[:100], dup.get("seq", "?"), str(dup.get("title") or "")[:80])
+        # Cụm chủ đề (18/11/2026): sổ bền của chủ đề đã có task mở / đã dựng / đã đăng — bắt cả câu viết khác đi
+        # («seek first the kingdom Matthew 6» ≈ «Matthew 6:33») và task cũ hơn 500 task gần nhất của bảng việc.
+        cool = _cooled_topic(agent, topic_query) if topic_query else None
+        if cool:
+            skip_window(agent_id, newest)
+            return ("skip: topic in cooldown — «%s» is the topic «%s», last used %s (%d-day cooldown); the new pages "
+                    "were set aside" % (topic_query[:100], str(cool.get("label") or "")[:80], cool.get("last_used"),
+                                        _cooldown_days(agent)))
 
         options: Dict[str, Any] = {
             # "publish" cũng là id của bước upload trong RENDER_STEPS, và _run_steps
@@ -619,6 +667,7 @@ def _maybe_publish(agent_id: str, run_id: str, outcome: str, trigger: str = "") 
 
         task_id = str((task or {}).get("id") or "")
         if topic_query and task_id:
+            note_cluster(agent_id, task_id, "open", [topic_query])
             try:        # để lượt sau so chủ đề với cả task chưa có tiêu đề (đang viết kịch bản)
                 _codex().set_meta(task_id, {"topic_query": topic_query[:200]})
             except Exception as e:      # noqa: BLE001
@@ -697,6 +746,43 @@ def similar_topic(a: str, b: str) -> bool:
     return len(common) >= 3 and len(common) / small >= 0.75
 
 
+def _cooldown_days(agent) -> int:
+    from . import niche_memory as NM
+
+    return NM.cooldown_days_of(agent)
+
+
+def _cooled_topic(agent, text: str):
+    """Cụm chủ đề đang nghỉ mà `text` thuộc về (dict của niche_memory), hay None. Không bao giờ ném."""
+    try:
+        from . import niche_memory as NM
+
+        return NM.cluster_cooldown(str(getattr(agent, "id", "") or ""), text, _cooldown_days(agent))
+    except Exception as e:      # noqa: BLE001
+        logger.debug("[AutoPublish] cluster check unavailable (%s)", e)
+        return None
+
+
+def note_cluster(agent_id: str, task_id: str = "", status: str = "open", texts=()) -> str:
+    """Ghi chủ đề của một task video vào cụm của nó (niche_memory): tiêu đề + câu tìm kiếm + chủ đề lấy từ kho của
+    task, cộng `texts`. status: open (task vừa xếp / vừa có tiêu đề) → rendered → published. Không bao giờ ném."""
+    try:
+        from . import niche_memory as NM
+
+        got = [str(x) for x in (texts or []) if x]
+        if task_id:
+            t = _codex().get_task(str(task_id)) or {}
+            title = str(t.get("title") or "")
+            if title and not title.casefold().startswith(_GENERIC_TITLE):
+                got.append(title)
+            meta = t.get("meta") or {}
+            got += [str(meta.get("topic_query") or ""), str(meta.get("bank_topic") or "")]
+        return NM.mark_cluster_used(str(agent_id or ""), got, str(task_id or ""), status)
+    except Exception as e:      # noqa: BLE001
+        logger.debug("[AutoPublish] could not note the topic cluster (%s)", e)
+        return ""
+
+
 def _run_query(agent_id: str, run_id: str) -> str:
     """Câu tìm kiếm của lượt thu thập vừa xong (run_log) — chủ đề mà video sắp dựng sẽ nói tới. "" khi không đọc được."""
     if not run_id:
@@ -764,6 +850,9 @@ def status(agent) -> Dict[str, Any]:
         "paused_for_length": bool(paused),
         "paused_detail": ("the last video was %s long and the channel is not verified (YouTube takes at most 15 min)"
                           % _mmss(paused.get("seconds"))) if paused else "",
+        "paused_at": _iso(paused.get("at")) if paused else "",
+        # Lần mở lại gần nhất (14 ngày): {at, by, reason, seconds, paused_at} — trang agent hiện «đã mở lại …».
+        "resumed": _resumed_view(mark.get("resumed") or {}),
         # Khi nào video lên kênh: "now" = ngay sau khi dựng; "slots" = tải lên ngay sau khi dựng và HẸN GIỜ trên YouTube
         # vào khung trống kế tiếp của `slots` (không có bộ đăng riêng chạy theo giờ).
         "when": str(getattr(agent, "publish_when", "now") or "now"),
@@ -771,6 +860,23 @@ def status(agent) -> Dict[str, Any]:
         "slots": str(getattr(agent, "publish_slots", "") or ""),
         **_will_publish(agent, mark, bool(paused)),
     }
+
+
+def _iso(ts: Any) -> str:
+    try:
+        return datetime.datetime.fromtimestamp(float(ts)).astimezone().isoformat(timespec="seconds")
+    except (TypeError, ValueError, OverflowError, OSError):
+        return ""
+
+
+def _resumed_view(r: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        if not r or time.time() - float(r.get("at") or 0) > 14 * 86400:
+            return {}
+    except (TypeError, ValueError):
+        return {}
+    return {"at": _iso(r.get("at")), "by": str(r.get("by") or ""), "reason": str(r.get("reason") or ""),
+            "paused_at": _iso(r.get("paused_at")), "seconds": int(r.get("seconds") or 0)}
 
 
 def _when_choices():
@@ -833,9 +939,12 @@ def set_publish(agent_id: str, publish: bool, daily_limit=None, channel_unverifi
     if fields.get("publish_when", str(getattr(agent, "publish_when", "now") or "now")) == "slots" and not (
             fields.get("publish_slots", str(getattr(agent, "publish_slots", "") or ""))):
         raise ValueError("when = slots needs at least one time in slots, for example \"12:00, 19:00\"")
+    was_unverified = bool(getattr(agent, "publish_unverified", False))
     agent = agent_manager.update(str(agent_id), **fields)
-    if publish or channel_unverified is False:
-        save_mark(str(agent_id), paused={})
+    if channel_unverified is False and was_unverified:
+        resume_paused(str(agent_id), "channel verified («Channel not verified» unticked)", "api")
+    elif publish or channel_unverified is False:
+        resume_paused(str(agent_id), "publishing turned on again", "api")
     return status(agent)
 
 
@@ -883,7 +992,8 @@ def count_published(agent_id: str, video_url: str = "", task_id: str = "") -> st
             if key:
                 fields["last_commit_key"] = key
             save_mark(aid, **fields)
-            return "counted %d" % fields["published_today"]
+        note_cluster(aid, task_id, "published")
+        return "counted %d" % fields["published_today"]
     except Exception as e:      # noqa: BLE001
         logger.error("[AutoPublish] could not count the publish for %s (%s)", aid, e)
         return "error: %s" % e
