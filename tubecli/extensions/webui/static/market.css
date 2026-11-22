@@ -1829,12 +1829,16 @@ dialog.topup-dialog.topup-compact .topup-footer {
     .mk-head-row { gap: 8px; }
     .mk-logo { display: none; }
     .mk-search { min-width: 0; }
-    .mk-select { min-width: 0; flex: 0 1 auto; }
+    .mk-select { order: 2; min-width: 0; flex: 1 1 40%; }
     .mk-head-right { margin-left: auto; }
     .market-user-info { display: none !important; }
     .mk-toolbar, .mk-content { padding-left: 16px; padding-right: 16px; }
-    .mk-toolbar-right { margin-left: 0; width: 100%; }
-    .mk-sync { margin-right: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-    .mk-ext-grid { grid-template-columns: 1fr; }
+    /* hàng 1: số kết quả + lần đồng bộ; hàng 2: giá + sắp xếp chia đôi */
+    .mk-toolbar { gap: 8px; }
+    .mk-toolbar-right { display: contents; }
+    .mk-subtabs { flex: 1 1 100%; }
+    .mk-count { order: 1; flex: 1 1 50%; }
+    .mk-sync { order: 1; }
+    .mk-ext-grid { grid-template-columns: minmax(0, 1fr); }
     .mk-tpl-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
 }
