@@ -3129,8 +3129,13 @@ def _git_pull_safe(repo: str, pull_args=("git", "pull")) -> dict:
     import subprocess
     import time as _time
 
+    from tubecli.core.git_secrets import scrub
+
     def run(cmd, timeout=60):
-        return subprocess.run(cmd, capture_output=True, text=True, cwd=repo, timeout=timeout)
+        # Câu của git đi thẳng ra giao diện / MCP: che token nằm trong địa chỉ remote.
+        res = subprocess.run(cmd, capture_output=True, text=True, cwd=repo, timeout=timeout)
+        res.stdout, res.stderr = scrub(res.stdout), scrub(res.stderr)
+        return res
 
     notes = []
     st = run(["git", "status", "--porcelain", "--untracked-files=no"], 15)
@@ -6074,8 +6079,9 @@ async def system_check_update():
             cwd=project_root, capture_output=True, text=True, timeout=30,
         )
         if fetch.returncode != 0:
-            check_error = ("git fetch origin: "
-                           + (fetch.stderr or fetch.stdout or f"mã lỗi {fetch.returncode}").strip())[:300]
+            from tubecli.core.git_secrets import scrub
+            check_error = scrub("git fetch origin: "
+                                + (fetch.stderr or fetch.stdout or f"mã lỗi {fetch.returncode}").strip())[:300]
 
         # Get current hash
         r_local = subprocess.run(

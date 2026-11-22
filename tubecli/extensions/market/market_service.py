@@ -22,6 +22,17 @@ TIMEOUT = 15
 TIMEOUT_LONG = 60  # For upload/download large extensions
 
 
+def _publish_refusal(item_data) -> str:
+    """Gói đăng lên Chợ ai cũng đọc được — có token GitHub trong gói thì KHÔNG đăng."""
+    from tubecli.core.git_secrets import publish_refusal
+    return publish_refusal(item_data)
+
+
+def _public_git_url(git_url) -> str:
+    from tubecli.core.git_secrets import strip_credentials
+    return strip_credentials(git_url)
+
+
 class MarketService:
     def __init__(self):
         self.api_base = API_BASE
@@ -178,6 +189,9 @@ class MarketService:
                           price: float, item_data: str, visibility: str = "PUBLIC",
                           tags: list = None, version: str = "1.0.0", thumbnail_url: str = None, git_url: str = None) -> Dict:
         """Upload a new item to marketplace."""
+        refused = _publish_refusal(item_data)
+        if refused:
+            return {"status": "error", "error": refused}
         self._cache.clear()
         headers = {"Authorization": f"Bearer {token}"}
         payload = {"title": title, "description": description, "category": category,
@@ -186,7 +200,7 @@ class MarketService:
         if thumbnail_url:
             payload["thumbnail_url"] = thumbnail_url
         if git_url:
-            payload["git_url"] = git_url
+            payload["git_url"] = _public_git_url(git_url)
 
         # Log payload size for debugging
         import json as _json
@@ -237,6 +251,9 @@ class MarketService:
                           tags: list = None, version: str = "1.0.0",
                           thumbnail_url: str = None, git_url: str = None) -> Dict:
         """Update an existing marketplace item."""
+        refused = _publish_refusal(item_data)
+        if refused:
+            return {"status": "error", "error": refused}
         self._cache.clear()
         headers = {"Authorization": f"Bearer {token}"}
         payload = {
@@ -248,7 +265,7 @@ class MarketService:
         if thumbnail_url:
             payload["thumbnail_url"] = thumbnail_url
         if git_url:
-            payload["git_url"] = git_url
+            payload["git_url"] = _public_git_url(git_url)
         try:
             url = f"{self.api_base}/update.php"
             if _HTTPX_AVAILABLE:

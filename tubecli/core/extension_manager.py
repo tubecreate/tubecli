@@ -141,15 +141,16 @@ def get_git_commit_version(dir_path: str, remote: bool = False, branch: str = "m
 
 
 def get_git_remote_url(dir_path: str) -> Optional[str]:
-    """Get remote origin URL for the git repository."""
+    """Get remote origin URL for the git repository — for DISPLAY: never with a token or password in it."""
     import subprocess
+    from tubecli.core.git_secrets import strip_credentials
     try:
         res = subprocess.run(
             ["git", "config", "--get", "remote.origin.url"],
             cwd=dir_path, capture_output=True, text=True, timeout=5
         )
         if res.returncode == 0:
-            return res.stdout.strip()
+            return strip_credentials(res.stdout)
     except Exception:
         pass
     return None
@@ -360,6 +361,12 @@ class Extension:
 
 # ── Extension Manager ────────────────────────────────────────────────
 
+def _scrub_git(text) -> str:
+    """Câu lỗi của git hay chép nguyên địa chỉ kèm token («could not read Password for 'https://ghp_…@github.com'»)."""
+    from tubecli.core.git_secrets import scrub
+    return scrub(text)
+
+
 def _git_url_refusal(git_url) -> str:
     """Why this git URL may not be cloned, or "" when it may (security review 13/10/2026).
 
@@ -509,6 +516,7 @@ def _provenance_entry(source: str, repo_dir: str, pin: str = "", previous: Optio
     """What is installed: source URL, commit, pin, and a sha256 of each dependency file."""
     import hashlib
     import time
+    from tubecli.core.git_secrets import strip_credentials
 
     deps = {}
     for fn in _DEPENDENCY_FILES:
@@ -520,7 +528,7 @@ def _provenance_entry(source: str, repo_dir: str, pin: str = "", previous: Optio
             except OSError:
                 pass
     entry = {
-        "source": source,
+        "source": strip_credentials(source),
         "commit": _git_head(repo_dir),
         "pinned": bool(pin),
         "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -1420,7 +1428,7 @@ class ExtensionManager:
                 capture_output=True, text=True, timeout=120,
             )
             if result.returncode != 0:
-                return {"status": "error", "message": f"Git clone failed: {result.stderr}"}
+                return {"status": "error", "message": f"Git clone failed: {_scrub_git(result.stderr)}"}
         except FileNotFoundError:
             return {"status": "error", "message": "Git is not installed or not in PATH."}
         except subprocess.TimeoutExpired:
@@ -1584,7 +1592,7 @@ class ExtensionManager:
                 subprocess.run(["git", "stash", "pop"], cwd=target_dir, capture_output=True, timeout=30)
                 
                 if result.returncode != 0:
-                    return {"status": "error", "message": f"Git pull failed: {result.stderr}"}
+                    return {"status": "error", "message": f"Git pull failed: {_scrub_git(result.stderr)}"}
             except Exception as e:
                 return {"status": "error", "message": f"Git pull error: {e}"}
         else:

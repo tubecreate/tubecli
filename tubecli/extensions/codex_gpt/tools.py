@@ -61,7 +61,9 @@ class ToolError(Exception):
 
 
 def text_result(s: str, error: bool = False) -> Dict[str, Any]:
-    s = str(s or "")
+    # Lớp che cuối (22/11/2026): token GitHub / user:mật khẩu@ trong địa chỉ không bao giờ ra tới AI, dù route nào trả.
+    from tubecli.core.git_secrets import scrub
+    s = scrub(s or "")
     if len(s) > OUT_CAP:
         s = s[:OUT_CAP] + f"\n… [truncated, {len(s) - OUT_CAP} more characters]"
     return {"content": [{"type": "text", "text": s}], "isError": bool(error)}
