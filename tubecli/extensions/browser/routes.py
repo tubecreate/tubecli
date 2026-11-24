@@ -1475,6 +1475,11 @@ async def api_get_engine_versions():
             # 1. Fetch versions from private API server (fast, no HEAD requests)
             private_api_url = "https://api.tubecreate.com/api/fingerprints/check_versions.php"
             try:
+                from tubecli.core import urllib3_guard
+                urllib3_guard.heal()              # yt-dlp nạp lại nhiều lần làm requests hỏng — gộp trước khi gọi
+            except Exception:      # noqa: BLE001 — lõi cũ chưa có module này (file đi qua hot-patch)
+                pass
+            try:
                 import requests
                 from tubecli.config import get_language
                 lang = get_language()
@@ -1512,6 +1517,11 @@ async def api_get_engine_versions():
                 print(f"[PrivateAPI] {api_error}")
             except Exception as e:
                 api_error = f"API connection error: {str(e)}"
+                try:
+                    from tubecli.core import urllib3_guard
+                    urllib3_guard.heal()          # lần sau không vấp lại đúng lỗi này
+                except Exception:      # noqa: BLE001
+                    pass
                 print(f"[PrivateAPI] Error: {e}")
 
             # 2. Add local fallback versions if they are not in the list
@@ -1571,9 +1581,17 @@ async def api_get_engine_versions():
             # verified to answer 404, because only the Windows archives for those
             # versions were ever uploaded. Offering an Install button for a
             # guaranteed failure is worse than not listing it.
+            # + MỌI nhân ShardX đã cài (24/11/2026): danh sách từng chỉ có bản manifest đang phát hành, nên máy có sẵn
+            # 157/156/152 mà chưa có bản mới nhất thì Flow buộc phải tải (tải hỏng = không tạo được hồ sơ) và không chọn
+            # được nhân nào khác.
+            # getattr: file này còn đi qua hot-patch tới máy lõi cũ — thiếu hàm thì giữ cách cũ, không vỡ route.
+            _sx_installed = getattr(sx, "installed_versions", lambda: [])
+            _sx_key = getattr(sx, "_version_key", lambda v: tuple(int(x) if x.isdigit() else 0 for x in str(v).split(".")))
+            _sx_list = list(dict.fromkeys(list(sx.available_versions()) + list(_sx_installed())))
+            _sx_list.sort(key=_sx_key, reverse=True)
             shardx_versions = [
                 {"bas_version": f"ShardX-{v}", "browser_version": f"ShardX {v}", "download_url": ""}
-                for v in sx.available_versions()
+                for v in _sx_list
             ]
             for sv in shardx_versions:
                 versions.append({

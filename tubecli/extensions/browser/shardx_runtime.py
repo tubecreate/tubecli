@@ -376,6 +376,7 @@ def download(url: str, dest: Path, on_progress=None, attempts: int = 4) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     last_err = None
 
+    _heal_requests()
     for attempt in range(1, attempts + 1):
         have = dest.stat().st_size if dest.exists() else 0
         headers = {"Range": f"bytes={have}-"} if have else {}
@@ -506,6 +507,7 @@ def fetch_manifest(timeout: float = 8.0, force: bool = False, offline: bool = Fa
             return {}
 
     data = {}
+    _heal_requests()
     try:
         import requests
         from tubecli.core.net_mirror import mirror_url   # raw.githubusercontent bị chặn ở Trung Quốc
@@ -537,6 +539,15 @@ def fetch_manifest(timeout: float = 8.0, force: bool = False, offline: bool = Fa
     except Exception:
         pass
     return {}
+
+
+def _heal_requests() -> None:
+    """yt-dlp nạp lại nhiều lần làm requests hỏng ('Urllib3PercentREOverride' … no attribute 'sub') — gộp lại trước."""
+    try:
+        from tubecli.core import urllib3_guard
+        urllib3_guard.heal()
+    except Exception:          # noqa: BLE001
+        pass
 
 
 def current_version() -> str:

@@ -274,7 +274,10 @@ def _reload_ytdlp(old):
     import importlib
 
     try:
-        return importlib.import_module("yt_dlp")
+        mod = importlib.import_module("yt_dlp")
+        from tubecli.core import urllib3_guard
+        urllib3_guard.heal()
+        return mod
     except Exception:      # noqa: BLE001
         return old
 

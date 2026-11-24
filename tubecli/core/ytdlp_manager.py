@@ -281,7 +281,15 @@ def pip_install(packages: List[str], upgrade: bool = False, timeout: int = PIP_T
 
 
 def _reload_module() -> None:
-    """Xoá yt_dlp khỏi sys.modules: lượt import sau nạp mã vừa cài. Lượt tải đang chạy giữ module cũ của nó."""
+    """Xoá yt_dlp khỏi sys.modules: lượt import sau nạp mã vừa cài. Lượt tải đang chạy giữ module cũ của nó.
+
+    Trả urllib3._PERCENT_RE về regex gốc TRƯỚC: yt-dlp bọc nó mỗi lần được import, urllib3 thì không nạp lại — không gỡ
+    thì lớp mới chồng lên lớp cũ và mọi requests trong tiến trình hỏng (core/urllib3_guard.py)."""
+    try:
+        from tubecli.core import urllib3_guard
+        urllib3_guard.unwrap()
+    except Exception:          # noqa: BLE001
+        pass
     for name in [k for k in list(sys.modules) if k == MODULE or k.startswith(MODULE + ".")]:
         sys.modules.pop(name, None)
     importlib.invalidate_caches()
