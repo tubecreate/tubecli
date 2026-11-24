@@ -209,7 +209,8 @@ def _scan_git_extensions():
 
                         # Get remote URL
                         url_out = _run_git(["remote", "get-url", "origin"], local_path, timeout=5)
-                        git_url = url_out.strip() if url_out else ""
+                        from tubecli.core.git_secrets import strip_credentials
+                        git_url = strip_credentials(url_out)
 
                         updates.append({
                             "name": name,

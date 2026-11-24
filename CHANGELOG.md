@@ -2,6 +2,27 @@
 
 Notable changes to TubeCLI. Versions match `tubecli/__init__.py`.
 
+## 2026.08.09.250 — 2026-11-24
+
+### Keychain: groups, a proxy per account, and pasting many accounts
+- In TubeCLI Cloud › your server › Keychain, **Paste accounts** opens a dialog: pick a group (each group in the list has a
+  delete button, and **+** adds a new one), then paste rows straight from Google Sheets or Excel —
+  email · password · recovery email · 2FA key · proxy. The preview lists each account with ticks and names the lines that
+  will be skipped and why; it never shows a password, 2FA key or proxy login. An email that is already saved is updated
+  (or skipped, if you choose), and an empty cell keeps the saved value.
+- Every account can keep the proxy it signs in through, encrypted like the password; lists show only host:port. A browser
+  profile created for the account uses that proxy.
+- The account list filters by group. Deleting a group keeps its accounts and moves them to "No group".
+- MCP clients can file an account under a group and give it a proxy (`keychain_save`), and list one group
+  (`keychain_accounts`).
+
+### Tokens stored in a git remote stay on your machine
+- An extension cloned as `https://<token>@github.com/…` keeps that token in its git settings. TubeCLI no longer shows it:
+  the extension list, the Market update check, the install record and git error messages hide the user name and
+  password of the remote. Your git settings are not changed.
+- Publishing to the Market removes them from the git URL and refuses a package that contains a GitHub token, naming the
+  file. Every answer sent to an MCP client is masked as well.
+
 ## 2026.08.09.249 — 2026-11-22
 
 ### Claude, Codex and other MCP clients can manage YouTube

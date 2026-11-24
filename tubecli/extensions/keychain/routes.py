@@ -42,16 +42,42 @@ class AccountIn(BaseModel):
     notes: Optional[str] = ""
     status: Optional[str] = None
     profiles: Optional[List[str]] = None
+    group: Optional[str] = None
+    proxy: Optional[str] = None
 
 
 class StatusIn(BaseModel):
     status: str
 
 
+class GroupIn(BaseModel):
+    name: str
+
+
+@router.post("/groups")
+async def add_group(req: GroupIn):
+    try:
+        name = _svc().add_group(req.name)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"status": "ok", "group": name, "groups": _svc().groups()}
+
+
+@router.post("/groups/delete")
+async def delete_group(req: GroupIn):
+    """Xoá nhóm (POST + thân: tên nhóm có dấu cách / chữ Việt). Tài khoản trong nhóm được GIỮ, về «chưa có nhóm»."""
+    try:
+        out = _svc().delete_group(req.name)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"status": "ok", **out, "groups": _svc().groups()}
+
+
 @router.get("/accounts")
-async def list_accounts(platform: str = "", status: str = ""):
-    return {"accounts": _svc().list(platform or "", status or ""),
-            "counts": _svc().counts()}
+async def list_accounts(platform: str = "", status: str = "", group: Optional[str] = None):
+    from .store import FEATURES
+    return {"accounts": _svc().list(platform or "", status or "", group),
+            "counts": _svc().counts(), "groups": _svc().groups(), "features": FEATURES}
 
 
 @router.get("/accounts/{acc_id}")
@@ -67,14 +93,22 @@ async def get_account(acc_id: str, reveal: int = 0):
 
 @router.post("/accounts")
 async def create_account(req: AccountIn):
+    _check_proxy(req.proxy)
     try:
         return _svc().create(req.model_dump(exclude_none=True))
     except ValueError as e:
         raise HTTPException(400, str(e))
 
 
+def _check_proxy(raw):
+    from .store import proxy_host
+    if raw and not proxy_host(raw):
+        raise HTTPException(400, "Proxy not understood — use host:port, host:port:user:pass or user:pass@host:port")
+
+
 @router.put("/accounts/{acc_id}")
 async def update_account(acc_id: str, req: AccountIn):
+    _check_proxy(req.proxy)
     acc = _svc().update(acc_id, req.model_dump(exclude_none=True))
     if not acc:
         raise HTTPException(404, "Không có tài khoản này")
@@ -173,7 +207,7 @@ def ensure_profile_for_account(acc_id: str) -> Dict[str, Any]:
     while get_profile(name):          # tên trùng → thêm hậu tố
         i += 1
         name = ("%s_%d" % (base[:37], i))
-    create_profile(name)
+    create_profile(name, proxy=acc.get("proxy") or "")
     update_profile(name, **{field: {
         "email": acc.get("username") or "", "password": acc.get("secret") or "",
         "recoveryEmail": acc.get("recovery") or "", "twoFactorCodes": acc.get("totp") or "",
@@ -202,18 +236,26 @@ _COL_ALIASES = {
     "recovery": "recovery", "google_recovery": "recovery", "khôi phục": "recovery",
     "totp": "totp", "2fa": "totp", "google_2fa": "totp", "twofa": "totp",
     "notes": "notes", "ghi chú": "notes", "note": "notes",
+    "recovery email": "recovery", "recovery_email": "recovery", "recovery mail": "recovery", "recovermail": "recovery",
+    "email khôi phục": "recovery", "mail khôi phục": "recovery",
+    "proxy": "proxy", "group": "group", "nhóm": "group",
 }
 
 
 class ImportIn(BaseModel):
     rows: List[Dict[str, Any]] = []            # [{cột: giá trị}] client đã parse
     default_platform: Optional[str] = "generic"
+    # Dán từ bảng tính (24/11/2026): cả lô vào MỘT nhóm; trùng nền tảng + email thì cập nhật (hoặc bỏ qua).
+    group: Optional[str] = None
+    on_exists: Optional[str] = None            # None = cách cũ (luôn tạo mới); "update" | "skip"
 
 
 @router.post("/import")
 async def import_rows(req: ImportIn):
     """Nhận các dòng đã tách sẵn (client đọc file, gửi lên JSON). Mỗi dòng có
     ít nhất username thì tạo một mục; dòng trống bỏ qua."""
+    if req.on_exists in ("update", "skip"):
+        return await run_in_threadpool(_bulk, req)
     made = skipped = 0
     for raw in (req.rows or []):
         norm = {}
@@ -237,3 +279,32 @@ async def import_rows(req: ImportIn):
             skipped += 1
     return {"status": "ok", "created": made, "skipped": skipped,
             "counts": _svc().counts()}
+
+
+def _bulk(req: "ImportIn") -> Dict[str, Any]:
+    """Dán hàng loạt: chuẩn hoá cột, gắn nhóm, ghi một lần. Không bao giờ trả bí mật."""
+    from .store import PLATFORMS, clean_group
+    default = (req.default_platform or "generic").lower()
+    default = default if default in PLATFORMS else "generic"
+    rows = []
+    for i, raw in enumerate(req.rows or [], 1):
+        norm: Dict[str, Any] = {"_line": (raw or {}).get("_line") or i}
+        for k, v in (raw or {}).items():
+            key = _COL_ALIASES.get(str(k).strip().lower())
+            if key and v not in (None, ""):
+                # bí mật giữ nguyên (mật khẩu có thể có dấu cách) — chỉ bỏ xuống dòng / tab thừa ở hai đầu
+                norm[key] = str(v).strip("\r\n\t") if key in ("secret", "recovery", "totp") else str(v).strip()
+        if len(norm) == 1:
+            continue                                   # dòng trống
+        if norm.get("platform", "").lower() not in PLATFORMS:
+            norm["platform"] = default
+        if req.group is not None:
+            norm["group"] = clean_group(req.group)
+        if norm.get("totp"):
+            norm["totp"] = norm["totp"].replace(" ", "") if len(norm["totp"].split()) > 1 and all(
+                len(p) <= 8 for p in norm["totp"].split()) else norm["totp"]
+        rows.append(norm)
+    out = _svc().bulk_upsert(rows, on_exists=req.on_exists or "update")
+    out.update(status="ok", counts=_svc().counts(), groups=_svc().groups())
+    return out
+
