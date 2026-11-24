@@ -1167,7 +1167,7 @@ PERM_TEXT[KEYCHAIN_PERM] = (
     "Saving accounts to the Keychain is turned off for this connection. The owner can allow it in TubeCLI Cloud › "
     "Connectors (\"Allow saving accounts to the Keychain\"), or add the account themselves in TubeCLI Cloud › the "
     "server › Keychain. Never ask the user to paste a password into chat when this is off.")
-KC_SECRET_ARGS = {"password": "secret", "totp": "totp", "recovery_email": "recovery"}
+KC_SECRET_ARGS = {"password": "secret", "totp": "totp", "recovery_email": "recovery", "proxy": "proxy"}
 
 
 def _kc_store():
@@ -1185,7 +1185,8 @@ def _kc_public(a: Dict[str, Any]) -> Dict[str, Any]:
     return {"id": a.get("id"), "platform": a.get("platform"), "label": a.get("label") or "",
             "username": a.get("username") or "", "notes": (a.get("notes") or "")[:300], "status": a.get("status"),
             "has_password": bool(a.get("has_secret")), "has_2fa": bool(a.get("has_totp")),
-            "has_recovery_email": bool(a.get("has_recovery")), "profiles": a.get("profiles") or []}
+            "has_recovery_email": bool(a.get("has_recovery")), "profiles": a.get("profiles") or [],
+            "group": a.get("group") or "", "has_proxy": bool(a.get("has_proxy")), "proxy_host": a.get("proxy_host") or ""}
 
 
 def _kc_secret(args: Dict[str, Any], key: str, cap: int) -> str:
@@ -1203,9 +1204,11 @@ async def t_keychain_accounts(args, ctx):
     st = _kc_store()
     platform = _str(args, "platform", False, 20).lower()
     q = _str(args, "filter", False, 200).lower()
-    rows = [_kc_public(a) for a in st.list(platform)]
+    group = args.get("group")
+    rows = [_kc_public(a) for a in (st.list(platform, "", _str(args, "group", False, 60)) if group is not None
+                                    else st.list(platform))]
     if q:
-        rows = [r for r in rows if q in f"{r['username']} {r['label']} {r['notes']} {r['platform']}".lower()]
+        rows = [r for r in rows if q in f"{r['username']} {r['label']} {r['notes']} {r['platform']} {r['group']}".lower()]
     lim = _int(args, "limit", 100, 1, 500)
     return text_result(f"{len(rows)} Keychain account(s){' matching ' + repr(q) if q else ''} — passwords, 2FA keys and "
                        "recovery emails are never shown, only whether they are saved:\n" + _dump(rows[:lim]))
@@ -1231,13 +1234,17 @@ async def t_keychain_save(args, ctx):
     if status and status not in KS.STATUSES:
         raise ToolError(f"status must be one of: {', '.join(KS.STATUSES)}")
     data: Dict[str, Any] = {}
-    for k, cap in (("label", 120), ("notes", 2000)):
+    for k, cap in (("label", 120), ("notes", 2000), ("group", 60)):
         if args.get(k) is not None:
             data[k] = _str(args, k, False, cap)
     if status:
         data["status"] = status
     secrets = {"password": _kc_secret(args, "password", 1000), "totp": _kc_secret(args, "totp", 2000),
-               "recovery_email": _kc_secret(args, "recovery_email", 320)}
+               "recovery_email": _kc_secret(args, "recovery_email", 320), "proxy": _kc_secret(args, "proxy", 500).strip()}
+    if secrets["proxy"]:
+        from tubecli.extensions.keychain.store import proxy_host
+        if not proxy_host(secrets["proxy"]):
+            raise ToolError("'proxy' is not understood — use host:port, host:port:user:pass or user:pass@host:port")
     for k, v in secrets.items():
         if v:                                  # chuỗi rỗng KHÔNG xoá bí mật đã lưu (tránh lỡ tay xoá mật khẩu)
             data[KC_SECRET_ARGS[k]] = v
@@ -1655,7 +1662,8 @@ TOOLS: Dict[str, Tool] = {t.name: t for t in [
          "recovery email is saved. Secrets are never returned. Needs the owner to allow the Keychain for this "
          "connection.",
          {"platform": {"type": "string", "enum": ["google", "tiktok", "facebook", "x", "discord", "telegram", "generic"]},
-          "filter": {**S, "description": "text in the username, label or note"},
+          "filter": {**S, "description": "text in the username, label, note or group"},
+          "group": {**S, "description": "only this group (\"\" = accounts without a group)"},
           "limit": {**I, "description": "1-500, default 100"}}, [], t_keychain_accounts, perm=KEYCHAIN_PERM),
     Tool("keychain_save", "Save an account the USER gave you into the owner's encrypted TubeCLI Keychain, so TubeCLI "
          "(browser profiles, Android phones: android_google_login) can sign in with it without anyone seeing the "
@@ -1672,6 +1680,9 @@ TOOLS: Dict[str, Tool] = {t.name: t for t in [
           "label": {**S, "description": "short name shown in the Keychain"},
           "notes": {**S, "description": "free note (not secret — shown in lists)"},
           "status": {"type": "string", "enum": ["active", "checkpoint", "dead"]},
+          "group": {**S, "description": "group name to file the account under, e.g. 'mail 1' (\"\" = no group)"},
+          "proxy": {**S, "description": "proxy this account signs in through: host:port:user:pass, user:pass@host:port or "
+                                        "host:port (write-only; lists show only host:port)"},
           "id": {**S, "description": "update this Keychain account (from keychain_accounts)"}},
          [], t_keychain_save, write=True, summary=_kc_summary, perm=KEYCHAIN_PERM),
     Tool("board_list", "List tasks on the TubeCLI Task Board (Bảng việc) with counts per status and paused lanes.",
