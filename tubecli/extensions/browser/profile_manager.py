@@ -355,6 +355,20 @@ def resolve_default_browser_version() -> str:
     return f"ShardX {_SHARDX_FALLBACK_VERSION}"
 
 
+def _engine_proxy(raw) -> str:
+    """Lưu proxy ở dạng engine đọc được (25/11/2026): «ip:port:user:pass» dán từ bảng tính / Keychain từng nằm nguyên
+    trong hồ sơ và ShardX từ chối mở («not in a form the engine can read»). Không đọc được → giữ nguyên văn để lúc mở
+    báo lỗi rõ, không lặng lẽ xoá proxy của người dùng."""
+    v = str(raw or "").strip()
+    if not v:
+        return ""
+    try:
+        from .proxy_pool import normalise
+        return normalise(v) or v
+    except Exception:          # noqa: BLE001
+        return v
+
+
 def create_profile(name: str, proxy: str = "", browser_version: str = "latest", tags: List[str] = None,
                    window_size: Dict[str, int] = None, chrome_version: str = "") -> Dict[str, Any]:
     """Create a new browser profile folder with config."""
@@ -373,7 +387,7 @@ def create_profile(name: str, proxy: str = "", browser_version: str = "latest", 
     config = {
         "created_at": datetime.now().isoformat(),
         "tags": tags or ["Windows", "Chrome"],
-        "proxy": proxy,
+        "proxy": _engine_proxy(proxy),
         "browser_version": browser_version,
         "chrome_version": chrome_version or "",
         "window_size": window_size or {"width": 1920, "height": 1080},
@@ -453,6 +467,8 @@ def update_profile(name: str, **kwargs) -> Optional[Dict[str, Any]]:
     config = _load_config(name)
     if "browser_version" in kwargs and kwargs["browser_version"] in ("default", "latest"):
         kwargs["browser_version"] = resolve_default_browser_version()
+    if kwargs.get("proxy"):
+        kwargs["proxy"] = _engine_proxy(kwargs["proxy"])
     # proxy_kho / proxy_rotate_minutes: proxy nay den tu kho nao va co xoay khong.
     # Thieu hai khoa nay trong danh sach trang thi update_profile nhan roi VUT DI
     # lang le, va lan mo sau khong biet lay proxy ke tiep o dau de xoay.

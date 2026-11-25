@@ -853,6 +853,21 @@ export function clearSavedSession(profilePath) {
     return removed;
 }
 
+/**
+ * Proxy về dạng ShardX/Chromium đọc được: `scheme://user:pass@host:port` hoặc `scheme://host:port`.
+ * Nhận thêm `host:port`, `host:port:user:pass` (dạng nhà cung cấp, có hay không scheme), `user:pass@host:port` không
+ * scheme. Không có scheme → http (cùng luật proxy_pool._add_scheme). Mật khẩu được phép chứa dấu «:».
+ * Chuỗi không nhận ra → trả nguyên văn để bước kiểm phía sau báo lỗi rõ.
+ */
+function engineProxyForm(raw) {
+    let v = String(raw || '').trim();
+    if (!v) return v;
+    if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(v)) v = 'http://' + v;
+    const m = v.match(/^([a-z][a-z0-9+.-]*):\/\/([^:\/@\s]+):(\d{1,5}):([^:\/@\s]+):([^\/@\s]+)\/?$/i);
+    if (m) return `${m[1]}://${m[4]}:${m[5]}@${m[2]}:${m[3]}`;
+    return v;
+}
+
 export class BrowserManager {
     constructor(config = {}) {
         this.baseDir = config.baseDir || './profiles';
@@ -2086,6 +2101,9 @@ export class BrowserManager {
      */
     async _launchShardX({ profileName, profilePath, shardxExePath, proxy, fingerprint, headless, args, targetChromiumVer, isolate = false }) {
         console.log(`[ShardX] Launching with native engine at: ${shardxExePath}`);
+        // Dạng nhà cung cấp (25/11/2026, linux-ts2: «ram cpu còn nhiều mà mở browser không được» — hồ sơ lưu
+        // «ip:port:user:pass» trần, dán từ bảng tính / Keychain): viết lại thành dạng engine đọc được thay vì từ chối.
+        proxy = engineProxyForm(proxy);
 
         const configPath = path.join(profilePath, 'config.json');
         const conf = await fs.pathExists(configPath) ? await fs.readJson(configPath) : {};
