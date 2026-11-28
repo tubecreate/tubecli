@@ -2,6 +2,42 @@
 
 Notable changes to TubeCLI. Versions match `tubecli/__init__.py`.
 
+## 2026.08.09.251 — 2026-11-28
+
+### Task Board: the review column only holds work worth reviewing
+- An automatic video run that made nothing — sources off the niche, a topic already made or resting, "Nothing was
+  rendered or published", or a Publish step that was blocked with no video file — now ends as **failed** with that
+  reason, instead of waiting in review. Retry still works. A run that has a video but could not publish stays in review
+  so you can publish it by hand.
+- When an agent only answers in words and the answer is a refusal ("…but I could not upload it") or asks you for
+  something ("connect Google Drive first"), the task fails with the agent's words; asking for something adds the label
+  `NEEDS_INPUT`.
+- Tasks carry labels an agent or a connector can filter on: `PUBLISH_UNVERIFIED`, `NEEDS_INPUT`, `UNPRODUCTIVE`,
+  `DUPLICATE_OF #n`.
+- New clean-up calls, each with `dry_run` to list first: close the tasks in review that made nothing
+  (`POST /api/v1/codex/bulk/close-unproductive`), and label and close copies of a topic another task already covers
+  (`POST /api/v1/codex/bulk/close-duplicates` — a copy that already has a video is only labelled unless you ask, and a
+  published video is never the copy). Closing is cancelling: nothing is deleted.
+- A task that says "Published" with a help link instead of a video link can find its real video
+  (`POST /api/v1/codex/tasks/{id}/resolve-publish`, or `/api/v1/codex/bulk/resolve-publish` for all of them): the
+  channel's videos through the YouTube API, then a public search that must match the title, the channel and the upload
+  day. The link found is written on the task and "accept published" then takes it; otherwise the task is labelled
+  `PUBLISH_UNVERIFIED`. No browser is opened.
+- `PUT /api/v1/codex/tasks/{id}/published` records a video you published yourself (as the POST does), and counts it
+  toward the channel's daily limit.
+- Codex and the Claude connector can cancel a task in review or failed that has no video and published nothing without
+  asking you first. A task with a video still needs your approval.
+- After a YouTube Studio upload, finding the new video to attach its thumbnail never worked; it does now.
+
+### Browser engines
+- Engine downloads (and the engine list) failed with "'Urllib3PercentREOverride' object has no attribute 'sub'" after
+  yt-dlp had updated itself in the running server. TubeCLI now repairs this before downloading, so servers stuck on an
+  old ShardX engine get the new one.
+- The engine list now includes every ShardX engine already installed on the server, so a profile can use one of them
+  when downloading the newest one fails.
+- A proxy written the way providers give it (`host:port:user:pass`, also behind `http://` or `socks5://`) is saved in
+  the form the browser understands, instead of the browser refusing to start.
+
 ## 2026.08.09.250 — 2026-11-24
 
 ### Keychain: groups, a proxy per account, and pasting many accounts
