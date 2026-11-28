@@ -62,6 +62,17 @@ class ContentVideoExtension(Extension):
         except Exception as e:
             logger.warning(f"[ContentVideo] could not register the accept hook: {e}")
 
+        # Lượt video tự động / dựng kết thúc mà KHÔNG ra sản phẩm (lạc ngách, trùng chủ đề, không có file video) ⇒ task
+        # hỏng kèm lý do thay vì nằm ô review (28/11/2026). Task kế hoạch (duyệt kịch bản) không đổi.
+        try:
+            from tubecli.extensions.codex.manager import codex_manager
+            from tubecli.extensions.content_video import board_triage
+
+            for kind in board_triage.KINDS:
+                codex_manager.on_result(kind, board_triage.result_hook)
+        except Exception as e:
+            logger.warning(f"[ContentVideo] could not register the result hook: {e}")
+
         # Nút Xoá của Codex chọn "xoá cả file": chỉ pipeline biết tập Studio, ảnh, giọng,
         # video của lượt chạy nằm đâu — Codex chỉ giữ checkpoint.
         try:

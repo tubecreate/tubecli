@@ -352,6 +352,82 @@ async def bulk_close_failed(req: BulkCloseRequest = BulkCloseRequest()):
                                    actor=req.actor, dry_run=req.dry_run)
 
 
+# ── Dọn ô review (28/11/2026, content_video/board_triage.py) ─────────────────
+class CloseUnproductiveRequest(BaseModel):
+    older_than_days: float = 0
+    actor: str = "user"
+    dry_run: bool = False
+
+
+class CloseDuplicatesRequest(BaseModel):
+    actor: str = "user"
+    dry_run: bool = False
+    include_rendered: bool = False      # mặc định bản trùng ĐÃ có file video chỉ được gắn nhãn, không bị đóng
+    label_only: bool = False
+    within_days: float = 60
+
+
+class ResolvePublishRequest(BaseModel):
+    actor: str = "user"
+    dry_run: bool = False
+    limit: int = 50
+
+
+def _triage():
+    try:
+        from tubecli.extensions.content_video import board_triage
+        return board_triage
+    except Exception as e:      # noqa: BLE001
+        raise HTTPException(501, f"This needs the Content Video extension: {e}")
+
+
+@router.post("/bulk/close-unproductive")
+async def bulk_close_unproductive(req: CloseUnproductiveRequest = CloseUnproductiveRequest()):
+    """Đóng task đang review KHÔNG ra sản phẩm (lạc ngách / trùng / chưa dựng gì, agent chỉ từ chối bằng chữ)."""
+    bt = _triage()
+    return await asyncio.to_thread(_job_call, bt.bulk_close_unproductive, req.older_than_days, actor=req.actor,
+                                   dry_run=req.dry_run)
+
+
+@router.post("/bulk/close-duplicates")
+async def bulk_close_duplicates(req: CloseDuplicatesRequest = CloseDuplicatesRequest()):
+    """Gắn nhãn DUPLICATE_OF #n cho bản trùng chủ đề đang review rồi đóng (mặc định chỉ bản chưa có video)."""
+    bt = _triage()
+    return await asyncio.to_thread(_job_call, bt.bulk_close_duplicates, actor=req.actor, dry_run=req.dry_run,
+                                   include_rendered=req.include_rendered, label_only=req.label_only,
+                                   within_days=req.within_days)
+
+
+@router.post("/bulk/resolve-publish")
+async def bulk_resolve_publish(req: ResolvePublishRequest = ResolvePublishRequest()):
+    """Chạy NỀN: tìm lại link video thật cho mọi task review ghi «Published» mà link không phải video. Theo dõi bằng
+    GET /bulk/resolve-publish."""
+    bt = _triage()
+    return await asyncio.to_thread(bt.start_bulk_resolve, actor=req.actor, dry_run=req.dry_run, limit=req.limit)
+
+
+@router.get("/bulk/resolve-publish")
+async def bulk_resolve_publish_status():
+    return _triage().bulk_resolve_status()
+
+
+@router.post("/tasks/{task_id}/resolve-publish")
+async def resolve_publish(task_id: str, req: ResolvePublishRequest = ResolvePublishRequest()):
+    """Tìm lại link youtu.be/<id> của task này (YouTube API của kênh, rồi tìm kiếm công khai đúng kênh)."""
+    task = _require(task_id)
+    bt = _triage()
+    return await asyncio.to_thread(_job_call, bt.resolve_publish, task["id"], actor=req.actor, dry_run=req.dry_run)
+
+
+@router.get("/tasks/{task_id}/close-safety")
+async def close_safety(task_id: str):
+    """Huỷ / đóng task này có cần chủ duyệt không (Codex GPT, trình kết nối): an toàn = review/failed, không video,
+    không đăng gì."""
+    task = _require(task_id)
+    safe, why = await asyncio.to_thread(codex_manager.close_safety, task["id"])
+    return {"task": task.get("seq"), "safe": safe, "reason": why}
+
+
 @router.post("/tasks")
 async def create_task(req: CreateTaskRequest):
     task = _guard(
@@ -573,6 +649,7 @@ async def publish_task(task_id: str, body: Optional[Dict[str, Any]] = None):
 
 
 @router.post("/tasks/{task_id}/published")
+@router.put("/tasks/{task_id}/published")
 async def mark_task_published(task_id: str, body: Optional[Dict[str, Any]] = None):
     """Video của task đã được đăng TAY ngoài TubeCLI: ghi link, chuyển done, tính vào trần ngày. Không tải gì lên."""
     task = _require(task_id)

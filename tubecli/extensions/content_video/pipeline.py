@@ -2482,8 +2482,10 @@ def _held_result(state: Dict, hold: "NicheHold") -> str:
     if rej:
         lines.append(f"- **Rejected sources** ({len(rej)}):")
         lines += [f"  - {r}" for r in rej[:10]]
+    # Lượt video tự động / dựng giờ HỎNG khi dừng ở đây (board_triage.result_hook, 28/11/2026) — Accept chỉ còn ở
+    # task kịch bản chờ duyệt.
     lines.append("- **Nothing was rendered or published.** Fix the agent's niche settings or its sources, then Retry "
-                 "— or Accept if this video belongs on the channel after all.")
+                 "— or, for a script waiting for your review, Accept if this video belongs on the channel after all.")
     for w in state.get("warnings") or []:
         lines.append(f"- ⚠️ {w}")
     return "\n".join(lines)
@@ -8351,14 +8353,20 @@ def _attach_thumbnail_after_script(state: Dict, options: Dict, title: str) -> No
         if state["_cancelled"]():
             raise _cancel_exc()
         try:
-            rows = vm.list_videos(channel["id"], token, max_results=10) or []
+            res = vm.list_videos(channel["id"], token, max_results=10) or []
+            # list_videos trả {videos: [...], next_page_token} — duyệt thẳng dict là duyệt KHOÁ, không bao giờ khớp
+            # (thumbnail sau đường script chưa từng gắn được; sửa 28/11/2026).
+            rows = (res.get("videos") if isinstance(res, dict) else res) or []
         except Exception as e:
             logger.info(f"[ContentVideo] list_videos: {e}")
             rows = []
         for r in rows:
             d = r.to_dict() if hasattr(r, "to_dict") else (r if isinstance(r, dict) else {})
             t = " ".join(str(d.get("title") or "").casefold().split())
-            if t == want or (want and (want in t or t in want)):
+            # So như board_triage (28/11/2026): «t in want» cũ nhận cả video tên ngắn nằm trong tiêu đề mới («Faith»)
+            # — giờ vòng này chạy thật (sửa list_videos ở trên) nên nhận nhầm là ghi nhầm id video vào task.
+            from .board_triage import _same_title
+            if t and _same_title(t, want):
                 vid = str(d.get("id") or d.get("video_id") or "")
                 break
         if vid:

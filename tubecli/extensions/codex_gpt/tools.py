@@ -427,6 +427,42 @@ def _api_summary(args):
     return s
 
 
+# ·· Đóng task KHÔNG cần duyệt khi an toàn (28/11/2026, agent quản lý contabo) ··
+# Huỷ một task review / failed KHÔNG có video và KHÔNG đăng gì, hay dọn hàng loạt task không ra sản phẩm, không mất gì
+# (huỷ giữ nguyên dữ liệu, Chạy lại được) — Codex GPT / trình kết nối làm luôn. Task đã có video vẫn qua bước duyệt.
+_CANCEL_PATH_RE = re.compile(r"^/api/v1/codex/tasks/([^/?#]+)/cancel$")
+SAFE_CLOSE_PATHS = ("/api/v1/codex/bulk/close-unproductive",)
+
+
+def safe_close(tool, args) -> bool:
+    """Lời gọi này chỉ đóng task an toàn (xem trên) ⇒ True. Đọc đĩa (sổ sự kiện của task) — gọi trong luồng phụ."""
+    if getattr(tool, "name", "") != "tubecli_api":
+        return False
+    try:
+        a = _api_prepare(args)
+    except ToolError:
+        return False
+    if a["method"] != "POST":
+        return False
+    path = a["path"].split("?", 1)[0].rstrip("/")
+    body = a["body"] if isinstance(a["body"], dict) else {}
+    if path in SAFE_CLOSE_PATHS:
+        return True
+    if path == "/api/v1/codex/bulk/close-duplicates":
+        return not body.get("include_rendered")           # chỉ đóng bản trùng CHƯA có video
+    m = _CANCEL_PATH_RE.match(path)
+    if not m:
+        return False
+    try:
+        from tubecli.extensions.codex.manager import codex_manager
+
+        task = codex_manager.resolve_ref(unquote(m.group(1)))
+        return bool(task) and codex_manager.close_safety(str(task["id"]))[0]
+    except Exception as e:      # noqa: BLE001
+        logger.info(f"[codex-gpt] close safety check failed: {e}")
+        return False
+
+
 # ·· Bảng việc ··
 BOARD_GROUPS = ("all", "needs_you", "working", "backlog", "done", "stopped")
 # Lọc đúng MỘT trạng thái (query_tasks nhận cả tên trạng thái): thử thật 3/10/2026 — chỉ có nhóm thì «needs_you» trộn
@@ -1783,8 +1819,12 @@ async def call_tool(name: str, args: Any, app, approve: Callable, agent: str = A
         if tool.is_write(args):
             summary = ctx["plan"]["summary"] if "plan" in ctx else tool.summary(args)
             # force chỉ truyền khi công cụ LUÔN hỏi — approve kiểu cũ (lambda *a trong test) vẫn gọi được như trước.
-            ok, why, thread = await approve(tool.name, summary, args,
-                                            **({"force": True} if tool.asks_always(args) else {}))
+            # safe = đóng task an toàn (safe_close): approve vẫn được gọi (nó còn chặn lời gọi từ luồng «Codex làm
+            # model»), chỉ không hiện thẻ duyệt.
+            extra = {"force": True} if tool.asks_always(args) else {}
+            if not extra and tool.name == "tubecli_api" and await asyncio.to_thread(safe_close, tool, args):
+                extra = {"safe": True}
+            ok, why, thread = await approve(tool.name, summary, args, **extra)
             if not ok:
                 return text_result(why, error=True)
             ctx["thread"] = thread

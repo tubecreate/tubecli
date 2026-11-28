@@ -371,14 +371,17 @@ class CodexGptService:
         return best
 
     async def tool_approval(self, tool: str, detail: str, args: Dict[str, Any],
-                            force: bool = False) -> Tuple[bool, str, Optional[str]]:
+                            force: bool = False, safe: bool = False) -> Tuple[bool, str, Optional[str]]:
         """(được, lý do cho Codex, phiên). Hỏi bằng thẻ duyệt trong khung chat của phiên gọi.
 
         force = công cụ LUÔN hỏi (town_agent_offer — đưa agent ra cho người lạ, đặt giá): bỏ qua cả «Không cần hỏi»
-        lẫn «Cho phép trong phiên này»; thẻ mang once=True (không có nút cho cả phiên)."""
+        lẫn «Cho phép trong phiên này»; thẻ mang once=True (không có nút cho cả phiên).
+        safe = đóng task không có video / không đăng gì (tools.safe_close, 28/11/2026): không hỏi."""
         tid = self._thread_for_tool(tool, args)
         if tid and tid in self.llm_threads:
             return False, "TubeCLI tools are not available to model calls.", tid
+        if safe and not force:
+            return True, "", tid
         if not force and (self.state()["settings"].get("tools_auto") or (tid and tid in self.tool_session_ok)):
             return True, "", tid
         if not self.subscribers:

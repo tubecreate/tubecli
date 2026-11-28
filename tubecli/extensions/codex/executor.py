@@ -245,9 +245,16 @@ async def _execute_agent(
     # của agent, không vào REVIEW (task #190 contabo, 7/11/2026: Orchestrator viết «Tôi không dựng được video Bài 14…
     # không có thư mục, API không gọi được» — bảng ghi «awaiting review» như một kết quả xong).
     why = refusal_reason(reply, goal)
-    if why:
+    ask = needs_input_reason(reply, goal, refused=bool(why))
+    if why or ask:
+        # Cần người dùng bổ sung ⇒ nhãn NEEDS_INPUT (28/11/2026: «Bạn cần kết nối Drive trước…» nằm review như kết quả)
+        _label_task(task, ["NEEDS_INPUT"] if ask else [])
+        if ask and not why:
+            report("reason", "error", f"The agent needs more from you: {ask[:240]}")
+            raise AgentRefused(f"The agent needs more from you before it can do the task — {_brief(reply)}")
         report("reason", "error", f"The agent did not do the task: {why[:240]}")
-        raise AgentRefused(f"The agent did not do the task — {why}")
+        raise AgentRefused(f"The agent did not do the task — {why}"
+                           + (f" (needs from you: {ask})" if ask and ask not in why else ""))
     return reply
 
 
@@ -285,6 +292,10 @@ _REFUSAL_PATTERNS = (
     r"|không\s+(?!chỉ\b|những\b|cần\b|quên\b|ngại\b)(?:[^\s.,!?;:]+\s+){1,6}?được\b|không\s+có\s+(?:quyền|cách|khả\s+năng|công\s+cụ))",
     r"^\s*(?:xin\s+lỗi|rất\s+tiếc)[,!]?\s+[^.!?\n]{0,60}\b(?:không\s+thể|không\s+(?!chỉ\b|những\b|cần\b)(?:[^\s.,!?;:]+\s+){1,6}?được\b)",
     r"^\s*(?:hiện\s+)?không\s+thể\s+(?:thực\s+hiện|làm|tạo|dựng|chạy|truy\s+cập|hoàn\s+thành)\b",
+    # «Tôi đã kiểm tra…, nhưng chưa thể tải lên được» (#186 contabo, 28/11/2026): lời từ chối nằm SAU «nhưng / but»
+    r"\b(?:nhưng|tuy\s+nhiên|song)\s+(?:tôi\s+|mình\s+|em\s+)?(?:hiện\s+|vẫn\s+)?(?:chưa|không)\s+thể\b",
+    r"\b(?:but|however)\s*,?\s+(?:I\s+)?(?:could\s?n[o']t|could\s+not|can(?:no|')t|cannot|was\s+unable|am\s+unable"
+    r"|wasn'?t\s+able|was\s+not\s+able)\b",
     # Español
     r"\bno\s+(?:puedo|pude|podré|he\s+podido|logré|es\s+posible|me\s+es\s+posible|soy\s+capaz|tengo\s+(?:acceso|forma|"
     r"manera|permiso))\b",
@@ -335,6 +346,53 @@ def refusal_reason(reply: Any, goal: Any = "") -> str:
     if not _REFUSAL_RE.search(_opening(text)):
         return ""
     return _brief(text)
+
+
+# Agent cần NGƯỜI DÙNG bổ sung (kết nối Drive, đưa file, thêm thông tin) — 28/11/2026. Task vẫn hỏng, nhưng gắn nhãn
+# NEEDS_INPUT để người / agent quản lý biết việc chờ ai. Câu trả lời có từ chối thì xét CẢ câu trả lời; không từ chối thì
+# chỉ xét phần MỞ ĐẦU (một kết quả thật hay kết bằng «vui lòng góp ý» / «let me know» — không được đánh hỏng).
+_NEEDS_INPUT_PATTERNS = (
+    r"\b(?:please|kindly)\s+(?:provide|send|share|connect|upload|attach|confirm|tell\s+me|give\s+me)\b",
+    r"\bI\s+(?:will\s+)?need\s+(?:you\s+to|more\s+(?:information|details|context)|the\s+following|access\s+to)\b",
+    r"\b(?:need|needs|require|requires)\s+more\s+(?:information|details|context)\b",
+    r"\bcould\s+you\s+(?:please\s+)?(?:provide|share|send|clarify|tell|confirm|connect|upload)\b",
+    r"\byou\s+(?:need|will\s+need|have|must)\s+to\s+(?:connect|provide|upload|sign\s+in|log\s+in|give|grant|add)\b",
+    r"\b(?:vui\s+lòng|làm\s+ơn|xin)\s+(?:bạn\s+)?(?:cung\s+cấp|gửi|cho\s+(?:tôi|mình|em)\s+(?:biết|xin)|kết\s+nối"
+    r"|xác\s+nhận|tải\s+lên|đặt|cấp)\b",
+    r"\bcần\s+(?:thêm\s+)?(?:thông\s+tin|chi\s+tiết|dữ\s+liệu)\b",
+    r"\bbạn\s+(?:cần|phải)\s+(?:phải\s+)?(?:kết\s+nối|cung\s+cấp|đặt|tải|gửi|cho|đăng\s+nhập|cấp|thêm|bật)\b",
+    r"\bsau\s+khi\s+bạn\s+(?:kết\s+nối|cung\s+cấp|đặt|tải|gửi|đăng\s+nhập|cấp|thêm|bật)\b",
+    r"\b(?:por\s+favor,?\s+)?(?:proporciona|envíame|indícame|conecta)\b|\bnecesito\s+(?:más\s+información|que\s+(?:me|"
+    r"conectes|subas))\b",
+)
+_NEEDS_INPUT_RE = re.compile("|".join(f"(?:{p})" for p in _NEEDS_INPUT_PATTERNS), re.I | re.M)
+
+
+def needs_input_reason(reply: Any, goal: Any = "", refused: bool = False) -> str:
+    """Câu trả lời thẳng xin người dùng bổ sung thứ gì đó ⇒ câu đó (gọn); không thì ""."""
+    text = str(reply or "").strip()
+    if not text:
+        return ""
+    g = " ".join(str(goal or "").split())
+    if g and len(g) <= 240 and _QUESTION_GOAL_RE.search(g):
+        return ""
+    m = _NEEDS_INPUT_RE.search(text if refused else _opening(text))
+    if not m:
+        return ""
+    nl, dot = text.rfind("\n", 0, m.start()), text.rfind(". ", 0, m.start())
+    start = max(nl + 1 if nl >= 0 else 0, dot + 2 if dot >= 0 else 0)
+    return _brief(text[start:], 240)
+
+
+def _label_task(task: Dict[str, Any], labels: List[str]) -> None:
+    if not labels:
+        return
+    try:
+        from tubecli.extensions.codex.manager import codex_manager
+
+        codex_manager.set_labels(str(task.get("id") or ""), add=labels)
+    except Exception as e:      # noqa: BLE001
+        logger.debug(f"[Codex] could not label the task: {e}")
 
 
 def wants_video(task: Dict[str, Any], skill: Optional[Dict[str, Any]] = None) -> bool:

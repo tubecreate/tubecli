@@ -21,6 +21,7 @@ Ba rào phía máy:
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from typing import Any, Dict, Tuple
@@ -73,6 +74,9 @@ def is_dangerous(tool, args: Dict[str, Any]) -> bool:
         from tubecli.extensions.codex_gpt import tools as T
 
         a = T._api_prepare(args)
+        body = a["body"] if isinstance(a["body"], dict) else {}
+        if a["path"].split("?", 1)[0].rstrip("/") == "/api/v1/codex/bulk/close-duplicates" and body.get("include_rendered"):
+            return True       # đóng cả bản trùng ĐÃ dựng video ⇒ chủ duyệt (28/11/2026)
         return a["method"] == "DELETE" or any(p in DANGER_WORDS for p in _segments(a["path"]))
     return False
 
@@ -114,7 +118,9 @@ async def call(name: str, args: Any, level: str, approved: bool, app, perms: Any
             return {"result": T.text_result(
                 "This connection is read-only — the owner granted Claude read access to this server. Ask the owner to "
                 "reconnect with read & write access if this change is needed.", error=True)}
-        if write and not approved and is_dangerous(tool, args):
+        # Huỷ / đóng task KHÔNG có video và KHÔNG đăng gì (tools.safe_close, 28/11/2026) chạy luôn — huỷ giữ dữ liệu,
+        # Chạy lại được. Task đã có video vẫn trả link duyệt như trước.
+        if write and not approved and is_dangerous(tool, args) and not await asyncio.to_thread(T.safe_close, tool, args):
             ctx: Dict[str, Any] = {"app": app, "agent": AGENT, "perms": perms}
             summary = (await tool.plan(args, ctx))["summary"] if tool.plan else tool.summary(args)
             return {"needs_approval": {"tool": tool.name, "summary": str(summary)[:2000]}}

@@ -198,7 +198,19 @@ META_KEYS = ("stage", "kind", "language", "target_language", "text_model", "imag
              # chủ đề của video tự động (14/11/2026): câu tìm kiếm của lượt thu thập + chủ đề lấy từ kho từ khoá — bộ
              # chống trùng so chúng với lượt sau. bank_topic / bank_low / fallback được ghi từ .233 nhưng thiếu ở đây
              # nên bị bỏ lặng lẽ (và «đừng trùng chủ đề của task đang mở» không bao giờ có tác dụng).
-             "topic_query", "bank_topic", "bank_low", "fallback")
+             "topic_query", "bank_topic", "bank_low", "fallback",
+             # dọn ô review (28/11/2026, agent quản lý contabo): nhãn cho người / agent đọc (PUBLISH_UNVERIFIED,
+             # NEEDS_INPUT, UNPRODUCTIVE, DUPLICATE_OF #n), link video tìm lại được, task gốc của bản trùng, lý do đóng
+             "labels", "published_url", "duplicate_of", "close_reason")
+
+# Nhãn trên task (meta.labels). Viết hoa, tiếng Anh: agent / connector lọc theo đúng chuỗi này.
+LABEL_PUBLISH_UNVERIFIED = "PUBLISH_UNVERIFIED"   # ghi «Published» mà không tìm ra video thật trên kênh
+LABEL_NEEDS_INPUT = "NEEDS_INPUT"                 # agent không làm vì cần người dùng bổ sung (kết nối, file, thông tin)
+LABEL_UNPRODUCTIVE = "UNPRODUCTIVE"               # chạy xong mà không ra sản phẩm (lạc ngách, trùng chủ đề…)
+LABEL_DUPLICATE = "DUPLICATE_OF"                  # nhãn đầy đủ: «DUPLICATE_OF #<số task gốc>»
+MAX_LABELS = 12
+_VIDEO_FILE_RE = re.compile(r"\.(?:mp4|mov|mkv|webm|m4v)\b", re.I)
+_PUBLISHED_RE = re.compile(r"^- \*\*Published\*\*", re.M)
 _COUNTER_RE = re.compile(r"(\d+)\s*(?:-\s*(\d+))?\s*(?:/|\bof\b)\s*(\d+)", re.I)
 
 
@@ -411,6 +423,9 @@ class CodexManager:
         # video: script accepted → render) without codex knowing the stages.
         self._on_accept: Dict[str, Callable[..., Any]] = {}
         self._on_delete: Dict[str, Callable[..., Any]] = {}
+        # kind → fn(task, result) → None | {"reason", "labels"?}: kết quả CHẠY XONG mà không ra sản phẩm (lượt video lạc
+        # ngách / trùng chủ đề — không có file video nào) thì task HỎNG kèm lý do thay vì nằm ô review (28/11/2026).
+        self._on_result: Dict[str, Callable[..., Any]] = {}
         # Làn tạm dừng: lane → {lane, until (epoch giây | None = tới khi bấm tiếp tục), reason, at, actor}.
         self._pauses: Dict[str, Dict[str, Any]] = {}
         # (task, bước) → (mốc đồng hồ, "hình" câu đã thay số bằng #, số dòng đã ghi) — xem _log_progress.
@@ -714,7 +729,7 @@ class CodexManager:
             for k, v in src.items():
                 if k not in META_KEYS:
                     continue
-                if v is None or v == "":
+                if v is None or v == "" or v == []:
                     meta.pop(k, None)
                 elif isinstance(v, dict):
                     meta[k] = {str(a): b for a, b in v.items() if b not in (None, "")}
@@ -724,6 +739,92 @@ class CodexManager:
                 stored["meta"] = meta
                 self._save()
             return dict(stored)
+
+    # ── Nhãn + kết quả (dọn ô review, 28/11/2026) ────────────────
+
+    @staticmethod
+    def labels_of(task: Optional[Dict[str, Any]]) -> List[str]:
+        meta = (task or {}).get("meta") if isinstance((task or {}).get("meta"), dict) else {}
+        raw = meta.get("labels") if isinstance(meta, dict) else None
+        return [str(x) for x in raw if str(x or "").strip()] if isinstance(raw, list) else []
+
+    def set_labels(self, task_id: str, add=(), remove=(), remove_prefix: str = "") -> Optional[Dict[str, Any]]:
+        """Thêm / gỡ nhãn ở MỌI trạng thái (meta.labels, không đổi updated_at). remove_prefix gỡ mọi nhãn bắt đầu
+        bằng chuỗi đó (vd. «DUPLICATE_OF» trước khi gắn số task gốc mới)."""
+        task = self.get_task(task_id)
+        if not task:
+            return None
+        drop = {str(x) for x in (remove or ())}
+        out = [x for x in self.labels_of(task)
+               if x not in drop and not (remove_prefix and x.startswith(remove_prefix))]
+        for x in add or ():
+            x = str(x or "").strip()[:60]
+            if x and x not in out:
+                out.append(x)
+        return self.set_meta(task_id, {"labels": out[-MAX_LABELS:]})
+
+    def set_result(self, task_id: str, result: str, actor: str = "pipeline", note: str = "") -> Optional[Dict[str, Any]]:
+        """Thay chữ kết quả ở MỌI trạng thái (vd. điền link video thật tìm lại được vào dòng «Published») — không đổi
+        trạng thái. Ghi một dòng vào sổ sự kiện."""
+        self._ensure_loaded()
+        with self._lock:
+            stored = self._tasks.get(task_id)
+            if stored is None:
+                return None
+            if stored.get("result") == result:
+                return dict(stored)
+            stored["result"] = str(result or "")
+            stored["updated_at"] = _now()
+            self._save()
+            snapshot = dict(stored)
+        self.append_event(task_id, "log", note or f"Result updated by {actor}", actor=actor)
+        return snapshot
+
+    def close_tasks(self, hits: List[Dict[str, Any]], actor: str, message: str, labels=()) -> List[Dict[str, Any]]:
+        """Đóng (→ CANCELLED, giữ dữ liệu, Chạy lại được) từng task trong `hits` ({id, reason?}). Task vừa đổi trạng
+        thái giữa chừng thì bỏ qua. Trả các hit đã đóng thật."""
+        closed: List[Dict[str, Any]] = []
+        for h in hits:
+            reason = str(h.get("reason") or "")[:300]
+            try:
+                _t, changed = self._settle(
+                    h["id"], CANCELLED, actor,
+                    message=f"{message} by {actor}" + (f" — {reason}" if reason else "") + " (Retry still works)",
+                    updates={"closed_at": _now(), "finished_at": _now()},
+                )
+            except ValueError as e:
+                logger.info(f"[Codex] bulk close skipped {h.get('id')}: {e}")
+                continue
+            if not changed:
+                continue
+            patch: Dict[str, Any] = {}
+            if reason:
+                patch["close_reason"] = reason
+            if patch:
+                self.set_meta(h["id"], patch)
+            if labels or h.get("labels"):
+                self.set_labels(h["id"], add=list(labels) + list(h.get("labels") or []))
+            closed.append(h)
+        return closed
+
+    def close_safety(self, task_id: str) -> Tuple[bool, str]:
+        """(an toàn, lý do không an toàn) để huỷ / đóng task KHÔNG cần chủ duyệt (Codex GPT, trình kết nối claude.ai —
+        28/11/2026): task đang ở review / failed, KHÔNG có file video, KHÔNG đăng gì (kể cả lần đăng chưa xác minh).
+        Có video hay đã đăng ⇒ vẫn qua bước duyệt như trước."""
+        task = self.get_task(task_id)
+        if not task:
+            return False, "task not found"
+        if task.get("status") not in (REVIEW, FAILED):
+            return False, f"the task is {task.get('status')}"
+        ck = self.checkpoint_of(str(task["id"]))
+        result = str(task.get("result") or "")
+        if self.published_video(str(task["id"])) or ck.get("published") or _PUBLISHED_RE.search(result):
+            return False, "it published (or tried to publish) a video"
+        if ck.get("publish_attempt"):
+            return False, "a publish was attempted"
+        if ck.get("video_path") or _VIDEO_FILE_RE.search(result):
+            return False, "it has a video file"
+        return True, ""
 
     def get_stats(self) -> Dict[str, int]:
         self._ensure_loaded()
@@ -1244,6 +1345,24 @@ class CodexManager:
         Idempotent — the last registration for a kind wins."""
         self._on_accept[str(kind)] = fn
 
+    def on_result(self, kind: str, fn: Callable[..., Any]) -> None:
+        """Register fn(task, result) → None | {"reason": str, "labels": [..]} checked right BEFORE a finished task of
+        `kind` goes to review. A verdict sends the task to FAILED (reason = error, result kept) instead. Idempotent."""
+        self._on_result[str(kind)] = fn
+
+    def _result_verdict(self, task: Dict[str, Any], result: str) -> Optional[Dict[str, Any]]:
+        """Never raises: a broken hook only means the task goes to review as before."""
+        try:
+            fn = self._on_result.get(self.kind_of(str(task.get("id") or "")) or "")
+            if not fn:
+                return None
+            v = fn(task, result)
+            if isinstance(v, dict) and str(v.get("reason") or "").strip():
+                return v
+        except Exception as e:      # noqa: BLE001
+            logger.warning(f"[Codex] result hook failed for {task.get('id')}: {e}")
+        return None
+
     def kind_of(self, task_id: str) -> Optional[str]:
         """The `kind` an extension stamped on the task's event log, if any."""
         for ev in reversed(self.get_events(task_id, limit=1000)):
@@ -1635,6 +1754,25 @@ class CodexManager:
     def report_result(self, task_id: str, result: str) -> Dict[str, Any]:
         task = self.get_task(task_id)
         seq = task.get("seq") if task else "?"
+        verdict = self._result_verdict(task, result) if task and task.get("status") == RUNNING else None
+        if verdict:
+            # Chạy xong mà KHÔNG ra sản phẩm: HỎNG kèm lý do (Chạy lại được), không chiếm ô review (contabo 28/11/2026:
+            # 92 task review, phần lớn «OFF-NICHE…» / «DUPLICATE TOPIC» — «Nothing was rendered or published»).
+            reason = str(verdict["reason"]).strip()[:600]
+            updated, changed = self._settle(
+                task_id, FAILED, "worker", message=f"Finished without a product: {reason[:200]}",
+                updates={"result": result, "error": reason, "finished_at": _now()},
+            )
+            if not changed:
+                return updated
+            self.set_labels(task_id, add=list(verdict.get("labels") or [LABEL_UNPRODUCTIVE]))
+            updated = self._fail_running_steps(task_id, reason) or self.get_task(task_id) or updated
+            self.append_event(task_id, "result", (result or "")[:2000], actor="worker")
+            self.append_event(task_id, "error", reason[:2000], actor="worker")
+            self.notify(updated, _t("codex.notify_failed", seq=seq, title=_md(updated.get("title", "")),
+                                    error=_md(reason[:600])))
+            self.post_to_chat(updated, "❌", reason)
+            return updated
         updated, changed = self._settle(
             task_id, REVIEW, "worker",
             message="Execution finished — awaiting review",
